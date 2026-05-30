@@ -206,7 +206,7 @@ export default function Inkorg() {
                     <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Fil</th>
                     {cur.tolka && <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Tolkning</th>}
                     <th className="text-left px-4 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Uppladdad</th>
-                    <th className="px-4 py-2.5 border-b w-80" style={{ borderColor: 'rgba(0,0,0,0.10)' }} />
+                    <th className="px-4 py-2.5 border-b w-56" style={{ borderColor: 'rgba(0,0,0,0.10)' }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -224,18 +224,16 @@ export default function Inkorg() {
                         </td>
                       )}
                       <td className="px-4 py-2.5 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{d.created_at?.slice(0, 10)}</td>
-                      <td className="px-4 py-2.5 border-b text-right whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={e => e.stopPropagation()}>
-                        {cur.tolka && <button className="btn text-xs py-1 px-2.5 mr-1.5" onClick={() => tolkaDoc(d)} disabled={busyId === d.id}>{busyId === d.id ? '…' : (d.tolkad ? 'Tolka om' : 'Tolka')}</button>}
-                        {cur.create && (
-                          <button className="btn btn-green text-xs py-1 px-2.5 mr-1.5" onClick={() => skapa(d)}>
-                            <i className="ti ti-file-plus" /> {cur.create === 'lev' ? 'Skapa lev.faktura' : 'Skapa verifikation'}
-                          </button>
-                        )}
-                        <select className="input text-xs py-1 px-1.5 w-auto inline-block mr-1.5" value="" onChange={e => flytta(d, e.target.value)} title="Flytta till annan plats">
-                          <option value="">Flytta…</option>
-                          {KATS.filter(k => k.key !== kat).map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
-                        </select>
-                        <button className="text-gray-300 hover:text-red-600 align-middle" title="Radera" onClick={() => handleDelete(d)}><i className="ti ti-trash" /></button>
+                      <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {cur.tolka && <button className="btn text-xs py-1 px-2.5" onClick={() => tolkaDoc(d)} disabled={busyId === d.id}>{busyId === d.id ? '…' : (d.tolkad ? 'Tolka om' : 'Tolka')}</button>}
+                          {cur.create && (
+                            <button className="btn btn-green text-xs py-1 px-2.5 whitespace-nowrap" onClick={() => skapa(d)}>
+                              <i className="ti ti-file-plus" /> {cur.create === 'lev' ? 'Skapa faktura' : 'Skapa ver.'}
+                            </button>
+                          )}
+                          <button className="text-gray-300 hover:text-red-600 px-1" title="Radera" onClick={() => handleDelete(d)}><i className="ti ti-trash" /></button>
+                        </div>
                       </td>
                     </tr>
                   ))}
