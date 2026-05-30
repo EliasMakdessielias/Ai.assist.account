@@ -22,8 +22,33 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
   const [moreAddr, setMoreAddr] = useState(false)
   const [refs, setRefs] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [hamtar, setHamtar] = useState(false)
   const [accounts, setAccounts] = useState([])
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+
+  async function hamtaUppgifter() {
+    if (!String(f.org_nr || '').replace(/\D/g, '')) return toast.error('Ange organisations-/personnummer först')
+    setHamtar(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('hamta-foretag', { body: { org_nr: f.org_nr } })
+      if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
+      if (data?.error) throw new Error(data.error)
+      const r = data.result || {}
+      setF(p => ({
+        ...p,
+        name: r.name || p.name,
+        org_nr: r.org_nr || p.org_nr,
+        faktura_adress: r.faktura_adress || p.faktura_adress,
+        postnr: r.postnr || p.postnr,
+        ort: r.ort || p.ort,
+        land: r.land || p.land,
+        phone: r.phone || p.phone,
+        webb: r.webb || p.webb,
+      }))
+      toast.success('Uppgifter hämtade från allabolag.se')
+    } catch (e) { toast.error('Kunde inte hämta: ' + (e.message || e)) }
+    setHamtar(false)
+  }
   const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
 
   useEffect(() => { genNr(); loadAccounts() }, [])
@@ -85,7 +110,7 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
         <button className="flex items-center gap-1.5 hover:text-gray-800" onClick={() => setF({ ...empty, leverantorsnr: f.leverantorsnr })}><i className="ti ti-refresh" /> Återställ fält</button>
         <span className="flex items-center gap-1.5 text-gray-300"><i className="ti ti-arrows-exchange" /> E-faktura</span>
         <span className="flex items-center gap-1.5 text-gray-300"><i className="ti ti-search" /> Kreditupplysning</span>
-        <span className="flex items-center gap-1.5 text-gray-300"><i className="ti ti-download" /> Hämta leverantörsuppgifter</span>
+        <button className="flex items-center gap-1.5 hover:text-gray-800 disabled:text-gray-300" onClick={hamtaUppgifter} disabled={hamtar}><i className="ti ti-download" /> {hamtar ? 'Hämtar…' : 'Hämta leverantörsuppgifter'}</button>
       </div>
 
       {/* Flikar */}
@@ -106,7 +131,13 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
                   <button type="button" title="Generera nytt" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700" onClick={genNr}><i className="ti ti-refresh" /></button>
                 </div>
               </div>
-              {F({ label: 'Org-/Personnummer', k: 'org_nr' })}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Org-/Personnummer</label>
+                <div className="flex gap-2">
+                  <input className="input" value={f.org_nr ?? ''} onChange={e => set('org_nr', e.target.value)} placeholder="556000-0000" />
+                  <button className="btn whitespace-nowrap" onClick={hamtaUppgifter} disabled={hamtar} title="Hämta uppgifter från allabolag.se"><i className="ti ti-download" /> {hamtar ? '…' : 'Hämta'}</button>
+                </div>
+              </div>
               <Toggle label="Aktiv" k="aktiv" opts={[[true, 'Ja'], [false, 'Nej']]} />
 
               {F({ label: 'Leverantörsnamn', k: 'name', req: true })}

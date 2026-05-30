@@ -44,6 +44,8 @@ export default function NyLeverantorsfaktura() {
   const [panelWidth, setPanelWidth] = useState(560)
   const [levForslag, setLevForslag] = useState(null)
   const [levEditor, setLevEditor] = useState(null)
+  const [levOpen, setLevOpen] = useState(false)
+  const [levQuery, setLevQuery] = useState('')
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   function startResize(e) {
@@ -234,6 +236,7 @@ export default function NyLeverantorsfaktura() {
   }
 
   const supplier = suppliers.find(s => s.id === supplierId)
+  const levFiltered = !levQuery.trim() ? suppliers : suppliers.filter(s => `${s.name} ${s.org_nr || ''}`.toLowerCase().includes(levQuery.toLowerCase()))
 
   function konteringRows() {
     return rows.filter(r => r.konto && (num(r.debet) > 0 || num(r.kredit) > 0))
@@ -344,10 +347,34 @@ export default function NyLeverantorsfaktura() {
         <div className="grid grid-cols-12 gap-4 mb-2">
           <div className="col-span-4">
             <label className="block text-xs font-medium text-gray-500 mb-1">Leverantör</label>
-            <select id="lev-leverantor" className="input" value={supplierId} onChange={e => setSupplierId(e.target.value)} onKeyDown={e => hEnter(e, 'lev-fakturadatum')}>
-              <option value="">Leverantörsnr, Org-/Personnr, Namn, Bg/Pg</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}{s.org_nr ? ` · ${s.org_nr}` : ''}</option>)}
-            </select>
+            <div className="relative">
+              <input id="lev-leverantor" className="input pr-8" placeholder="Leverantörsnr, Org-/Personnr, Namn, Bg/Pg"
+                value={levOpen ? levQuery : (supplier ? `${supplier.name}${supplier.org_nr ? ` · ${supplier.org_nr}` : ''}` : '')}
+                onChange={e => { setLevQuery(e.target.value); setLevOpen(true) }}
+                onFocus={() => { setLevQuery(''); setLevOpen(true) }}
+                onBlur={() => setTimeout(() => setLevOpen(false), 150)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); const f = levFiltered; if (f.length === 1) { setSupplierId(f[0].id); setLevForslag(null); setLevOpen(false); focusId('lev-fakturadatum') } else setLevOpen(true) }
+                  else if (e.key === 'Escape') setLevOpen(false)
+                }} />
+              <i className="ti ti-chevron-down absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              {levOpen && (
+                <div className="absolute z-30 left-0 right-0 mt-1 bg-white rounded-lg shadow-xl max-h-72 overflow-y-auto" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                  {levFiltered.length === 0 && <div className="px-3 py-2 text-sm text-gray-400">Inga leverantörer matchar</div>}
+                  {levFiltered.map(s => (
+                    <button key={s.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2"
+                      onMouseDown={() => { setSupplierId(s.id); setLevForslag(null); setLevOpen(false) }}>
+                      <span className="truncate">{s.name}</span>
+                      <span className="text-gray-400 text-xs shrink-0">{s.org_nr || ''}</span>
+                    </button>
+                  ))}
+                  <button type="button" className="sticky bottom-0 w-full text-left bg-gray-50 border-t px-3 py-2.5 text-sm text-green-700 font-medium hover:bg-gray-100" style={{ borderColor: 'rgba(0,0,0,0.08)' }}
+                    onMouseDown={() => { setLevEditor({ name: /^\d/.test(levQuery) ? '' : levQuery, org_nr: /^\d/.test(levQuery) ? levQuery.replace(/\s/g, '') : '' }); setLevOpen(false) }}>
+                    <i className="ti ti-plus mr-1.5" /> Skapa ny leverantör{levQuery ? ` "${levQuery}"` : ''}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Fakturadatum</label>
