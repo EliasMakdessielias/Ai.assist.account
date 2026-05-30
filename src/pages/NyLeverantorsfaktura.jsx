@@ -176,6 +176,13 @@ export default function NyLeverantorsfaktura() {
     } else if (nya.length && !nya.some(r => r.konto === '2440')) {
       nya.unshift({ konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: fmt(t) })
     }
+    // Öresutjämning vid avrundningsdiff (konto 3740)
+    const sd2 = nya.reduce((s, r) => s + num(r.debet), 0), sk2 = nya.reduce((s, r) => s + num(r.kredit), 0)
+    const d2 = +(sd2 - sk2).toFixed(2)
+    if (Math.abs(d2) > 0.005 && Math.abs(d2) <= 1.5) {
+      nya.push({ konto: '3740', namn: accMap['3740'] || 'Öres- och kronutjämning', info: '', debet: d2 < 0 ? fmt(-d2) : '', kredit: d2 > 0 ? fmt(d2) : '' })
+      setOres(fmt(Math.abs(d2)))
+    }
     setRows([...nya, emptyRow()])
     toast.success('Underlaget tolkat – granska och klicka Bokför')
   }
@@ -192,8 +199,16 @@ export default function NyLeverantorsfaktura() {
     const t = num(total)
     if (t <= 0) return toast.error('Ange totalbelopp')
     const krows = konteringRows()
-    if (bokfor && !balanced) return toast.error('Konteringen måste balansera (differens 0)')
+    // Automatisk öresutjämning vid små avrundningsdiffar (konto 3740)
+    const csd = krows.reduce((s, r) => s + r.debet, 0), csk = krows.reduce((s, r) => s + r.kredit, 0)
+    let diff = +(csd - csk).toFixed(2)
+    if (Math.abs(diff) > 0.005 && Math.abs(diff) <= 1.5) {
+      krows.push({ nr: '3740', name: accMap['3740'] || 'Öres- och kronutjämning', info: 'Öresutjämning', debet: diff < 0 ? +(-diff).toFixed(2) : 0, kredit: diff > 0 ? +diff.toFixed(2) : 0 })
+      diff = 0
+    }
+    if (bokfor && Math.abs(diff) > 0.005) return toast.error('Konteringen måste balansera (differens 0)')
     if (bokfor && krows.length < 2) return toast.error('Lägg till kontering')
+    const td = krows.reduce((s, r) => s + r.debet, 0), tk = krows.reduce((s, r) => s + r.kredit, 0)
 
     setSaving(true)
     try {
@@ -212,7 +227,7 @@ export default function NyLeverantorsfaktura() {
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
           company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: 'L - Leverantörsfaktura',
           datum: fakturadatum, beskrivning: `Lev.faktura ${supplier?.name || ''} ${fakturanummer || ''}`.trim(),
-          total_debet: sumDebet, total_kredit: sumKredit, created_by: user.id,
+          total_debet: td, total_kredit: tk, created_by: user.id,
         }).select().single()
         if (e1) throw e1
         await supabase.from('verifikation_rows').insert(krows.map((r, ix) => ({
