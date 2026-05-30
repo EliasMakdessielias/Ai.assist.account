@@ -12,7 +12,7 @@ const verNum = v => parseInt((v.ver_nr || '').replace(/\D/g, ''), 10) || 0
 const toAmt = s => { const n = parseFloat(String(s).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n }
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-const tabs = ['Verifikationer', 'Periodiseringar', 'Registrera dagskassa', 'Registrera kvitto', 'Stäm av konto', 'Sök belopp', 'Moms']
+const tabs = ['Verifikationer', 'Periodiseringar', 'Registrera dagskassa', 'Registrera kvitto', 'Stäm av konto', 'Sök belopp']
 const emptyFilt = { verNr: '', besk: '', bokfFrom: '', bokfTom: '', beloppFrom: '', beloppTom: '' }
 const PAGE_SIZE = 100
 
