@@ -15,6 +15,7 @@ const navItems = [
   { label: 'Lön', icon: 'ti-wallet', to: '/lon' },
   { label: 'Moms', icon: 'ti-receipt-tax', to: '/moms' },
   { label: 'Rapporter', icon: 'ti-chart-bar', to: '/rapporter' },
+  { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
   { section: 'Register' },
   { label: 'Kunder', icon: 'ti-users', to: '/kunder' },
   { label: 'Leverantörer', icon: 'ti-building-store', to: '/leverantorer' },
