@@ -23,6 +23,8 @@ import Leverantorer from './pages/Leverantorer'
 import Produkter from './pages/Produkter'
 import Kontoplan from './pages/Kontoplan'
 import KassaBankKonton from './pages/KassaBankKonton'
+import ImportExport from './pages/ImportExport'
+import Sie from './pages/Sie'
 import KontoDetalj from './pages/KontoDetalj'
 import Installningar from './pages/Installningar'
 import Rakenskapsar from './pages/Rakenskapsar'
@@ -66,6 +68,8 @@ export default function App() {
           <Route path="installningar/team" element={<Team />} />
           <Route path="admin" element={<Admin />} />
           <Route path="installningar/kassa-bankkonton" element={<KassaBankKonton />} />
+          <Route path="installningar/import-export" element={<ImportExport />} />
+          <Route path="installningar/sie" element={<Sie />} />
           <Route path="installningar/kontoplan" element={<Kontoplan />} />
           <Route path="installningar/kontoplan/:nr" element={<KontoDetalj />} />
         </Route>

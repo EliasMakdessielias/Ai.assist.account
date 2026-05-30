@@ -30,7 +30,7 @@ const settingsItems = [
   { label: 'Kontoplan', to: '/installningar/kontoplan' },
   { label: 'Artikelkontering', to: '/installningar' },
   { label: 'Bokföringsmallar', to: '/installningar' },
-  { label: 'Import och export', to: '/installningar' },
+  { label: 'Import och export', to: '/installningar/import-export' },
 ]
 
 export default function Sidebar() {
