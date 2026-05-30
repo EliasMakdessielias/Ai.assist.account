@@ -147,17 +147,19 @@ export default function Moms() {
 
   // En ruta: etikett, rutnummer, värde (input).
   const Box = ({ num, label, locked }) => (
-    <div className="flex items-center gap-3 py-1.5">
-      <span className="flex-1 text-sm text-gray-700">{label}</span>
-      <span className="text-xs text-gray-400 w-6 text-right tabular-nums">{num}</span>
-      <input
-        className="input text-right tabular-nums w-44 bg-gray-50"
-        value={edits[num] !== undefined ? edits[num] : fmtInt(computed[num] || 0)}
-        readOnly={locked}
-        onChange={e => !locked && setEdits(p => ({ ...p, [num]: e.target.value }))}
-        onBlur={e => !locked && setEdits(p => ({ ...p, [num]: String(r0(toAmt(e.target.value))) }))}
-      />
-      <i className="ti ti-file-text text-gray-300" />
+    <div className="flex items-center gap-2 py-1.5">
+      <span className="flex-1 min-w-0 text-sm text-gray-700 leading-snug">{label}</span>
+      <span className="text-[11px] text-gray-400 w-5 text-right tabular-nums shrink-0">{num}</span>
+      <div className="w-40 shrink-0">
+        <input
+          className="input text-right tabular-nums bg-gray-50"
+          value={edits[num] !== undefined ? edits[num] : fmtInt(computed[num] || 0)}
+          readOnly={locked}
+          onChange={e => !locked && setEdits(p => ({ ...p, [num]: e.target.value }))}
+          onBlur={e => !locked && setEdits(p => ({ ...p, [num]: String(r0(toAmt(e.target.value))) }))}
+        />
+      </div>
+      <i className="ti ti-file-text text-gray-300 shrink-0" />
     </div>
   )
   const Section = ({ title, children }) => (
@@ -247,11 +249,11 @@ export default function Moms() {
                 </Section>
                 <div className="mb-7">
                   <div className="text-[15px] font-medium mb-1.5">G. Moms att betala eller få tillbaka</div>
-                  <div className="flex items-center gap-3 py-1.5">
-                    <span className="flex-1 text-sm text-gray-700">{box49 >= 0 ? 'Moms att betala' : 'Moms att få tillbaka'}</span>
-                    <span className="text-xs text-gray-400 w-6 text-right tabular-nums">49</span>
-                    <input className="input text-right tabular-nums w-44 bg-gray-50 font-semibold" value={fmtInt(Math.abs(box49))} readOnly />
-                    <i className="ti ti-file-text text-gray-300" />
+                  <div className="flex items-center gap-2 py-1.5">
+                    <span className="flex-1 min-w-0 text-sm text-gray-700 leading-snug">{box49 >= 0 ? 'Moms att betala' : 'Moms att få tillbaka'}</span>
+                    <span className="text-[11px] text-gray-400 w-5 text-right tabular-nums shrink-0">49</span>
+                    <div className="w-40 shrink-0"><input className="input text-right tabular-nums bg-gray-50 font-semibold" value={fmtInt(Math.abs(box49))} readOnly /></div>
+                    <i className="ti ti-file-text text-gray-300 shrink-0" />
                   </div>
                 </div>
               </div>
