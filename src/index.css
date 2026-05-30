@@ -25,6 +25,8 @@ body { background: #f5f4f0; }
   border-color: rgba(0,0,0,0.18);
 }
 .input:focus { @apply outline-none ring-2 ring-blue-100 border-blue-500; }
+/* Plats för sök-/fältikon till vänster (annars skuggar .input px-3 över pl-8) */
+.input.pl-8 { padding-left: 2rem; }
 
 /* Buttons */
 .btn { @apply px-3.5 py-1.5 text-sm rounded-lg border font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer; border-color: rgba(0,0,0,0.18); }
