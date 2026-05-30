@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import LeverantorEditor from '../components/LeverantorEditor'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -39,6 +40,8 @@ export default function NyLeverantorsfaktura() {
   const [attachIds, setAttachIds] = useState(docId ? [docId] : [])
   const [panelOpen, setPanelOpen] = useState(true)
   const [panelWidth, setPanelWidth] = useState(560)
+  const [levForslag, setLevForslag] = useState(null)
+  const [levEditor, setLevEditor] = useState(null)
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   function startResize(e) {
@@ -81,6 +84,12 @@ export default function NyLeverantorsfaktura() {
       } catch (e) { toast.dismiss(t); toast.error('Tolkning misslyckades: ' + (e.message || e)) }
     })()
   }, [company, accounts.length])
+
+  async function reloadSuppliers() {
+    const { data } = await supabase.from('suppliers').select('id, name, org_nr, bankgiro').eq('company_id', company.id).order('name')
+    setSuppliers(data || [])
+    return data || []
+  }
 
   const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
   const activeAccounts = useMemo(() => accounts.filter(a => a.is_active), [accounts])
@@ -146,11 +155,15 @@ export default function NyLeverantorsfaktura() {
     if (result.ocr) setOcr(String(result.ocr))
     const faktnr = result.fakturanummer || result.fakturanr || result.invoice_nr
     if (faktnr) setFakturanummer(String(faktnr))
-    // Matcha leverantör på namn
-    const levName = String(result.leverantor || result.leverantör || result.supplier || result.saljare || '').trim().toLowerCase()
-    if (levName) {
-      const m = suppliers.find(s => { const n = s.name.toLowerCase(); return n.includes(levName.slice(0, 8)) || levName.includes(n.slice(0, 8)) })
-      if (m) setSupplierId(m.id)
+    // Matcha leverantör på namn – annars föreslå att skapa ny
+    const levRaw = String(result.leverantor || result.leverantör || result.supplier || result.saljare || '').trim()
+    const orgRaw = String(result.org_nr || result.orgnr || result.organisationsnummer || '').trim()
+    if (levRaw || orgRaw) {
+      const ll = levRaw.toLowerCase()
+      const m = suppliers.find(s => (orgRaw && (s.org_nr || '').replace(/\D/g, '') === orgRaw.replace(/\D/g, '')) ||
+        (ll && (s.name.toLowerCase().includes(ll.slice(0, 8)) || ll.includes(s.name.toLowerCase().slice(0, 8)))))
+      if (m) { setSupplierId(m.id); setLevForslag(null) }
+      else setLevForslag({ name: levRaw, org_nr: orgRaw, bankgiro: String(result.bankgiro || result.bg || '').trim() })
     }
     // Kontering
     const kr = Array.isArray(result.konteringsrader) ? result.konteringsrader : []
@@ -283,6 +296,15 @@ export default function NyLeverantorsfaktura() {
       </div>
 
       <div className="p-7">
+        {levForslag && !supplierId && (
+          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
+            <i className="ti ti-user-question text-amber-500 text-lg" />
+            <span>Leverantören <b>{levForslag.name || levForslag.org_nr}</b> hittades inte i registret.</span>
+            <button className="btn btn-green text-xs py-1 px-3 ml-auto" onClick={() => setLevEditor(levForslag)}><i className="ti ti-plus" /> Skapa ny leverantör</button>
+            <button className="text-amber-700 hover:text-amber-900 text-xs underline" onClick={() => setLevForslag(null)}>Ignorera</button>
+          </div>
+        )}
+
         {/* Huvuduppgifter */}
         <div className="grid grid-cols-12 gap-4 mb-2">
           <div className="col-span-4">
@@ -443,6 +465,12 @@ export default function NyLeverantorsfaktura() {
           <div onMouseDown={startResize} className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors" title="Dra för att ändra storlek" />
           <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" width={panelWidth} onClose={() => setPanelOpen(false)} />
         </>
+      )}
+
+      {levEditor && (
+        <LeverantorEditor company={company} prefill={{ name: levEditor.name || '', org_nr: levEditor.org_nr || '', bankgiro: levEditor.bankgiro || '' }}
+          onCancel={() => setLevEditor(null)}
+          onSaved={async (sup) => { setLevEditor(null); setLevForslag(null); await reloadSuppliers(); setSupplierId(sup.id) }} />
       )}
     </div>
   )
