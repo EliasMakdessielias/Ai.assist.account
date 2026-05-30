@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import { tolkaDocument } from '../lib/tolka'
 
 const emptyRow = () => ({ konto: '', benamning: '', info: '', debet: '', kredit: '', debetLocked: false, kreditLocked: false })
 
@@ -65,13 +66,6 @@ export default function NyVerifikation() {
     if (initialDoc) setAttachIds(prev => prev.includes(initialDoc) ? prev : [...prev, initialDoc])
   }, [initialDoc])
 
-  async function invokeTolka(id) {
-    const { data, error } = await supabase.functions.invoke('tolka-underlag', { body: { document_id: id } })
-    if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
-    if (data?.error) throw new Error(data.error)
-    return data.result
-  }
-
   // Auto-tolka när man kommer från Inkorgen (?underlag=…&tolka=1)
   useEffect(() => {
     if (!initialDoc || !autoTolka || tolkadRef.current || !accounts.length) return
@@ -82,9 +76,9 @@ export default function NyVerifikation() {
         let r
         const { data: dd } = await supabase.from('documents').select('tolkning').eq('id', initialDoc).maybeSingle()
         if (dd?.tolkning) r = dd.tolkning
-        else { try { r = await invokeTolka(initialDoc) } catch { r = await invokeTolka(initialDoc) } }
+        else r = await tolkaDocument(initialDoc)
         fyllFranTolkning(r); toast.dismiss(t)
-      } catch (e) { toast.dismiss(t); toast.error('Tolkning misslyckades: ' + (e.message || e)) }
+      } catch (e) { toast.dismiss(t); toast.error(e.message || String(e)) }
     })()
   }, [initialDoc, autoTolka, accounts.length])
 

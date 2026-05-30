@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { tolkaDocument } from '../lib/tolka'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -47,20 +48,14 @@ export default function Inkorg() {
     return () => { active = false }
   }, [selected?.id])
 
-  async function invokeTolka(id) {
-    const { data, error } = await supabase.functions.invoke('tolka-underlag', { body: { document_id: id } })
-    if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
-    if (data?.error) throw new Error(data.error)
-    return data.result
-  }
   async function tolkaDoc(doc, silent) {
     setBusyId(doc.id)
     try {
-      let r; try { r = await invokeTolka(doc.id) } catch { r = await invokeTolka(doc.id) }
+      const r = await tolkaDocument(doc.id)
       await supabase.from('documents').update({ tolkning: r, tolkad: true }).eq('id', doc.id)
       if (!silent) toast.success('Tolkat')
-    } catch (e) { if (!silent) toast.error('Tolkning misslyckades: ' + (e.message || e)) }
-    setBusyId(null)
+      setBusyId(null); return true
+    } catch (e) { if (!silent) toast.error(e.message || String(e)); setBusyId(null); return false }
   }
 
   async function handleUpload(e) {
@@ -85,8 +80,11 @@ export default function Inkorg() {
     // Auto-tolka kvitton/leverantörsfakturor
     if (cur.tolka && created.length) {
       const t = toast.loading(`Tolkar ${created.length} underlag…`)
-      for (const d of created) await tolkaDoc(d, true)
-      toast.dismiss(t); toast.success('Tolkning klar')
+      let stopped = false
+      for (const d of created) { if (!await tolkaDoc(d, true)) { stopped = true; break } }
+      toast.dismiss(t)
+      if (stopped) toast.error('AI-tolkning kunde inte slutföras (kvot/fel) – du kan tolka manuellt senare.')
+      else toast.success('Tolkning klar')
       load()
     }
   }
@@ -127,8 +125,12 @@ export default function Inkorg() {
   async function tolkaMarkerade() {
     if (!selVisible.length) return
     const t = toast.loading(`Tolkar ${selVisible.length} underlag…`)
-    for (const d of selVisible) await tolkaDoc(d, true)
-    toast.dismiss(t); toast.success('Tolkning klar'); setSel(new Set()); load()
+    let stopped = false
+    for (const d of selVisible) { if (!await tolkaDoc(d, true)) { stopped = true; break } }
+    toast.dismiss(t)
+    if (stopped) toast.error('AI-tolkning kunde inte slutföras (kvot/fel) – försök igen senare.')
+    else toast.success('Tolkning klar')
+    setSel(new Set()); load()
   }
   async function flyttaMarkerade(nyKat) {
     if (!nyKat || !selVisible.length) return

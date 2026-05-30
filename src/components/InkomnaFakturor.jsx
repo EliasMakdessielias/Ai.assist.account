@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { tolkaDocument } from '../lib/tolka'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -63,19 +64,14 @@ export default function InkomnaFakturor({ tolkningMode = false }) {
     toast.success('Raderat'); load()
   }
 
-  async function invokeTolka(id) {
-    const { data, error } = await supabase.functions.invoke('tolka-underlag', { body: { document_id: id } })
-    if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
-    if (data?.error) throw new Error(data.error)
-    return data.result
-  }
   async function tolka(d) {
     setBusyId(d.id)
     try {
-      let r; try { r = await invokeTolka(d.id) } catch { r = await invokeTolka(d.id) }
+      const r = await tolkaDocument(d.id)
+      await supabase.from('documents').update({ tolkning: r, tolkad: true }).eq('id', d.id)
       setResults(p => ({ ...p, [d.id]: r }))
       toast.success('Tolkat')
-    } catch (e) { toast.error('Tolkning misslyckades: ' + (e.message || e)) }
+    } catch (e) { toast.error(e.message || String(e)) }
     setBusyId(null)
   }
 

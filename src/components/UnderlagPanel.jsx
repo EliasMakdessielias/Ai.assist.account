@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
+import { tolkaDocument } from '../lib/tolka'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
@@ -95,35 +96,16 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
     loadInbox()
   }
 
-  async function invokeTolka() {
-    const { data, error } = await supabase.functions.invoke('tolka-underlag', {
-      body: { document_id: current.id },
-    })
-    if (error) {
-      // Plocka ut AI:ns riktiga felmeddelande ur svaret om det finns.
-      let msg = error.message
-      try { const body = await error.context.json(); if (body?.error) msg = body.error } catch { /* ignore */ }
-      throw new Error(msg)
-    }
-    if (data?.error) throw new Error(data.error)
-    return data.result
-  }
-
   async function handleTolka() {
     if (!current) return
     setInterpreting(true)
     try {
-      let result
-      try {
-        result = await invokeTolka()
-      } catch (firstErr) {
-        // Ett nytt försök – första anropet kan vara en kallstart.
-        result = await invokeTolka()
-      }
+      const result = await tolkaDocument(current.id)
+      await supabase.from('documents').update({ tolkning: result, tolkad: true }).eq('id', current.id)
       if (!attachIds.includes(current.id)) onToggleAttach(current.id)
       onTolkat?.(result)
     } catch (err) {
-      toast.error('Tolkning misslyckades: ' + (err.message || err))
+      toast.error(err.message || String(err))
     }
     setInterpreting(false)
   }

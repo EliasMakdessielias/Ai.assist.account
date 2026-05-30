@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
+import { tolkaDocument } from '../lib/tolka'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -87,13 +88,6 @@ export default function NyLeverantorsfaktura() {
     }
   }
 
-  async function invokeTolka(id) {
-    const { data, error } = await supabase.functions.invoke('tolka-underlag', { body: { document_id: id } })
-    if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
-    if (data?.error) throw new Error(data.error)
-    return data.result
-  }
-
   // Auto-tolka när man kommer från Inkomna fakturor (?doc=…&tolka=1)
   useEffect(() => {
     if (!company || !docId || !autoTolka || tolkadRef.current || !accounts.length) return
@@ -104,9 +98,9 @@ export default function NyLeverantorsfaktura() {
         let r
         const { data: dd } = await supabase.from('documents').select('tolkning').eq('id', docId).maybeSingle()
         if (dd?.tolkning) r = dd.tolkning
-        else { try { r = await invokeTolka(docId) } catch { r = await invokeTolka(docId) } }
+        else r = await tolkaDocument(docId)
         fyllFranTolkning(r); toast.dismiss(t)
-      } catch (e) { toast.dismiss(t); toast.error('Tolkning misslyckades: ' + (e.message || e)) }
+      } catch (e) { toast.dismiss(t); toast.error(e.message || String(e)) }
     })()
   }, [company, accounts.length])
 
