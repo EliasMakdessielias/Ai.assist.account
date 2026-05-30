@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import Dagskassa from '../components/Dagskassa'
 
 const verNum = v => parseInt((v.ver_nr || '').replace(/\D/g, ''), 10) || 0
 
@@ -148,7 +149,8 @@ export default function Bokforing() {
             </div>
           </>
         )}
-        {activeTab !== 0 && (
+        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa />}
+        {activeTab !== 0 && tabs[activeTab] !== 'Registrera dagskassa' && (
           <div className="text-center py-16 text-gray-400">
             <i className="ti ti-tools text-3xl block mb-2 opacity-30" />
             {tabs[activeTab]} – kommer snart
