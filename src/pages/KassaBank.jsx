@@ -5,21 +5,29 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { parseFile, parseAmount, parseDate, guessColumns } from '../lib/parseBank'
 
-const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const today = () => new Date().toISOString().slice(0, 10)
 const KNOWN = { '2440': 'Leverantörsskulder', '1510': 'Kundfordringar', '1930': 'Företagskonto', '1910': 'Kassa' }
 
 export default function KassaBank() {
   const { company, user } = useAuth()
   const navigate = useNavigate()
   const [accounts, setAccounts] = useState([])
-  const [rowsByAcc, setRowsByAcc] = useState({})
-  const [bankByAcc, setBankByAcc] = useState({})
+  const [banktxAll, setBanktxAll] = useState([])
   const [openSup, setOpenSup] = useState([])
   const [openCust, setOpenCust] = useState([])
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [kontoutdrag, setKontoutdrag] = useState({})
-  const [subtab, setSubtab] = useState('handelser')
+  const [tab, setTab] = useState('ejbok')
+  const [search, setSearch] = useState('')
+  const [period, setPeriod] = useState('Anpassad')
+  const [from, setFrom] = useState('2018-01-01')
+  const [tom, setTom] = useState(today())
+  const [sel, setSel] = useState(new Set())
+  const [rowMenu, setRowMenu] = useState(null)
+  const [topMenu, setTopMenu] = useState(false)
+  const [actMenu, setActMenu] = useState(false)
+  const [working, setWorking] = useState(false)
 
   // Import
   const [impOpen, setImpOpen] = useState(false)
@@ -29,96 +37,38 @@ export default function KassaBank() {
   const [importing, setImporting] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
-  const [working, setWorking] = useState(false)
   const fileRef = useRef()
 
   useEffect(() => { if (company) load() }, [company?.id])
 
   async function load() {
     setLoading(true)
-    const [{ data: accs }, { data: rows }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
+    const [{ data: accs }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
       supabase.from('accounts').select('account_nr, name, opening_balance, is_active').eq('company_id', company.id).like('account_nr', '19%').order('account_nr'),
-      supabase.from('verifikation_rows').select('id, account_nr, debet, kredit, avstamd, verifikationer!inner(id, ver_nr, datum, beskrivning, company_id)').eq('verifikationer.company_id', company.id).like('account_nr', '19%'),
       supabase.from('bank_transactions').select('*').eq('company_id', company.id).order('datum', { ascending: false }),
       supabase.from('supplier_invoices').select('id, invoice_nr, total_amount, status, suppliers(name)').eq('company_id', company.id).eq('status', 'unpaid'),
       supabase.from('invoices').select('id, invoice_nr, total_amount, amount_excl_vat, vat_amount, status, customers(name)').eq('company_id', company.id).eq('status', 'sent'),
     ])
-
-    const byAcc = {}
-    ;(rows || []).forEach(r => {
-      const k = r.account_nr
-      ;(byAcc[k] ||= []).push({ rowId: r.id, avstamd: !!r.avstamd, id: r.verifikationer.id, ver_nr: r.verifikationer.ver_nr, datum: r.verifikationer.datum, beskrivning: r.verifikationer.beskrivning, debet: r.debet || 0, kredit: r.kredit || 0 })
-    })
-    Object.values(byAcc).forEach(list => list.sort((a, b) => a.datum.localeCompare(b.datum) || a.ver_nr.localeCompare(b.ver_nr)))
-
-    const bByAcc = {}
-    ;(btx || []).forEach(t => { (bByAcc[t.account_nr] ||= []).push(t) })
-
-    const visibleAccs = (accs || [])
-      .filter(a => a.is_active || byAcc[a.account_nr] || bByAcc[a.account_nr])
-      .map(a => {
-        const ob = a.opening_balance || 0
-        const movement = (byAcc[a.account_nr] || []).reduce((s, h) => s + h.debet - h.kredit, 0)
-        const ejBok = (bByAcc[a.account_nr] || []).filter(t => t.status === 'unmatched').length
-        return { ...a, saldo: ob + movement, antal: (byAcc[a.account_nr] || []).length, ejBok }
-      })
-
-    setAccounts(visibleAccs)
-    setRowsByAcc(byAcc)
-    setBankByAcc(bByAcc)
+    const bByAcc = {}; (btx || []).forEach(t => { (bByAcc[t.account_nr] ||= []).push(t) })
+    const visibleAccs = (accs || []).filter(a => a.is_active || bByAcc[a.account_nr])
+    setAccounts(visibleAccs.length ? visibleAccs : (accs || []))
+    setBanktxAll(btx || [])
     setOpenSup(sup || [])
     setOpenCust(cust || [])
-    setSelected(prev => prev || visibleAccs.find(a => a.antal > 0 || a.ejBok > 0)?.account_nr || visibleAccs[0]?.account_nr || null)
+    setSelected(prev => prev || (visibleAccs.find(a => bByAcc[a.account_nr]) || visibleAccs[0] || (accs || [])[0])?.account_nr || null)
+    setSel(new Set())
     setLoading(false)
   }
 
   const accName = nr => accounts.find(a => a.account_nr === nr)?.name || KNOWN[nr] || ''
-
-  async function toggleAvstamd(h) {
-    const ny = !h.avstamd
-    setRowsByAcc(prev => ({ ...prev, [selected]: prev[selected].map(x => x.rowId === h.rowId ? { ...x, avstamd: ny } : x) }))
-    const { error } = await supabase.from('verifikation_rows').update({ avstamd: ny }).eq('id', h.rowId)
-    if (error) { toast.error('Kunde inte spara avstämning'); load() }
-  }
-
-  // --- Import (fil eller inklistrat) ---
-  function startImport(text) {
-    const { rows } = parseFile(text)
-    if (!rows.length) return toast.error('Hittade inga rader')
-    setImpRows(rows); setImpMap(guessColumns(rows[0])); setImpHeader(true); setImpOpen(true)
-  }
-  function onFile(e) {
-    const file = e.target.files?.[0]; e.target.value = ''
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => startImport(String(reader.result))
-    reader.readAsText(file, 'utf-8')
-  }
-  function parsedImport() {
-    const data = impHeader ? impRows.slice(1) : impRows
-    return data.map(r => ({ datum: parseDate(r[impMap.datum]), text: (r[impMap.text] || '').slice(0, 200), amount: parseAmount(r[impMap.belopp]) }))
-      .filter(t => t.datum && t.amount != null)
-  }
-  async function doImport() {
-    const txs = parsedImport()
-    if (!txs.length) return toast.error('Inga giltiga rader – kontrollera kolumnvalen')
-    setImporting(true)
-    const { error } = await supabase.from('bank_transactions').insert(txs.map(t => ({ company_id: company.id, account_nr: selected, datum: t.datum, text: t.text, amount: t.amount, status: 'unmatched' })))
-    setImporting(false)
-    if (error) return toast.error('Kunde inte importera: ' + error.message)
-    toast.success(`${txs.length} bankhändelser inlästa`)
-    setImpOpen(false); setImpRows([]); setPasteText(''); setSubtab('inlasta'); load()
-  }
-
-  // --- Matchning mot öppna fakturor ---
+  const selAcc = accounts.find(a => a.account_nr === selected)
   const metod = company?.bokforingsmetod || 'faktura'
 
+  // --- Matchning ---
   function matchFor(tx) {
     if (tx.status !== 'unmatched') return null
-    const amt = Math.abs(tx.amount)
-    if (amt < 0.01) return null
+    const amt = Math.abs(tx.amount); if (amt < 0.01) return null
     if (tx.amount < 0) {
-      // Leverantörsbetalning mot skuld – bara i faktureringsmetoden (kräver bokförd 2440).
       if (metod !== 'faktura') return null
       const inv = openSup.find(i => Math.abs((i.total_amount || 0) - amt) < 0.01)
       if (inv) return { type: 'sup', inv, summary: `${inv.invoice_nr || ''} Betalning av leverantörsfaktura ${inv.suppliers?.name || ''}`.trim() }
@@ -132,17 +82,12 @@ export default function KassaBank() {
   async function bookMatch(tx, m) {
     const belopp = Math.abs(tx.amount)
     let rows
-    if (m.type === 'sup') {
-      rows = [{ nr: '2440', d: belopp, k: 0 }, { nr: selected, d: 0, k: belopp }]
-    } else if (metod === 'kontant') {
-      // Kontantmetoden: kundbetalning bokför intäkt + utgående moms direkt.
+    if (m.type === 'sup') rows = [{ nr: '2440', d: belopp, k: 0 }, { nr: selected, d: 0, k: belopp }]
+    else if (metod === 'kontant') {
       const ex = m.inv.amount_excl_vat || 0, vat = m.inv.vat_amount || 0
       rows = [{ nr: selected, d: belopp, k: 0 }, { nr: '3001', d: 0, k: ex }]
       if (vat > 0.0001) rows.push({ nr: '2611', d: 0, k: vat })
-    } else {
-      // Faktureringsmetoden: kvitta kundfordran.
-      rows = [{ nr: selected, d: belopp, k: 0 }, { nr: '1510', d: 0, k: belopp }]
-    }
+    } else rows = [{ nr: selected, d: belopp, k: 0 }, { nr: '1510', d: 0, k: belopp }]
     const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'B - Bank' })
     const { data: ver, error } = await supabase.from('verifikationer').insert({
       company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: 'B - Bank',
@@ -155,207 +100,242 @@ export default function KassaBank() {
     else await supabase.from('invoices').update({ status: 'paid' }).eq('id', m.inv.id)
     return true
   }
-
-  async function bokforMatch(tx, m) {
-    setWorking(true)
-    const ok = await bookMatch(tx, m)
-    setWorking(false)
-    if (ok) { toast.success('Bokförd'); load() }
-  }
-
+  async function bokforMatch(tx, m) { setWorking(true); const ok = await bookMatch(tx, m); setWorking(false); if (ok) { toast.success('Bokförd'); load() } }
   async function bokforAlla() {
-    const matched = banktx.filter(t => t.status === 'unmatched').map(t => ({ t, m: matchFor(t) })).filter(x => x.m)
+    const matched = ejbok.map(t => ({ t, m: matchFor(t) })).filter(x => x.m)
     if (!matched.length) return toast.error('Inga matchade händelser att bokföra')
-    setWorking(true)
-    let n = 0
+    setWorking(true); let n = 0
     for (const { t, m } of matched) { if (await bookMatch(t, m)) n++ }
-    setWorking(false)
-    toast.success(`${n} händelser bokförda`)
-    load()
+    setWorking(false); toast.success(`${n} händelser bokförda`); load()
   }
-
   function matcha(tx) {
     const p = new URLSearchParams({ banktx: tx.id, bankkonto: selected, bankdatum: tx.datum, bankbelopp: String(tx.amount), banktext: tx.text || '' })
     navigate(`/bokforing/ny?${p.toString()}`)
   }
+  async function setBtxStatus(t, status) { setRowMenu(null); await supabase.from('bank_transactions').update({ status }).eq('id', t.id); load() }
+  async function removeBtx(t) { setRowMenu(null); if (!confirm('Ta bort den inlästa transaktionen?')) return; await supabase.from('bank_transactions').delete().eq('id', t.id); load() }
 
-  async function setBtxStatus(t, status) { await supabase.from('bank_transactions').update({ status }).eq('id', t.id); load() }
-  async function removeBtx(t) { if (!confirm('Ta bort den inlästa transaktionen?')) return; await supabase.from('bank_transactions').delete().eq('id', t.id); load() }
+  // --- Bulk ---
+  async function bulkBokfor() {
+    setActMenu(false)
+    const items = rows.filter(t => sel.has(t.id)).map(t => ({ t, m: matchFor(t) })).filter(x => x.m)
+    if (!items.length) return toast.error('Inga markerade har en föreslagen matchning')
+    setWorking(true); let n = 0
+    for (const { t, m } of items) { if (await bookMatch(t, m)) n++ }
+    setWorking(false); toast.success(`${n} bokförda`); setSel(new Set()); load()
+  }
+  async function bulkIgnorera() { setActMenu(false); const ids = [...sel]; if (!ids.length) return; await supabase.from('bank_transactions').update({ status: 'ignored' }).in('id', ids); toast.success('Ignorerade'); setSel(new Set()); load() }
+  async function bulkRadera() { setActMenu(false); const ids = [...sel]; if (!ids.length || !confirm(`Ta bort ${ids.length} bankhändelser?`)) return; await supabase.from('bank_transactions').delete().in('id', ids); toast.success('Borttagna'); setSel(new Set()); load() }
 
-  const totalSaldo = accounts.reduce((s, a) => s + a.saldo, 0)
-  const selAcc = accounts.find(a => a.account_nr === selected)
-  const händelser = selected ? (rowsByAcc[selected] || []) : []
-  const banktx = selected ? (bankByAcc[selected] || []) : []
+  // --- Import ---
+  function startImport(text) {
+    const { rows } = parseFile(text)
+    if (!rows.length) return toast.error('Hittade inga rader')
+    setImpRows(rows); setImpMap(guessColumns(rows[0])); setImpHeader(true); setImpOpen(true)
+  }
+  function onFile(e) { const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; const r = new FileReader(); r.onload = () => startImport(String(r.result)); r.readAsText(file, 'utf-8') }
+  function parsedImport() {
+    const data = impHeader ? impRows.slice(1) : impRows
+    return data.map(r => ({ datum: parseDate(r[impMap.datum]), text: (r[impMap.text] || '').slice(0, 200), amount: parseAmount(r[impMap.belopp]) })).filter(t => t.datum && t.amount != null)
+  }
+  async function doImport() {
+    const txs = parsedImport()
+    if (!txs.length) return toast.error('Inga giltiga rader – kontrollera kolumnvalen')
+    setImporting(true)
+    const { error } = await supabase.from('bank_transactions').insert(txs.map(t => ({ company_id: company.id, account_nr: selected, datum: t.datum, text: t.text, amount: t.amount, status: 'unmatched' })))
+    setImporting(false)
+    if (error) return toast.error('Kunde inte importera: ' + error.message)
+    toast.success(`${txs.length} bankhändelser inlästa`)
+    setImpOpen(false); setImpRows([]); setPasteText(''); setTab('ejbok'); load()
+  }
+
+  function applyPeriod(p) {
+    setPeriod(p)
+    const y = new Date().getFullYear()
+    if (p === 'Innevarande år') { setFrom(`${y}-01-01`); setTom(`${y}-12-31`) }
+    else if (p === 'Föregående år') { setFrom(`${y - 1}-01-01`); setTom(`${y - 1}-12-31`) }
+  }
+
+  // Härledningar
+  const accBtxAll = banktxAll.filter(t => t.account_nr === selected)
+  const inRange = t => (!from || t.datum >= from) && (!tom || t.datum <= tom)
+  const matchSearch = t => !search || `${t.datum} ${t.text || ''} ${fmt(t.amount)}`.toLowerCase().includes(search.toLowerCase())
+  const accBtx = accBtxAll.filter(t => inRange(t) && matchSearch(t))
+  const ejbok = accBtx.filter(t => t.status !== 'booked')
+  const periodens = accBtx.filter(t => t.status === 'booked')
+  const rows = tab === 'ejbok' ? ejbok : periodens
+  const ejBokCount = accBtx.filter(t => t.status !== 'booked').length
+  const matchadeAntal = ejbok.filter(t => matchFor(t)).length
+
   const openingBalance = selAcc?.opening_balance || 0
+  const kontoutdragSaldo = openingBalance + accBtxAll.reduce((s, t) => s + (t.amount || 0), 0)
+  const saldoDatum = accBtxAll.reduce((d, t) => t.datum > d ? t.datum : d, '') || today()
 
-  let running = openingBalance
-  const radMedSaldo = händelser.map(h => { running += h.debet - h.kredit; return { ...h, saldo: running } })
-
-  const avstamtSaldo = openingBalance + händelser.filter(h => h.avstamd).reduce((s, h) => s + h.debet - h.kredit, 0)
-  const ejAvstamda = händelser.filter(h => !h.avstamd).length
-  const utdrag = parseFloat(String(kontoutdrag[selected] ?? '').replace(',', '.'))
-  const diff = isNaN(utdrag) ? null : utdrag - avstamtSaldo
-
-  const ejBokforda = banktx.filter(t => t.status !== 'booked' && t.status !== 'ignored')
-  const matchadeAntal = ejBokforda.filter(t => matchFor(t)).length
+  const allSelected = rows.length > 0 && rows.every(t => sel.has(t.id))
+  const toggleSel = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleAll = () => { const ids = rows.map(t => t.id); setSel(s => { const n = new Set(s); ids.forEach(i => allSelected ? n.delete(i) : n.add(i)); return n }) }
   const previewCols = impRows[0]?.length || 0
 
   return (
-    <div>
+    <div className="pb-20" onClick={() => { setRowMenu(null); setActMenu(false); setTopMenu(false) }}>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-base font-medium">Kassa- och bankhändelser</span>
-        <div className="flex items-center gap-3">
-          {selected && <>
-            <button className="btn" onClick={() => fileRef.current?.click()}><i className="ti ti-file-upload" /> Läs in fil</button>
-            <button className="btn btn-primary" onClick={() => { setPasteText(''); setPasteOpen(true) }}><i className="ti ti-clipboard" /> Klistra in kontoutdrag</button>
-          </>}
+        <div className="relative" onClick={e => e.stopPropagation()}>
+          <div className="flex items-stretch rounded-lg overflow-hidden" style={{ background: '#6d28d9' }}>
+            <button className="text-white text-sm font-medium px-4 py-2 hover:brightness-110" onClick={() => { setPasteText(''); setPasteOpen(true) }}>
+              <i className="ti ti-clipboard mr-1.5" /> Klistra in kontoutdrag
+            </button>
+            <button className="text-white px-2 border-l border-white/25 hover:brightness-110" onClick={() => setTopMenu(o => !o)}><i className="ti ti-chevron-down" /></button>
+          </div>
+          {topMenu && (
+            <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-48 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2" onClick={() => { setTopMenu(false); fileRef.current?.click() }}><i className="ti ti-file-upload" /> Läs in fil (CSV)</button>
+            </div>
+          )}
           <input ref={fileRef} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" className="hidden" onChange={onFile} />
-          <span className="text-sm text-gray-500">Totalt: <span className="font-semibold text-gray-800 tabular-nums">{fmt(totalSaldo)} kr</span></span>
         </div>
       </div>
 
-      <div className="p-7">
-        {loading ? <div className="text-gray-400 py-12 text-center">Laddar…</div>
-        : accounts.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <i className="ti ti-building-bank text-4xl block mb-3 opacity-30" />
-            <div className="font-medium text-gray-500 mb-1">Inga kassa-/bankkonton</div>
-            <div className="text-sm">Bokför på ett 19xx-konto eller klistra in ett kontoutdrag.</div>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-4 gap-3.5 mb-7">
-              {accounts.map(a => (
-                <button key={a.account_nr} onClick={() => setSelected(a.account_nr)}
-                  className={`text-left bg-white rounded-xl p-4 transition-colors ${selected === a.account_nr ? 'ring-2 ring-blue-500' : 'hover:bg-gray-50'}`}
-                  style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-                  <div className="text-xs text-gray-500 mb-1">{a.account_nr} · {a.name}</div>
-                  <div className="text-[20px] font-semibold tabular-nums" style={{ color: a.saldo >= 0 ? '#185FA5' : '#A32D2D' }}>{fmt(a.saldo)}</div>
-                  <div className="text-[11px] text-gray-400 mt-0.5">{a.antal} händelser{a.ejBok ? ` · ${a.ejBok} ej bokförda` : ''}</div>
-                </button>
-              ))}
-            </div>
-
-            {selAcc && (
-              <>
-                <div className="flex border-b mb-3" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-                  {[['handelser', `Kontohändelser (${händelser.length})`], ['inlasta', `Ej bokförda bankhändelser (${ejBokforda.length})`]].map(([k, label]) => (
-                    <button key={k} onClick={() => setSubtab(k)} className={`px-4 py-2 text-[13.5px] border-b-[2.5px] -mb-px ${subtab === k ? 'text-gray-900 font-medium border-blue-700' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>{label}</button>
-                  ))}
-                </div>
-
-                {subtab === 'handelser' ? (
-                  <>
-                    <div className="flex items-center justify-end gap-4 text-sm mb-2">
-                      <span className="text-gray-500">Avstämt saldo: <span className="font-semibold text-gray-800 tabular-nums">{fmt(avstamtSaldo)}</span></span>
-                      {ejAvstamda > 0 && <span className="text-amber-700">{ejAvstamda} ej avstämda</span>}
-                      <span className="flex items-center gap-1.5 text-gray-500">Kontoutdrag:
-                        <input className="input w-32 py-1" inputMode="decimal" placeholder="saldo" value={kontoutdrag[selected] ?? ''} onChange={e => setKontoutdrag(k => ({ ...k, [selected]: e.target.value }))} />
-                      </span>
-                      {diff !== null && <span className={Math.abs(diff) < 0.01 ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>{Math.abs(diff) < 0.01 ? '✓ Stämmer' : `Diff ${fmt(diff)}`}</span>}
-                    </div>
-                    <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                            <th className="px-3 py-2.5 border-b w-12 text-center" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Avst.</th>
-                            <th className="text-left px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Datum</th>
-                            <th className="text-left px-4 py-2.5 border-b w-16" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Ver</th>
-                            <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Beskrivning</th>
-                            <th className="text-right px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>In</th>
-                            <th className="text-right px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Ut</th>
-                            <th className="text-right px-4 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Saldo</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr className="text-gray-500">
-                            <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }} />
-                            <td className="px-4 py-2 border-b" colSpan="5" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>Ingående saldo</td>
-                            <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{fmt(openingBalance)}</td>
-                          </tr>
-                          {radMedSaldo.length === 0 ? (
-                            <tr><td colSpan="7" className="text-center py-10 text-gray-400">Inga händelser.</td></tr>
-                          ) : radMedSaldo.map((h, i) => (
-                            <tr key={i} className={`hover:bg-gray-50 ${h.avstamd ? 'bg-green-50/40' : ''}`}>
-                              <td className="px-3 py-2.5 border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }}><input type="checkbox" checked={h.avstamd} onChange={() => toggleAvstamd(h)} className="cursor-pointer w-4 h-4" /></td>
-                              <td className="px-4 py-2.5 border-b text-gray-600 cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={() => navigate(`/bokforing/${h.id}`)}>{h.datum}</td>
-                              <td className="px-4 py-2.5 border-b font-medium cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={() => navigate(`/bokforing/${h.id}`)}>{h.ver_nr}</td>
-                              <td className="px-4 py-2.5 border-b cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={() => navigate(`/bokforing/${h.id}`)}>{h.beskrivning}</td>
-                              <td className="px-4 py-2.5 border-b text-right tabular-nums text-green-700" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{h.debet ? fmt(h.debet) : ''}</td>
-                              <td className="px-4 py-2.5 border-b text-right tabular-nums text-red-700" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{h.kredit ? fmt(h.kredit) : ''}</td>
-                              <td className="px-4 py-2.5 border-b text-right tabular-nums font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{fmt(h.saldo)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between mb-2 text-sm">
-                      <span className="text-gray-500">{ejBokforda.length} av {banktx.length} bankhändelser ej bokförda{matchadeAntal ? ` · ${matchadeAntal} föreslås` : ''}</span>
-                      {matchadeAntal > 0 && <button className="btn btn-primary" onClick={bokforAlla} disabled={working}>{working ? 'Bokför…' : `Bokför alla matchade (${matchadeAntal})`}</button>}
-                    </div>
-                    <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-                      {banktx.length === 0 ? (
-                        <div className="text-center py-12 text-gray-400">
-                          <i className="ti ti-clipboard text-3xl block mb-2 opacity-30" />
-                          Inga bankhändelser – klicka "Klistra in kontoutdrag" eller "Läs in fil".
-                        </div>
-                      ) : (
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                              <th className="text-left px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Datum</th>
-                              <th className="text-left px-4 py-2.5 border-b w-48" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Referens</th>
-                              <th className="text-right px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Belopp</th>
-                              <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Sammanfattning</th>
-                              <th className="text-right px-4 py-2.5 border-b w-44" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {banktx.map(t => {
-                              const m = matchFor(t)
-                              const booked = t.status === 'booked'
-                              return (
-                                <tr key={t.id} className="hover:bg-gray-50">
-                                  <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{t.datum}</td>
-                                  <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{t.text}</td>
-                                  <td className="px-4 py-2.5 border-b text-right tabular-nums font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)', color: t.amount >= 0 ? '#1a7a2e' : '#b91c1c' }}>{fmt(t.amount)}</td>
-                                  <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                                    {booked ? <span className="text-gray-500">Bokförd</span>
-                                      : m ? <span className="text-gray-700">{m.summary}</span>
-                                      : <span className="text-gray-400 italic">Ingen överensstämmande bokföringshändelse hittad</span>}
-                                  </td>
-                                  <td className="px-4 py-2.5 border-b text-right whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                                    {booked ? (
-                                      <button className="text-blue-700 text-xs hover:underline" onClick={() => navigate(`/bokforing/${t.verifikation_id}`)}><i className="ti ti-link" /> Visa verifikation</button>
-                                    ) : t.status === 'ignored' ? (
-                                      <button className="text-gray-300 hover:text-red-600" title="Ta bort" onClick={() => removeBtx(t)}><i className="ti ti-trash" /></button>
-                                    ) : m ? (
-                                      <button className="btn btn-primary text-xs py-1 px-3" onClick={() => bokforMatch(t, m)} disabled={working}>Bokför</button>
-                                    ) : (
-                                      <>
-                                        <button className="btn text-xs py-1 px-3 mr-1.5" onClick={() => matcha(t)}>Matcha</button>
-                                        <button className="text-gray-300 hover:text-gray-600 mr-1.5 align-middle" title="Ignorera" onClick={() => setBtxStatus(t, 'ignored')}><i className="ti ti-eye-off text-xs" /></button>
-                                        <button className="text-gray-300 hover:text-red-600 align-middle" title="Ta bort" onClick={() => removeBtx(t)}><i className="ti ti-trash text-xs" /></button>
-                                      </>
-                                    )}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </>
-        )}
+      {/* Tabbar */}
+      <div className="px-7 pt-5 flex gap-3">
+        {[['period', `Periodens bankhändelser`, periodens.length], ['ejbok', `Ej bokförda bankhändelser`, ejBokCount]].map(([k, label, n]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`flex-1 rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-colors ${tab === k ? 'text-purple-900' : 'text-gray-600 hover:bg-gray-50'}`}
+            style={{ background: tab === k ? 'rgba(109,40,217,0.14)' : '#fff', border: '0.5px solid rgba(0,0,0,0.10)' }}>
+            {label} <span className={`text-[11px] font-semibold px-1.5 rounded-full ${tab === k ? 'bg-purple-700 text-white' : 'bg-gray-200 text-gray-600'}`}>{n}</span>
+          </button>
+        ))}
       </div>
+
+      {/* Filterrad */}
+      <div className="px-7 py-4 grid grid-cols-[1fr_1.4fr_1.2fr] gap-5 items-start">
+        <div className="relative">
+          <input className="input pl-8" placeholder="Sök" value={search} onChange={e => setSearch(e.target.value)} />
+          <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+        </div>
+        <div>
+          <div className="grid grid-cols-[80px_1fr] items-center gap-3">
+            <label className="text-sm text-gray-600">Konto</label>
+            <select className="input" value={selected || ''} onChange={e => { setSelected(e.target.value); setSel(new Set()) }}>
+              {accounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-[90px_1fr] items-center gap-3">
+          <label className="text-sm text-gray-600">Period</label>
+          <select className="input" value={period} onChange={e => applyPeriod(e.target.value)}>
+            <option>Anpassad</option><option>Innevarande år</option><option>Föregående år</option>
+          </select>
+          <label className="text-sm text-gray-600">Bokföringsdatum</label>
+          <div className="flex items-center gap-2">
+            <input className="input" type="date" value={from} onChange={e => { setFrom(e.target.value); setPeriod('Anpassad') }} />
+            <span className="text-gray-400">–</span>
+            <input className="input" type="date" value={tom} onChange={e => { setTom(e.target.value); setPeriod('Anpassad') }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Summeringsrad */}
+      <div className="px-7 flex items-end justify-between mb-2">
+        <div>
+          <div className="text-[13px] font-medium text-gray-700">Bankhändelser på kontoutdraget</div>
+          <div className="text-[15px] font-bold tabular-nums">{fmt(kontoutdragSaldo)}</div>
+          <div className="text-[11px] text-gray-400">Saldo per {saldoDatum}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[13px] font-medium text-gray-700">Bokföringshändelser</div>
+          <div className="text-[12px] text-gray-500">{ejBokCount} av {accBtx.length} händelser är ej bokförda</div>
+        </div>
+      </div>
+
+      {/* Tabell */}
+      <div className="px-7">
+        {loading ? <div className="text-gray-400 py-12 text-center">Laddar…</div>
+          : !selected ? (
+            <div className="text-center py-16 text-gray-400"><i className="ti ti-building-bank text-4xl block mb-3 opacity-30" />Inga kassa-/bankkonton.</div>
+          ) : (
+            <div className="bg-white rounded-xl overflow-x-auto" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                    <th className="px-3 py-2.5 border-b w-8 text-center" style={{ borderColor: 'rgba(0,0,0,0.10)' }}><input type="checkbox" checked={allSelected} onChange={toggleAll} /></th>
+                    <th className="text-left px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Datum</th>
+                    <th className="text-left px-4 py-2.5 border-b w-56" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Referens</th>
+                    <th className="text-right px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Belopp</th>
+                    <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Sammanfattning</th>
+                    <th className="text-right px-4 py-2.5 border-b w-52" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr><td colSpan="6" className="text-center py-12 text-gray-400">{tab === 'ejbok' ? 'Inga ej bokförda bankhändelser. Klistra in ett kontoutdrag.' : 'Inga bokförda bankhändelser i perioden.'}</td></tr>
+                  ) : rows.map(t => {
+                    const m = matchFor(t)
+                    const booked = t.status === 'booked'
+                    return (
+                      <tr key={t.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2.5 border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(t.id)} onChange={() => toggleSel(t.id)} /></td>
+                        <td className="px-4 py-2.5 border-b text-gray-600 whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{t.datum}</td>
+                        <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{t.text}</td>
+                        <td className="px-4 py-2.5 border-b text-right tabular-nums font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)', color: t.amount >= 0 ? '#1a7a2e' : '#b91c1c' }}>{fmt(t.amount)}</td>
+                        <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                          {booked ? <span className="text-gray-500">Bokförd</span>
+                            : m ? <span className="text-blue-700">{m.summary}</span>
+                            : <span className="text-gray-400 italic">Ingen överensstämmande bokföringshändelse hittad</span>}
+                        </td>
+                        <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-2">
+                            {!booked && <button className="text-gray-300 hover:text-gray-600" title="Matcha mot underlag" onClick={() => matcha(t)}><i className="ti ti-upload" /></button>}
+                            {booked ? (
+                              <button className="text-blue-700 text-xs hover:underline" onClick={() => navigate(`/bokforing/${t.verifikation_id}`)}><i className="ti ti-link" /> Visa verifikation</button>
+                            ) : m ? (
+                              <button className="text-white text-xs font-medium px-4 py-1.5 rounded-md" style={{ background: '#6d28d9' }} onClick={() => bokforMatch(t, m)} disabled={working}>Bokför</button>
+                            ) : (
+                              <div className="relative">
+                                <div className="flex items-stretch rounded-md overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.18)' }}>
+                                  <button className="text-sm px-3 py-1 hover:bg-gray-50" onClick={() => matcha(t)}>Matcha</button>
+                                  <button className="px-1.5 border-l hover:bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.12)' }} onClick={() => setRowMenu(rowMenu === t.id ? null : t.id)}><i className="ti ti-chevron-down text-xs" /></button>
+                                </div>
+                                {rowMenu === t.id && (
+                                  <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-40 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => matcha(t)}>Matcha manuellt</button>
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => setBtxStatus(t, 'ignored')}>Ignorera</button>
+                                    <button className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-50" onClick={() => removeBtx(t)}>Ta bort</button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+      </div>
+
+      {/* Bottenrad */}
+      {selected && (
+        <div className="fixed bottom-0 left-[230px] right-0 bg-white border-t px-7 py-3 flex items-center gap-3 z-20" style={{ borderColor: 'rgba(0,0,0,0.10)' }} onClick={e => e.stopPropagation()}>
+          <button className="text-white text-sm font-medium px-5 py-2 rounded-lg" style={{ background: '#6d28d9' }} disabled={working || matchadeAntal === 0} onClick={bokforAlla}>
+            {working ? 'Bokför…' : `Bokför alla${matchadeAntal ? ` (${matchadeAntal})` : ''}`}
+          </button>
+          <div className="relative">
+            <button className="btn" onClick={() => setActMenu(o => !o)}>Åtgärder <i className="ti ti-chevron-up text-xs ml-1" /></button>
+            {actMenu && (
+              <div className="absolute bottom-full left-0 mb-1 bg-white rounded-lg shadow-xl z-30 w-52 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300" disabled={!sel.size} onClick={bulkBokfor}>Bokför markerade (matchade)</button>
+                <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 disabled:text-gray-300" disabled={!sel.size} onClick={bulkIgnorera}>Ignorera markerade</button>
+                <button className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-50 disabled:text-gray-300" disabled={!sel.size} onClick={bulkRadera}>Ta bort markerade</button>
+              </div>
+            )}
+          </div>
+          {sel.size > 0 && <span className="text-sm text-gray-500">{sel.size} markerade</span>}
+          <span className="ml-auto text-sm text-gray-500">{rows.length} av {accBtx.length} poster visas</span>
+        </div>
+      )}
 
       {/* Klistra in kontoutdrag */}
       {pasteOpen && (
@@ -366,9 +346,8 @@ export default function KassaBank() {
               <button className="text-gray-400 hover:text-gray-700" onClick={() => setPasteOpen(false)}><i className="ti ti-x" /></button>
             </div>
             <div className="px-5 py-4">
-              <p className="text-sm text-gray-500 mb-2">Kopiera raderna från din internetbank (datum, text, belopp) och klistra in nedan. Tabb-, komma- eller semikolon­separerat fungerar.</p>
-              <textarea className="input font-mono text-xs" rows={10} value={pasteText} onChange={e => setPasteText(e.target.value)}
-                placeholder={'2026-05-21\tLÖNER\t-32000,00\n2026-05-21\tFORTNOX FINANS AB\t-750,00'} autoFocus />
+              <p className="text-sm text-gray-500 mb-2">Kopiera raderna från din internetbank (datum, text, belopp) och klistra in. Tabb-, komma- eller semikolon­separerat fungerar.</p>
+              <textarea className="input font-mono text-xs" rows={10} value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder={'2026-05-21\tLÖNER\t-32000,00'} autoFocus />
             </div>
             <div className="px-5 py-3 border-t flex justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
               <button className="btn" onClick={() => setPasteOpen(false)}>Avbryt</button>
@@ -378,7 +357,7 @@ export default function KassaBank() {
         </div>
       )}
 
-      {/* Import: kolumnmappning + förhandsvisning */}
+      {/* Import: kolumnmappning */}
       {impOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !importing && setImpOpen(false)}>
           <div className="bg-white rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
