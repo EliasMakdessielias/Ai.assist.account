@@ -78,6 +78,17 @@ export default function Dagskassa() {
   const differens = payments - grandTotal
   const balanced = Math.abs(differens) < 0.01 && payments > 0
 
+  // Enter i Kort: är fältet tomt fylls resterande belopp i automatiskt (så differensen blir 0).
+  function onKortEnter(e) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    if (num(f.kort) <= 0) {
+      const remaining = grandTotal - num(f.kontant)
+      if (remaining > 0.001) { set('kort', fmt(remaining)) }
+    }
+    setTimeout(() => document.getElementById('ds-bokfor')?.focus(), 0)
+  }
+
   function rensa() { setF({ ...empty }); setKommentar('') }
 
   async function bokfor() {
@@ -123,7 +134,7 @@ export default function Dagskassa() {
       <input id={`ds-${k}`} className="input text-right" inputMode="decimal" disabled={opts.locked}
         style={{ opacity: opts.locked ? 0.6 : 1 }}
         value={opts.locked ? (opts.value ? fmt(opts.value) : '') : (f[k] ?? '')}
-        onChange={e => set(k, e.target.value)} onKeyDown={e => handleEnter(e, `ds-${k}`)} placeholder="0,00" />
+        onChange={e => set(k, e.target.value)} onKeyDown={opts.onKey || (e => handleEnter(e, `ds-${k}`))} placeholder="0,00" />
     </div>
   )
   const subtotal = (label, val) => (
@@ -174,7 +185,7 @@ export default function Dagskassa() {
       <div className="mb-5">
         <div className="text-sm font-semibold mb-2">Betalsätt</div>
         {amt('Kontant', 'kontant')}
-        {amt('Kort', 'kort')}
+        {amt('Kort', 'kort', { onKey: onKortEnter })}
         {subtotal('Inbetalt', payments)}
       </div>
 
