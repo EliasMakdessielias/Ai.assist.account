@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 const navItems = [
   { section: 'Översikt' },
   { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
+  { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { section: 'Ekonomi' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },

@@ -27,6 +27,7 @@ import ImportExport from './pages/ImportExport'
 import Sie from './pages/Sie'
 import Granskning from './pages/Granskning'
 import Kontoanalys from './pages/Kontoanalys'
+import Assistent from './pages/Assistent'
 import KontoDetalj from './pages/KontoDetalj'
 import Installningar from './pages/Installningar'
 import Rakenskapsar from './pages/Rakenskapsar'
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="installningar/sie" element={<Sie />} />
           <Route path="granskning" element={<Granskning />} />
           <Route path="kontoanalys" element={<Kontoanalys />} />
+          <Route path="assistent" element={<Assistent />} />
           <Route path="installningar/kontoplan" element={<Kontoplan />} />
           <Route path="installningar/kontoplan/:nr" element={<KontoDetalj />} />
         </Route>
