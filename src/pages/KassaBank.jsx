@@ -37,6 +37,9 @@ export default function KassaBank() {
   const [importing, setImporting] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
+  const [payTx, setPayTx] = useState(null)        // tx vi väljer leverantörsfaktura för
+  const [paySearch, setPaySearch] = useState('')
+  const [batchOpen, setBatchOpen] = useState(false)
   const fileRef = useRef()
 
   useEffect(() => { if (company) load() }, [company?.id])
@@ -96,9 +99,52 @@ export default function KassaBank() {
     if (error) { toast.error(error.message); return false }
     await supabase.from('verifikation_rows').insert(rows.map((r, i) => ({ verifikation_id: ver.id, account_nr: r.nr, account_name: accName(r.nr), debet: r.d, kredit: r.k, sort_order: i })))
     await supabase.from('bank_transactions').update({ status: 'booked', verifikation_id: ver.id }).eq('id', tx.id)
-    if (m.type === 'sup') await supabase.from('supplier_invoices').update({ status: 'paid' }).eq('id', m.inv.id)
+    if (m.type === 'sup') await supabase.from('supplier_invoices').update({ status: 'paid', paid_amount: m.inv.total_amount, paid_date: tx.datum, betalning_ver_id: ver.id }).eq('id', m.inv.id)
     else await supabase.from('invoices').update({ status: 'paid' }).eq('id', m.inv.id)
     return true
+  }
+
+  // Registrera utbetalning av en vald leverantörsfaktura direkt från bankhändelsen.
+  async function betalaFaktura(tx, inv) {
+    setPayTx(null)
+    const belopp = Math.abs(tx.amount)
+    const rows = [{ nr: '2440', d: belopp, k: 0 }, { nr: selected, d: 0, k: belopp }]
+    setWorking(true)
+    try {
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'B - Bank' })
+      const { data: ver, error } = await supabase.from('verifikationer').insert({
+        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: 'B - Bank',
+        datum: tx.datum, beskrivning: `Betalning av leverantörsfaktura ${inv.invoice_nr || ''} ${inv.suppliers?.name || ''}`.trim().slice(0, 200),
+        total_debet: belopp, total_kredit: belopp, created_by: user.id,
+      }).select().single()
+      if (error) throw error
+      await supabase.from('verifikation_rows').insert(rows.map((r, i) => ({ verifikation_id: ver.id, account_nr: r.nr, account_name: accName(r.nr), debet: r.d, kredit: r.k, sort_order: i })))
+      await supabase.from('bank_transactions').update({ status: 'booked', verifikation_id: ver.id }).eq('id', tx.id)
+      await supabase.from('supplier_invoices').update({ status: 'paid', paid_amount: inv.total_amount, paid_date: tx.datum, betalning_ver_id: ver.id }).eq('id', inv.id)
+      toast.success('Utbetalning registrerad – fakturan markerad betald')
+      load()
+    } catch (e) { toast.error('Fel: ' + e.message) }
+    setWorking(false)
+  }
+
+  // Ångra en bokförd bankhändelse: radera verifikationen -> triggern återställer faktura + bankhändelse.
+  async function angra(tx) {
+    setRowMenu(null)
+    if (!tx.verifikation_id) return
+    if (!confirm('Ångra bokföringen? Verifikationen tas bort, händelsen blir ej bokförd igen och ev. fakturabetalning återställs.')) return
+    const { error } = await supabase.from('verifikationer').delete().eq('id', tx.verifikation_id)
+    if (error) return toast.error('Kunde inte ångra: ' + error.message)
+    toast.success('Bokföring ångrad')
+    load()
+  }
+
+  // Ta bort en hel inläsning (batch) – bara om inget i den är bokfört.
+  async function deleteBatch(b) {
+    if (b.bookedCount > 0) return toast.error('Ångra bokföringen av raderna först')
+    if (!confirm(`Ta bort inläsningen (${b.count} bankhändelser)?`)) return
+    const { error } = await supabase.from('bank_transactions').delete().eq('company_id', company.id).eq('import_batch', b.id)
+    if (error) return toast.error('Kunde inte ta bort: ' + error.message)
+    toast.success('Inläsning borttagen'); load()
   }
   async function bokforMatch(tx, m) { setWorking(true); const ok = await bookMatch(tx, m); setWorking(false); if (ok) { toast.success('Bokförd'); load() } }
   async function bokforAlla() {
@@ -142,7 +188,8 @@ export default function KassaBank() {
     const txs = parsedImport()
     if (!txs.length) return toast.error('Inga giltiga rader – kontrollera kolumnvalen')
     setImporting(true)
-    const { error } = await supabase.from('bank_transactions').insert(txs.map(t => ({ company_id: company.id, account_nr: selected, datum: t.datum, text: t.text, amount: t.amount, status: 'unmatched' })))
+    const batch = crypto.randomUUID()
+    const { error } = await supabase.from('bank_transactions').insert(txs.map(t => ({ company_id: company.id, account_nr: selected, datum: t.datum, text: t.text, amount: t.amount, status: 'unmatched', import_batch: batch })))
     setImporting(false)
     if (error) return toast.error('Kunde inte importera: ' + error.message)
     toast.success(`${txs.length} bankhändelser inlästa`)
@@ -171,6 +218,20 @@ export default function KassaBank() {
   const kontoutdragSaldo = openingBalance + accBtxAll.reduce((s, t) => s + (t.amount || 0), 0)
   const saldoDatum = accBtxAll.reduce((d, t) => t.datum > d ? t.datum : d, '') || today()
 
+  // Inlästa filer (batcher) för valt konto
+  const batches = Object.values(accBtxAll.reduce((acc, t) => {
+    if (!t.import_batch) return acc
+    const b = (acc[t.import_batch] ||= { id: t.import_batch, count: 0, bookedCount: 0, datum: t.imported_at || t.datum, minDatum: t.datum, maxDatum: t.datum, sum: 0 })
+    b.count++; if (t.status === 'booked') b.bookedCount++
+    b.sum += t.amount || 0
+    if (t.datum < b.minDatum) b.minDatum = t.datum
+    if (t.datum > b.maxDatum) b.maxDatum = t.datum
+    return acc
+  }, {})).sort((a, b) => String(b.datum).localeCompare(String(a.datum)))
+
+  const payCandidates = openSup.filter(i => !paySearch || `${i.invoice_nr || ''} ${i.suppliers?.name || ''} ${fmt(i.total_amount)}`.toLowerCase().includes(paySearch.toLowerCase()))
+    .sort((a, b) => Math.abs((a.total_amount || 0) - Math.abs(payTx?.amount || 0)) - Math.abs((b.total_amount || 0) - Math.abs(payTx?.amount || 0)))
+
   const allSelected = rows.length > 0 && rows.every(t => sel.has(t.id))
   const toggleSel = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleAll = () => { const ids = rows.map(t => t.id); setSel(s => { const n = new Set(s); ids.forEach(i => allSelected ? n.delete(i) : n.add(i)); return n }) }
@@ -188,8 +249,9 @@ export default function KassaBank() {
             <button className="text-white px-2 border-l border-white/25 hover:brightness-110" onClick={() => setTopMenu(o => !o)}><i className="ti ti-chevron-down" /></button>
           </div>
           {topMenu && (
-            <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-48 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+            <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-52 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
               <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2" onClick={() => { setTopMenu(false); fileRef.current?.click() }}><i className="ti ti-file-upload" /> Läs in fil (CSV)</button>
+              <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2" onClick={() => { setTopMenu(false); setBatchOpen(true) }}><i className="ti ti-files" /> Hantera inläsningar…</button>
             </div>
           )}
           <input ref={fileRef} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" className="hidden" onChange={onFile} />
@@ -287,7 +349,10 @@ export default function KassaBank() {
                           <div className="flex items-center justify-end gap-2">
                             {!booked && <button className="text-gray-300 hover:text-gray-600" title="Matcha mot underlag" onClick={() => matcha(t)}><i className="ti ti-upload" /></button>}
                             {booked ? (
-                              <button className="text-blue-700 text-xs hover:underline" onClick={() => navigate(`/bokforing/${t.verifikation_id}`)}><i className="ti ti-link" /> Visa verifikation</button>
+                              <>
+                                <button className="text-blue-700 text-xs hover:underline" onClick={() => navigate(`/bokforing/${t.verifikation_id}`)}><i className="ti ti-link" /> Visa</button>
+                                <button className="text-xs text-gray-500 hover:text-red-600 hover:underline" onClick={() => angra(t)}><i className="ti ti-arrow-back-up" /> Ångra</button>
+                              </>
                             ) : m ? (
                               <button className="text-white text-xs font-medium px-4 py-1.5 rounded-md" style={{ background: '#6d28d9' }} onClick={() => bokforMatch(t, m)} disabled={working}>Bokför</button>
                             ) : (
@@ -297,7 +362,8 @@ export default function KassaBank() {
                                   <button className="px-1.5 border-l hover:bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.12)' }} onClick={() => setRowMenu(rowMenu === t.id ? null : t.id)}><i className="ti ti-chevron-down text-xs" /></button>
                                 </div>
                                 {rowMenu === t.id && (
-                                  <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-40 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                                  <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-56 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                                    {t.amount < 0 && <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-purple-800" onClick={() => { setRowMenu(null); setPaySearch(''); setPayTx(t) }}><i className="ti ti-cash mr-1.5" />Betala leverantörsfaktura…</button>}
                                     <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => matcha(t)}>Matcha manuellt</button>
                                     <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => setBtxStatus(t, 'ignored')}>Ignorera</button>
                                     <button className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-50" onClick={() => removeBtx(t)}>Ta bort</button>
@@ -393,6 +459,69 @@ export default function KassaBank() {
               <button className="btn" onClick={() => setImpOpen(false)} disabled={importing}>Avbryt</button>
               <button className="btn btn-primary" onClick={doImport} disabled={importing}>{importing ? 'Läser in…' : `Läs in ${parsedImport().length} bankhändelser`}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Betala leverantörsfaktura från bankhändelse */}
+      {payTx && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPayTx(null)}>
+          <div className="bg-white rounded-xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+              <div className="flex items-center justify-between">
+                <span className="text-base font-medium">Betala leverantörsfaktura</span>
+                <button className="text-gray-400 hover:text-gray-700" onClick={() => setPayTx(null)}><i className="ti ti-x" /></button>
+              </div>
+              <div className="text-sm text-gray-500 mt-1">Bankhändelse {payTx.datum} · <b className="tabular-nums text-red-700">{fmt(payTx.amount)}</b> · {payTx.text}</div>
+            </div>
+            <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+              <div className="relative">
+                <input className="input pl-8" placeholder="Sök faktura/leverantör" value={paySearch} onChange={e => setPaySearch(e.target.value)} autoFocus />
+                <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {payCandidates.length === 0 ? (
+                <div className="text-center py-10 text-gray-400">Inga obetalda leverantörsfakturor.</div>
+              ) : payCandidates.map(inv => {
+                const match = Math.abs((inv.total_amount || 0) - Math.abs(payTx.amount)) < 0.01
+                return (
+                  <button key={inv.id} className="w-full text-left px-5 py-3 border-b hover:bg-gray-50 flex items-center justify-between gap-3" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={() => betalaFaktura(payTx, inv)} disabled={working}>
+                    <span className="truncate">{inv.suppliers?.name || '–'} <span className="text-gray-400">· {inv.invoice_nr || ''}</span> {match && <span className="text-green-700 text-xs ml-1">✓ samma belopp</span>}</span>
+                    <span className="tabular-nums font-medium shrink-0">{fmt(inv.total_amount)}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-5 py-3 border-t text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Bokför D 2440 / K {selAcc?.account_nr} och markerar fakturan som betald.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Hantera inläsningar */}
+      {batchOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setBatchOpen(false)}>
+          <div className="bg-white rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+              <span className="text-base font-medium">Inlästa filer · {selAcc?.account_nr} {selAcc?.name}</span>
+              <button className="text-gray-400 hover:text-gray-700" onClick={() => setBatchOpen(false)}><i className="ti ti-x" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {batches.length === 0 ? (
+                <div className="text-center py-10 text-gray-400">Inga spårade inläsningar för kontot.<div className="text-xs mt-1">(Rader inlästa innan funktionen aktiverades kan tas bort en och en i listan.)</div></div>
+              ) : batches.map(b => (
+                <div key={b.id} className="px-5 py-3 border-b flex items-center justify-between gap-3" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                  <div>
+                    <div className="text-sm font-medium">{b.count} bankhändelser · {b.minDatum} – {b.maxDatum}</div>
+                    <div className="text-xs text-gray-500">Netto <span className="tabular-nums">{fmt(b.sum)}</span>{b.bookedCount > 0 ? <span className="text-amber-700"> · {b.bookedCount} bokförda</span> : <span className="text-gray-400"> · inget bokfört</span>}</div>
+                  </div>
+                  <button className="btn btn-danger text-xs py-1 px-3 disabled:opacity-40" disabled={b.bookedCount > 0} onClick={() => deleteBatch(b)} title={b.bookedCount > 0 ? 'Ångra bokföringen först' : 'Ta bort inläsningen'}>
+                    <i className="ti ti-trash" /> Ta bort
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>En inläsning kan tas bort när inget i den är bokfört. Har du bokfört rader – ångra bokföringen först (knappen Ångra på raden).</div>
           </div>
         </div>
       )}
