@@ -34,7 +34,12 @@ export function AuthProvider({ children }) {
   async function loadCompanies(u) {
     // Acceptera ev. väntande inbjudningar (kopplar användaren till företag som bjudit in mejlet).
     await acceptInvites(u)
-    const list = await fetchCompanies(u.id)
+    let list = await fetchCompanies(u.id)
+    // Har användaren inget företag än? Skapa det från registreringsuppgifterna (kräver inloggad session).
+    if (!list.length) {
+      await ensureCompanyFromMetadata(u)
+      list = await fetchCompanies(u.id)
+    }
     setCompanies(list)
     const stored = localStorage.getItem(ACTIVE_KEY)
     const active = list.find(c => c.id === stored) || list[0] || null
@@ -56,6 +61,17 @@ export function AuthProvider({ children }) {
     } catch { /* tabellen kanske inte finns än – ignorera */ }
   }
 
+  // Skapar företaget från uppgifterna som angavs vid registrering (sparade i user_metadata).
+  async function ensureCompanyFromMetadata(u) {
+    const meta = u.user_metadata || {}
+    if (!meta.company_name) return
+    const { data: comp, error } = await supabase.from('companies').insert({ name: meta.company_name, org_nr: meta.org_nr || null }).select().single()
+    if (!error && comp) {
+      await supabase.from('user_companies').insert({ user_id: u.id, company_id: comp.id, role: 'admin', email: u.email })
+      localStorage.setItem(ACTIVE_KEY, comp.id)
+    }
+  }
+
   function switchCompany(id) {
     const c = companies.find(x => x.id === id)
     if (c) { setCompany(c); localStorage.setItem(ACTIVE_KEY, id) }
@@ -73,23 +89,15 @@ export function AuthProvider({ children }) {
   }
 
   async function signUp(email, password, companyName, orgNr) {
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
-    if (authError) throw authError
-
-    // Om mejlet redan är inbjudet – anslut till det företaget istället för att skapa nytt.
-    const { data: invites } = await supabase.from('company_invites').select('id, company_id').eq('status', 'pending').ilike('email', email)
-    if (invites && invites.length) {
-      for (const inv of invites) {
-        await supabase.from('user_companies').insert({ user_id: authData.user.id, company_id: inv.company_id, role: 'member', email })
-        await supabase.from('company_invites').update({ status: 'accepted' }).eq('id', inv.id)
-      }
-    } else {
-      const { data: comp, error: compError } = await supabase.from('companies').insert({ name: companyName, org_nr: orgNr }).select().single()
-      if (compError) throw compError
-      await supabase.from('user_companies').insert({ user_id: authData.user.id, company_id: comp.id, role: 'admin', email })
-      localStorage.setItem(ACTIVE_KEY, comp.id)
-    }
-    return authData
+    // Spara företagsuppgifterna i metadata. Själva företaget skapas vid första
+    // inloggningen (efter ev. e-postbekräftelse), då en giltig session finns och
+    // säkerhetsreglerna tillåter det. Inbjudna kollegor kopplas istället via acceptInvites.
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { company_name: companyName, org_nr: orgNr || null } },
+    })
+    if (error) throw error
+    return data
   }
 
   async function signIn(email, password) {
