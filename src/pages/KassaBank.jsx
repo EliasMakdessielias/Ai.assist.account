@@ -6,13 +6,16 @@ import toast from 'react-hot-toast'
 import { parseFile, parseAmount, parseDate, guessColumns } from '../lib/parseBank'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
 const today = () => new Date().toISOString().slice(0, 10)
+const emptyKRow = () => ({ konto: '', debet: '', kredit: '' })
 const KNOWN = { '2440': 'Leverantörsskulder', '1510': 'Kundfordringar', '1930': 'Företagskonto', '1910': 'Kassa' }
 
 export default function KassaBank() {
   const { company, user } = useAuth()
   const navigate = useNavigate()
   const [accounts, setAccounts] = useState([])
+  const [allAccounts, setAllAccounts] = useState([])
   const [banktxAll, setBanktxAll] = useState([])
   const [openSup, setOpenSup] = useState([])
   const [openCust, setOpenCust] = useState([])
@@ -37,6 +40,10 @@ export default function KassaBank() {
   const [importing, setImporting] = useState(false)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
+  const [matchTx, setMatchTx] = useState(null)    // tx vi matchar i modalen
+  const [mRows, setMRows] = useState([emptyKRow()])
+  const [mBesk, setMBesk] = useState('')
+  const [mDatum, setMDatum] = useState('')
   const [payTx, setPayTx] = useState(null)        // tx vi väljer leverantörsfaktura för
   const [paySearch, setPaySearch] = useState('')
   const [batchOpen, setBatchOpen] = useState(false)
@@ -46,8 +53,9 @@ export default function KassaBank() {
 
   async function load() {
     setLoading(true)
-    const [{ data: accs }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
+    const [{ data: accs }, { data: allAccs }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
       supabase.from('accounts').select('account_nr, name, opening_balance, is_active').eq('company_id', company.id).like('account_nr', '19%').order('account_nr'),
+      supabase.from('accounts').select('account_nr, name').eq('company_id', company.id).eq('is_active', true).order('account_nr'),
       supabase.from('bank_transactions').select('*').eq('company_id', company.id).order('datum', { ascending: false }),
       supabase.from('supplier_invoices').select('id, invoice_nr, ocr, due_date, total_amount, status, suppliers(name, bankgiro)').eq('company_id', company.id).eq('status', 'unpaid'),
       supabase.from('invoices').select('id, invoice_nr, total_amount, amount_excl_vat, vat_amount, status, customers(name)').eq('company_id', company.id).eq('status', 'sent'),
@@ -55,6 +63,7 @@ export default function KassaBank() {
     const bByAcc = {}; (btx || []).forEach(t => { (bByAcc[t.account_nr] ||= []).push(t) })
     const visibleAccs = (accs || []).filter(a => a.is_active || bByAcc[a.account_nr])
     setAccounts(visibleAccs.length ? visibleAccs : (accs || []))
+    setAllAccounts(allAccs || [])
     setBanktxAll(btx || [])
     setOpenSup(sup || [])
     setOpenCust(cust || [])
@@ -63,7 +72,7 @@ export default function KassaBank() {
     setLoading(false)
   }
 
-  const accName = nr => accounts.find(a => a.account_nr === nr)?.name || KNOWN[nr] || ''
+  const accName = nr => allAccounts.find(a => a.account_nr === nr)?.name || accounts.find(a => a.account_nr === nr)?.name || KNOWN[nr] || ''
   const selAcc = accounts.find(a => a.account_nr === selected)
   const metod = company?.bokforingsmetod || 'faktura'
 
@@ -142,6 +151,62 @@ export default function KassaBank() {
   function matcha(tx) {
     const p = new URLSearchParams({ banktx: tx.id, bankkonto: selected, bankdatum: tx.datum, bankbelopp: String(tx.amount), banktext: tx.text || '' })
     navigate(`/bokforing/ny?${p.toString()}`)
+  }
+
+  // Inline-matchning (modal): bygg kontering mot bankhändelsen.
+  function openMatch(tx) {
+    setRowMenu(null)
+    const m = matchFor(tx)
+    setMatchTx(tx)
+    setMBesk((m?.summary || tx.text || '').slice(0, 200))
+    setMDatum(tx.datum)
+    const motkonto = m ? (m.type === 'sup' ? '2440' : (metod === 'kontant' ? '3001' : '1510')) : ''
+    setMRows(motkonto ? [{ konto: motkonto, debet: '', kredit: '' }, emptyKRow()] : [emptyKRow()])
+  }
+  function setMRow(idx, patch) {
+    setMRows(rs => {
+      const next = rs.map((r, i) => i === idx ? { ...r, ...patch } : r)
+      if (!next.length || next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit) next.push(emptyKRow())
+      return next
+    })
+  }
+  function mKontoBlur(idx) {
+    if (!matchTx) return
+    setMRows(rs => {
+      const r = rs[idx]; if (!r.konto || num(r.debet) || num(r.kredit)) return rs
+      const side = matchTx.amount < 0 ? 'debet' : 'kredit'   // motkontot ligger på motsatt sida mot banken
+      const belopp = Math.abs(matchTx.amount)
+      const filled = rs.reduce((s, x, i) => i === idx ? s : s + num(x[side]), 0)
+      const rest = Math.round((belopp - filled) * 100) / 100
+      const next = rs.map((x, i) => i === idx ? { ...x, [side]: rest > 0.005 ? fmt(rest) : '' } : x)
+      if (!next.length || next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit) next.push(emptyKRow())
+      return next
+    })
+  }
+  async function bokforMatcha() {
+    if (!matchTx) return
+    const belopp = Math.abs(matchTx.amount)
+    const bankRow = matchTx.amount < 0 ? { nr: selected, d: 0, k: belopp } : { nr: selected, d: belopp, k: 0 }
+    const mot = mRows.filter(r => r.konto && (num(r.debet) || num(r.kredit))).map(r => ({ nr: r.konto, d: num(r.debet), k: num(r.kredit) }))
+    if (!mot.length) return toast.error('Lägg till minst ett motkonto')
+    const all = [bankRow, ...mot]
+    const td = all.reduce((s, r) => s + r.d, 0), tk = all.reduce((s, r) => s + r.k, 0)
+    if (Math.abs(td - tk) > 0.01) return toast.error('Konteringen måste balansera (differens 0)')
+    setWorking(true)
+    try {
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'B - Bank' })
+      const { data: ver, error } = await supabase.from('verifikationer').insert({
+        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: 'B - Bank',
+        datum: mDatum, beskrivning: (mBesk || matchTx.text || 'Bankhändelse').slice(0, 200), total_debet: td, total_kredit: tk, created_by: user.id,
+      }).select().single()
+      if (error) throw error
+      await supabase.from('verifikation_rows').insert(all.map((r, i) => ({ verifikation_id: ver.id, account_nr: r.nr, account_name: accName(r.nr), debet: r.d, kredit: r.k, sort_order: i })))
+      await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', [...new Set(all.map(r => r.nr))]).eq('is_active', false)
+      await supabase.from('bank_transactions').update({ status: 'booked', verifikation_id: ver.id }).eq('id', matchTx.id)
+      toast.success(`Bankhändelse bokförd (${ver.ver_nr})`)
+      setMatchTx(null); load()
+    } catch (e) { toast.error('Fel: ' + e.message) }
+    setWorking(false)
   }
   async function setBtxStatus(t, status) { setRowMenu(null); await supabase.from('bank_transactions').update({ status }).eq('id', t.id); load() }
   async function removeBtx(t) { setRowMenu(null); if (!confirm('Ta bort den inlästa transaktionen?')) return; await supabase.from('bank_transactions').delete().eq('id', t.id); load() }
@@ -403,13 +468,14 @@ export default function KassaBank() {
                             ) : (
                               <div className="relative">
                                 <div className="flex items-stretch rounded-md overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.18)' }}>
-                                  <button className="text-sm px-3 py-1 hover:bg-gray-50" onClick={() => matcha(t)}>Matcha</button>
+                                  <button className="text-sm px-3 py-1 hover:bg-gray-50" onClick={() => openMatch(t)}>Matcha</button>
                                   <button className="px-1.5 border-l hover:bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.12)' }} onClick={() => setRowMenu(rowMenu === t.id ? null : t.id)}><i className="ti ti-chevron-down text-xs" /></button>
                                 </div>
                                 {rowMenu === t.id && (
                                   <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-56 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => openMatch(t)}>Matcha / kontera…</button>
                                     {t.amount < 0 && <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-purple-800" onClick={() => { setRowMenu(null); setPaySearch(''); setPayTx(t) }}><i className="ti ti-cash mr-1.5" />Betala leverantörsfaktura…</button>}
-                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => matcha(t)}>Matcha manuellt</button>
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => matcha(t)}>Öppna i bokföringen</button>
                                     <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => setBtxStatus(t, 'ignored')}>Ignorera</button>
                                     <button className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-50" onClick={() => removeBtx(t)}>Ta bort</button>
                                   </div>
@@ -507,6 +573,100 @@ export default function KassaBank() {
           </div>
         </div>
       )}
+
+      {/* Matcha bankhändelse – inline kontering */}
+      {matchTx && (() => {
+        const belopp = Math.abs(matchTx.amount)
+        const motSide = matchTx.amount < 0 ? 'debet' : 'kredit'
+        const bankRow = matchTx.amount < 0 ? { d: 0, k: belopp } : { d: belopp, k: 0 }
+        const motD = mRows.reduce((s, r) => s + num(r.debet), 0)
+        const motK = mRows.reduce((s, r) => s + num(r.kredit), 0)
+        const sumD = bankRow.d + motD, sumK = bankRow.k + motK
+        const diff = Math.round((sumD - sumK) * 100) / 100
+        const kvar = Math.round((belopp - (motSide === 'debet' ? motD : motK)) * 100) / 100
+        const balanced = Math.abs(diff) < 0.01 && mRows.some(r => r.konto)
+        return (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setMatchTx(null)}>
+            <datalist id="kb-konton">{allAccounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}</datalist>
+            <div className="bg-white rounded-xl w-full max-w-4xl max-h-[88vh] flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+              <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                <span className="text-base font-medium">Matcha bankhändelse</span>
+                <button className="text-gray-400 hover:text-gray-700" onClick={() => setMatchTx(null)}><i className="ti ti-x" /></button>
+              </div>
+
+              <div className="px-5 py-3 border-b bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Bankhändelse från kontoutdraget</div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">{matchTx.datum} · {matchTx.text}</span>
+                  <span className="tabular-nums font-semibold" style={{ color: matchTx.amount < 0 ? '#b91c1c' : '#1a7a2e' }}>{fmt(matchTx.amount)}</span>
+                </div>
+              </div>
+
+              <div className="px-5 py-4 overflow-y-auto">
+                <div className="grid grid-cols-[160px_1fr] gap-3 mb-4 max-w-2xl">
+                  <label className="text-sm text-gray-600 self-center">Bokföringsdatum</label>
+                  <input className="input" type="date" value={mDatum} onChange={e => setMDatum(e.target.value)} />
+                  <label className="text-sm text-gray-600 self-center">Beskrivning</label>
+                  <input className="input" value={mBesk} onChange={e => setMBesk(e.target.value)} />
+                </div>
+
+                <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                        <th className="text-left px-3 py-2 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
+                        <th className="text-left px-3 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kontobenämning</th>
+                        <th className="text-right px-3 py-2 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Debet</th>
+                        <th className="text-right px-3 py-2 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kredit</th>
+                        <th className="px-2 py-2 border-b w-8" style={{ borderColor: 'rgba(0,0,0,0.10)' }} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* Bankkontorad (låst) */}
+                      <tr className="bg-blue-50/40">
+                        <td className="px-3 py-2 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{selected}</td>
+                        <td className="px-3 py-2 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{accName(selected)}</td>
+                        <td className="px-3 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{bankRow.d ? fmt(bankRow.d) : ''}</td>
+                        <td className="px-3 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{bankRow.k ? fmt(bankRow.k) : ''}</td>
+                        <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }} />
+                      </tr>
+                      {mRows.map((r, idx) => (
+                        <tr key={idx}>
+                          <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                            <input className="w-full px-3 py-2 outline-none bg-transparent" list="kb-konton" value={r.konto} placeholder="––––"
+                              onChange={e => setMRow(idx, { konto: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) })} onBlur={() => mKontoBlur(idx)} />
+                          </td>
+                          <td className="border-b px-3 py-2 text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{accName(r.konto)}</td>
+                          <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}><input className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.debet} onChange={e => setMRow(idx, { debet: e.target.value })} onBlur={e => { const n = num(e.target.value); setMRow(idx, { debet: n ? fmt(n) : '' }) }} /></td>
+                          <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}><input className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.kredit} onChange={e => setMRow(idx, { kredit: e.target.value })} onBlur={e => { const n = num(e.target.value); setMRow(idx, { kredit: n ? fmt(n) : '' }) }} /></td>
+                          <td className="border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{mRows.length > 1 && <button className="text-gray-300 hover:text-red-600" onClick={() => setMRows(rs => rs.filter((_, i) => i !== idx))}><i className="ti ti-trash text-sm" /></button>}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-gray-50 font-medium">
+                        <td colSpan="2" className="px-3 py-2 text-right text-gray-500">Summa</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmt(sumD)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmt(sumK)}</td>
+                        <td />
+                      </tr>
+                      <tr className="bg-gray-50">
+                        <td colSpan="2" className="px-3 py-2 text-right text-gray-500 font-medium">Differens</td>
+                        <td className="px-3 py-2 text-right tabular-nums" style={{ color: balanced ? '#1a7a2e' : '#A32D2D' }} colSpan="2">{fmt(diff)}</td>
+                        <td />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="text-right text-sm mt-2" style={{ color: Math.abs(kvar) < 0.01 ? '#1a7a2e' : '#A32D2D' }}>Belopp kvar att stämma av: <b className="tabular-nums">{fmt(kvar)}</b></div>
+              </div>
+
+              <div className="px-5 py-3 border-t flex items-center justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                <button className="btn" onClick={() => setMatchTx(null)}>Avbryt</button>
+                <button className="text-white text-sm font-medium px-6 py-2 rounded-lg disabled:opacity-40" style={{ background: '#6d28d9' }} disabled={!balanced || working} onClick={bokforMatcha}>{working ? 'Bokför…' : 'Bokför'}</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Betala leverantörsfaktura från bankhändelse */}
       {payTx && (
