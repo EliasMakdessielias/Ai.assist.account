@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
-export default function UnderlagPanel({ company, attachIds = [], onToggleAttach, onTolkat, onCouple, selectDocId, title = 'VÄLJ UNDERLAG', reloadSignal }) {
+export default function UnderlagPanel({ company, attachIds = [], onToggleAttach, onTolkat, onCouple, selectDocId, title = 'VÄLJ UNDERLAG', reloadSignal, onClose, width = 520 }) {
   const [docs, setDocs] = useState([])
   const [idx, setIdx] = useState(0)
   const [url, setUrl] = useState(null)
@@ -12,6 +12,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [uploading, setUploading] = useState(false)
   const [interpreting, setInterpreting] = useState(false)
   const [coupling, setCoupling] = useState(false)
+  const [scale, setScale] = useState(1)
   const fileRef = useRef()
 
   useEffect(() => { if (company) loadInbox() }, [company, reloadSignal])
@@ -39,6 +40,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   useEffect(() => {
     let active = true
     setUrl(null)
+    setScale(1)
     if (!current) return
     supabase.storage.from('underlag').createSignedUrl(current.storage_path, 3600).then(({ data }) => {
       if (active) setUrl(data?.signedUrl || null)
@@ -135,11 +137,17 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const isAttached = current && attachIds.includes(current.id)
 
   return (
-    <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: 520 }}>
+    <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width, flexShrink: 0 }}>
       {/* Header */}
-      <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-[15px] font-bold tracking-tight">{title}</span>
-        <span className="text-sm text-gray-500">{docs.length ? `${idx + 1} (${docs.length})` : '0 (0)'}</span>
+      <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0 gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+        <span className="text-[15px] font-bold tracking-tight truncate">{title}</span>
+        <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
+          <button title="Zooma ut" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-out" /></button>
+          <span className="text-xs w-9 text-center tabular-nums">{Math.round(scale * 100)}%</span>
+          <button title="Zooma in" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.min(3, +(s + 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-in" /></button>
+          <span className="text-sm border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>{docs.length ? `${idx + 1} (${docs.length})` : '0 (0)'}</span>
+          {onClose && <button title="Stäng" className="hover:text-gray-900 text-lg" onClick={onClose}><i className="ti ti-x" /></button>}
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -169,9 +177,9 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         ) : !url ? (
           <div className="text-gray-400">Hämtar förhandsvisning…</div>
         ) : isImage ? (
-          <img src={url} alt={current.file_name} className="max-w-full max-h-full object-contain bg-white shadow" />
+          <img src={url} alt={current.file_name} className="max-w-full max-h-full object-contain bg-white shadow" style={{ transform: `scale(${scale})`, transformOrigin: 'center top', transition: 'transform .12s' }} />
         ) : isPdf ? (
-          <iframe src={url} title={current.file_name} className="w-full h-full bg-white shadow" />
+          <iframe src={url} title={current.file_name} className="bg-white shadow" style={{ width: `${100 * scale}%`, height: `${100 * scale}%`, minHeight: '100%' }} />
         ) : (
           <div className="text-center text-gray-500">
             <i className="ti ti-file text-4xl block mb-2 opacity-40" />

@@ -38,7 +38,16 @@ export default function NyLeverantorsfaktura() {
   const [saving, setSaving] = useState(false)
   const [attachIds, setAttachIds] = useState(docId ? [docId] : [])
   const [panelOpen, setPanelOpen] = useState(true)
+  const [panelWidth, setPanelWidth] = useState(560)
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+
+  function startResize(e) {
+    e.preventDefault()
+    const move = ev => setPanelWidth(Math.min(window.innerWidth - 360, Math.max(380, window.innerWidth - ev.clientX)))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.userSelect = '' }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
 
   useEffect(() => { if (company) init() }, [company?.id])
 
@@ -261,7 +270,7 @@ export default function NyLeverantorsfaktura() {
       <div className="p-7">
         {/* Huvuduppgifter */}
         <div className="grid grid-cols-12 gap-4 mb-2">
-          <div className="col-span-5">
+          <div className="col-span-4">
             <label className="block text-xs font-medium text-gray-500 mb-1">Leverantör</label>
             <select id="lev-leverantor" className="input" value={supplierId} onChange={e => setSupplierId(e.target.value)} onKeyDown={e => hEnter(e, 'lev-fakturadatum')}>
               <option value="">Leverantörsnr, Org-/Personnr, Namn, Bg/Pg</option>
@@ -276,13 +285,13 @@ export default function NyLeverantorsfaktura() {
             <label className="block text-xs font-medium text-gray-500 mb-1">Förfallodatum</label>
             <input id="lev-forfallodatum" className="input" type="date" value={forfallodatum} onChange={e => setForfallodatum(e.target.value)} onKeyDown={e => hEnter(e, 'lev-total')} />
           </div>
-          <div className="col-span-1.5" style={{ gridColumn: 'span 1 / span 1' }}>
+          <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Total</label>
             <input id="lev-total" className="input text-right" inputMode="decimal" value={total}
               onChange={e => setTotal(e.target.value)} onBlur={e => { const n = num(e.target.value); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) }}
               onKeyDown={e => hEnter(e, 'lev-moms', () => { const n = num(total); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) })} placeholder="0,00" />
           </div>
-          <div style={{ gridColumn: 'span 2 / span 2' }}>
+          <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Moms</label>
             <input id="lev-moms" className="input text-right" inputMode="decimal" value={moms}
               onChange={e => setMoms(e.target.value)} onBlur={e => { const n = num(e.target.value); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') }}
@@ -415,9 +424,10 @@ export default function NyLeverantorsfaktura() {
       </div>
 
       {panelOpen && (
-        <div className="w-[42%] border-l bg-white overflow-hidden flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-          <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" />
-        </div>
+        <>
+          <div onMouseDown={startResize} className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors" title="Dra för att ändra storlek" />
+          <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" width={panelWidth} onClose={() => setPanelOpen(false)} />
+        </>
       )}
     </div>
   )
