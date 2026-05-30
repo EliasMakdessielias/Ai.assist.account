@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import UnderlagPanel from '../components/UnderlagPanel'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -31,6 +32,9 @@ export default function NyLeverantorsfaktura() {
   const [frakt, setFrakt] = useState('')
   const [ores, setOres] = useState('')
   const [saving, setSaving] = useState(false)
+  const [attachIds, setAttachIds] = useState([])
+  const [panelOpen, setPanelOpen] = useState(true)
+  const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   useEffect(() => { if (company) init() }, [company?.id])
 
@@ -100,6 +104,49 @@ export default function NyLeverantorsfaktura() {
     })
   }
 
+  // Fyll i fakturan från AI-tolkningen (bokför inte).
+  function fyllFranTolkning(result) {
+    if (!result) return
+    const datum = result.fakturadatum || result.datum
+    if (datum && /^\d{4}-\d{2}-\d{2}$/.test(datum)) setFakturadatum(datum)
+    if (result.forfallodatum && /^\d{4}-\d{2}-\d{2}$/.test(result.forfallodatum)) setForfallodatum(result.forfallodatum)
+    if (result.ocr) setOcr(String(result.ocr))
+    const faktnr = result.fakturanummer || result.fakturanr || result.invoice_nr
+    if (faktnr) setFakturanummer(String(faktnr))
+    // Matcha leverantör på namn
+    const levName = String(result.leverantor || result.leverantör || result.supplier || result.saljare || '').trim().toLowerCase()
+    if (levName) {
+      const m = suppliers.find(s => { const n = s.name.toLowerCase(); return n.includes(levName.slice(0, 8)) || levName.includes(n.slice(0, 8)) })
+      if (m) setSupplierId(m.id)
+    }
+    // Kontering
+    const kr = Array.isArray(result.konteringsrader) ? result.konteringsrader : []
+    let nya = kr.map(r => {
+      const nr = String(r.konto ?? '').trim()
+      const d = num(r.debet), k = num(r.kredit)
+      return { konto: nr, namn: accMap[nr] || r.benamning || '', info: '', debet: d > 0 ? fmt(d) : '', kredit: k > 0 ? fmt(k) : '' }
+    }).filter(r => r.konto)
+    // Härled Total/Moms
+    let t = num(result.total ?? result.belopp ?? result.summa)
+    let m = num(result.moms ?? result.vat)
+    if (!t && nya.length) t = nya.filter(r => r.konto === '2440').reduce((s, r) => s + num(r.kredit), 0) || nya.reduce((s, r) => s + num(r.debet), 0)
+    if (!m && nya.length) m = nya.filter(r => /^264/.test(r.konto)).reduce((s, r) => s + num(r.debet), 0)
+    if (t) { setTotal(fmt(t)) }
+    if (m) { setMoms(fmt(m)) }
+    if (!nya.length && t) {
+      // Bygg standardkontering om AI inte gav rader
+      nya = [
+        { konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: fmt(t) },
+        ...(m > 0 ? [{ konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: fmt(m), kredit: '' }] : []),
+        { konto: '4000', namn: accMap['4000'] || '', info: '', debet: fmt(t - m), kredit: '' },
+      ]
+    } else if (nya.length && !nya.some(r => r.konto === '2440')) {
+      nya.unshift({ konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: fmt(t) })
+    }
+    setRows([...nya, emptyRow()])
+    toast.success('Underlaget tolkat – granska och klicka Bokför')
+  }
+
   const supplier = suppliers.find(s => s.id === supplierId)
 
   function konteringRows() {
@@ -139,10 +186,12 @@ export default function NyLeverantorsfaktura() {
           verifikation_id: ver.id, account_nr: r.nr, account_name: r.name, transaction_info: r.info || null, debet: r.debet, kredit: r.kredit, sort_order: ix,
         })))
         await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', [...new Set(krows.map(r => r.nr))]).eq('is_active', false)
+        if (attachIds.length) await supabase.from('documents').update({ verifikation_id: ver.id }).in('id', attachIds)
         await supabase.from('supplier_invoices').update({ bokford: true, verifikation_id: ver.id }).eq('id', inv.id)
         toast.success(`Leverantörsfaktura bokförd (${ver.ver_nr})`)
       } else {
-        toast.success('Leverantörsfaktura sparad')
+        if (attachIds.length) toast('Sparad – bilden kopplas när fakturan bokförs', { icon: 'ℹ️' })
+        else toast.success('Leverantörsfaktura sparad')
       }
       navigate('/leverantorsfakturor')
     } catch (e) { toast.error('Fel: ' + e.message) }
@@ -156,10 +205,11 @@ export default function NyLeverantorsfaktura() {
   )
 
   return (
-    <div className="pb-4">
+    <div className="flex h-screen overflow-hidden">
       <datalist id="lev-konton">
         {activeAccounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
       </datalist>
+      <div className="flex-1 overflow-y-auto">
 
       {/* Topprad */}
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -169,6 +219,7 @@ export default function NyLeverantorsfaktura() {
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={() => window.location.reload()}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
           <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
+          <button className="btn" onClick={() => setPanelOpen(o => !o)}><i className="ti ti-photo" /> {panelOpen ? 'Dölj bild' : 'Visa bild'}</button>
         </div>
       </div>
 
@@ -337,6 +388,13 @@ export default function NyLeverantorsfaktura() {
           </div>
         </div>
       </div>
+      </div>
+
+      {panelOpen && (
+        <div className="w-[42%] border-l bg-white overflow-hidden flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} title="KOPPLA BILD" />
+        </div>
+      )}
     </div>
   )
 }
