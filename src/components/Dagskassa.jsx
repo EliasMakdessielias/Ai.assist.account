@@ -133,7 +133,9 @@ export default function Dagskassa() {
       <input id={`ds-${k}`} className="input text-right" inputMode="decimal" disabled={opts.locked}
         style={{ opacity: opts.locked ? 0.6 : 1 }}
         value={opts.locked ? (opts.value ? fmt(opts.value) : '') : (f[k] ?? '')}
-        onChange={e => set(k, e.target.value)} onKeyDown={opts.onKey || (e => handleEnter(e, `ds-${k}`))} placeholder="0,00" />
+        onChange={e => set(k, e.target.value)}
+        onBlur={() => { if (!opts.locked) { const n = num(f[k]); set(k, n > 0 ? fmt(n) : '') } }}
+        onKeyDown={opts.onKey || (e => handleEnter(e, `ds-${k}`))} placeholder="0,00" />
     </div>
   )
   const subtotal = (label, val) => (
