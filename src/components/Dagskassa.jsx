@@ -18,6 +18,19 @@ const NAMES = {
 }
 const empty = { vg25: '', vg12: '', vg6: '', vg0: '', moms25: '', moms12: '', moms6: '', kontant: '', kort: '' }
 
+// "0530" -> 2026-05-30 (MMDD + år), "260530" -> ÅÅMMDD, "20260530" -> ÅÅÅÅMMDD.
+function normalizeDate(str) {
+  const digits = String(str || '').replace(/\D/g, '')
+  let y, m, d
+  if (digits.length === 4) { y = String(new Date().getFullYear()); m = digits.slice(0, 2); d = digits.slice(2, 4) }
+  else if (digits.length === 6) { y = '20' + digits.slice(0, 2); m = digits.slice(2, 4); d = digits.slice(4, 6) }
+  else if (digits.length === 8) { y = digits.slice(0, 4); m = digits.slice(4, 6); d = digits.slice(6, 8) }
+  else return str
+  const mi = parseInt(m, 10), di = parseInt(d, 10)
+  if (mi < 1 || mi > 12 || di < 1 || di > 31) return str
+  return `${y}-${m}-${d}`
+}
+
 export default function Dagskassa() {
   const { company, user } = useAuth()
   const today = new Date().toISOString().slice(0, 10)
@@ -30,6 +43,12 @@ export default function Dagskassa() {
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const inkl = mall === 'inkl'
+
+  function applyDatum(raw) {
+    let dd = normalizeDate(raw)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dd) && dd > today) { dd = today; toast.error('Bokföringsdatum kan inte vara senare än idag') }
+    setDatum(dd)
+  }
 
   // Enter-navigering: kedjan beror på mall (momsfälten hoppas över i inkl-läge).
   const chain = inkl
@@ -125,7 +144,9 @@ export default function Dagskassa() {
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Bokföringsdatum</label>
-          <input id="ds-datum" className="input" type="date" value={datum} max={today} onChange={e => setDatum(e.target.value)} onKeyDown={e => handleEnter(e, 'ds-datum')} />
+          <input id="ds-datum" className="input" type="text" inputMode="numeric" placeholder="ÅÅÅÅ-MM-DD"
+            value={datum} onChange={e => setDatum(e.target.value)} onBlur={e => applyDatum(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyDatum(e.target.value); const el = document.getElementById('ds-beskrivning'); el?.focus(); el?.select?.() } }} />
         </div>
         <div className="col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">Verifikationsbeskrivning</label>
