@@ -177,7 +177,7 @@ export default function KassaBank() {
   function startImport(text) {
     const { rows } = parseFile(text)
     if (!rows.length) return toast.error('Hittade inga rader')
-    setImpRows(rows); setImpMap(guessColumns(rows[0])); setImpHeader(true); setImpOpen(true)
+    setImpRows(rows); setImpMap(guessColumns(rows)); setImpHeader(true); setImpOpen(true)
   }
   function onFile(e) { const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; const r = new FileReader(); r.onload = () => startImport(String(r.result)); r.readAsText(file, 'utf-8') }
   function parsedImport() {
@@ -432,7 +432,7 @@ export default function KassaBank() {
               <button className="text-gray-400 hover:text-gray-700" onClick={() => setImpOpen(false)}><i className="ti ti-x" /></button>
             </div>
             <div className="px-5 py-4 border-b flex flex-wrap items-end gap-4" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={impHeader} onChange={e => { setImpHeader(e.target.checked); if (e.target.checked) setImpMap(guessColumns(impRows[0])) }} /> Första raden är rubrik</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={impHeader} onChange={e => { setImpHeader(e.target.checked); if (e.target.checked) setImpMap(guessColumns(impRows)) }} /> Första raden är rubrik</label>
               {['datum', 'text', 'belopp'].map(f => (
                 <div key={f}>
                   <label className="block text-xs font-medium text-gray-500 mb-1 capitalize">{f}-kolumn</label>

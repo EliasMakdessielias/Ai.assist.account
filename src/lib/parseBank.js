@@ -59,12 +59,31 @@ export function parseDate(s) {
   return null
 }
 
-// Gissar kolumnindex utifrån rubriknamn.
-export function guessColumns(header) {
-  const find = (...keys) => header.findIndex(h => keys.some(k => h.toLowerCase().includes(k)))
-  return {
-    datum: Math.max(0, find('datum', 'date', 'bokf')),
-    text: Math.max(0, find('text', 'beskriv', 'meddel', 'narrative', 'referens')),
-    belopp: Math.max(0, find('belopp', 'amount', 'summa')),
+// Gissar kolumnindex utifrån rubriknamn (och värden som fallback).
+// `rows` kan vara antingen rubrikraden (array av strängar) eller hela tabellen
+// (array av rader) – i det senare fallet används dataraderna för värde-detektering.
+export function guessColumns(rows) {
+  const isTable = Array.isArray(rows?.[0])
+  const header = isTable ? rows[0] : rows
+  const samples = isTable ? rows.slice(1, 9) : []
+  const lower = header.map(h => String(h || '').toLowerCase())
+
+  const find = (keys, avoid = []) => lower.findIndex(h => keys.some(k => h.includes(k)) && !avoid.some(a => h.includes(a)))
+
+  const datum = find(['valutadatum', 'transaktionsdatum', 'bokförd', 'bokford', 'datum', 'date', 'bokf'])
+  const text = find(['text', 'beskriv', 'meddel', 'narrative', 'referens', 'mottagare', 'avsändare', 'rubrik', 'info'])
+  // Beloppskolumn: undvik "saldo" (kontots saldo, inte transaktionsbeloppet).
+  let belopp = find(['insättning', 'insattning', 'uttag', 'belopp', 'amount', 'summa', 'transaktionsbelopp', 'rörelse', 'rorelse', 'debet', 'kredit'], ['saldo'])
+
+  // Värde-baserad fallback om rubriken inte gav träff.
+  if (belopp < 0 && samples.length) {
+    for (let i = 0; i < header.length; i++) {
+      if (i === datum || i === text || lower[i].includes('saldo')) continue
+      const vals = samples.map(r => parseAmount(r[i])).filter(v => v != null)
+      const hasDecimals = samples.some(r => /[.,]\d{1,2}\b/.test(String(r[i] || '')) || /-/.test(String(r[i] || '')))
+      if (vals.length >= Math.max(1, Math.floor(samples.length * 0.6)) && hasDecimals) { belopp = i; break }
+    }
   }
+
+  return { datum: Math.max(0, datum), text: Math.max(0, text), belopp: Math.max(0, belopp) }
 }
