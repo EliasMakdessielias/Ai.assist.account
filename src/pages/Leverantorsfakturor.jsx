@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import Utbetalningar from '../components/Utbetalningar'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -216,7 +217,7 @@ export default function Leverantorsfakturor() {
         </div>
       </div>
 
-      {tab !== 0 ? (
+      {tab === 1 ? <Utbetalningar /> : tab !== 0 ? (
         <div className="text-center py-20 text-gray-400">
           <i className="ti ti-tools text-3xl block mb-2 opacity-30" />
           {TABS[tab]} – kommer snart
