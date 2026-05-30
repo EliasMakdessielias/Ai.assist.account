@@ -54,6 +54,30 @@ export default function StamAvKonto() {
   const sumBank = bank.filter(t => selBank.has(t.id)).reduce((s, t) => s + t.belopp, 0)
   const kanMatcha = (selBok.size > 0 || selBank.size > 0)
 
+  // Auto-förslag: para ihop ej-avstämda poster med samma belopp, närmaste datum inom 7 dagar.
+  const dateDiff = (a, b) => Math.abs((new Date(b) - new Date(a)) / 86400000)
+  const pairs = (() => {
+    const used = new Set(); const out = []
+    bok.filter(r => !r.avstamd).forEach(r => {
+      let best = null, bd = Infinity
+      bank.filter(t => !t.avstamd).forEach(t => {
+        if (used.has(t.id) || Math.abs(t.belopp - r.belopp) > 0.01) return
+        const d = dateDiff(r.datum, t.datum)
+        if (d <= 7 && d < bd) { best = t; bd = d }
+      })
+      if (best) { used.add(best.id); out.push({ bok: r.id, bank: best.id }) }
+    })
+    return out
+  })()
+  const suggBok = new Set(pairs.map(p => p.bok))
+  const suggBank = new Set(pairs.map(p => p.bank))
+  function markeraForslag() {
+    if (!pairs.length) return toast('Inga säkra förslag (samma belopp inom 7 dagar)', { icon: 'ℹ️' })
+    setSelBok(new Set(pairs.map(p => p.bok)))
+    setSelBank(new Set(pairs.map(p => p.bank)))
+    toast.success(`${pairs.length} förslag markerade – granska och klicka Matcha`)
+  }
+
   async function matcha() {
     if (!kanMatcha) return
     if (selBok.size > 0 && selBank.size > 0 && Math.abs(sumBok - sumBank) > 0.01) {
@@ -75,7 +99,7 @@ export default function StamAvKonto() {
     load()
   }
 
-  const Col = ({ title, rows, sel, onToggle, side, showVer }) => (
+  const Col = ({ title, rows, sel, onToggle, side, showVer, sugg }) => (
     <div className="bg-white rounded-xl overflow-hidden flex-1" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
       <div className="px-4 py-2 text-sm font-medium border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span>{title}</span>
@@ -96,11 +120,11 @@ export default function StamAvKonto() {
             {rows.length === 0 ? (
               <tr><td colSpan={showVer ? 5 : 4} className="text-center py-10 text-gray-400 text-sm">Inga poster</td></tr>
             ) : rows.map(r => (
-              <tr key={r.id} className={r.avstamd ? 'bg-green-50/50' : 'hover:bg-gray-50'}>
+              <tr key={r.id} className={r.avstamd ? 'bg-green-50/50' : sugg?.has(r.id) ? 'bg-amber-50/50' : 'hover:bg-gray-50'}>
                 <td className="px-2 py-2 border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                   {r.avstamd
                     ? <button title="Ångra avstämning" className="text-green-600" onClick={() => avmarkera(side, r.id)}><i className="ti ti-circle-check-filled" /></button>
-                    : <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} className="w-4 h-4 cursor-pointer" />}
+                    : <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} className="w-4 h-4 cursor-pointer" title={sugg?.has(r.id) ? 'Föreslagen matchning' : ''} />}
                 </td>
                 {showVer && <td className="px-2 py-2 border-b text-blue-700 font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.ver}</td>}
                 <td className="px-2 py-2 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.datum}</td>
@@ -136,13 +160,16 @@ export default function StamAvKonto() {
         <label className="flex items-center gap-2 text-sm text-gray-600 ml-2 pb-2">
           <input type="checkbox" checked={doljMatchade} onChange={e => setDoljMatchade(e.target.checked)} /> Dölj matchade
         </label>
+        <button className="btn ml-auto pb-2" onClick={markeraForslag} disabled={loading} title="Markera poster med samma belopp (datum inom 7 dagar)">
+          <i className="ti ti-wand mr-1.5" />Föreslå matchningar{pairs.length ? ` (${pairs.length})` : ''}
+        </button>
       </div>
 
       {loading ? <div className="text-gray-400 py-12 text-center">Laddar…</div> : (
         <>
           <div className="flex gap-4 items-start">
-            <Col title="Bokföringstransaktioner" rows={bokVis} sel={selBok} onToggle={toggle(setSelBok)} side="bok" showVer />
-            <Col title="Inlästa transaktioner" rows={bankVis} sel={selBank} onToggle={toggle(setSelBank)} side="bank" />
+            <Col title="Bokföringstransaktioner" rows={bokVis} sel={selBok} onToggle={toggle(setSelBok)} side="bok" showVer sugg={suggBok} />
+            <Col title="Inlästa transaktioner" rows={bankVis} sel={selBank} onToggle={toggle(setSelBank)} side="bank" sugg={suggBank} />
           </div>
           <div className="flex justify-end mt-4">
             <button className="btn btn-green px-6" onClick={matcha} disabled={!kanMatcha || saving}>
@@ -150,7 +177,7 @@ export default function StamAvKonto() {
             </button>
           </div>
           <div className="text-xs text-gray-400 mt-3">
-            Bocka i matchande poster på båda sidor (summorna visas) → <b>Matcha transaktioner</b>. Avstämda poster blir gröna; klicka den gröna bocken för att ångra. Banktransaktioner läses in under <b>Kassa och bank → Läs in / Klistra in kontoutdrag</b>.
+            <b>Föreslå matchningar</b> markerar automatiskt poster med samma belopp (datum inom 7 dagar, gulmarkerade) – granska och klicka <b>Matcha</b>. Eller bocka i manuellt på båda sidor (summorna visas). Avstämda poster blir gröna; klicka den gröna bocken för att ångra. Banktransaktioner läses in under <b>Kassa och bank → Klistra in kontoutdrag</b>.
           </div>
         </>
       )}
