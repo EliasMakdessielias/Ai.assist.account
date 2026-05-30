@@ -20,7 +20,10 @@ const SCHEMA = {
     belopp_inkl_moms: { type: 'number' },
     moms_belopp: { type: 'number' },
     momssats: { type: 'number', description: '25, 12, 6 eller 0' },
-    ocr_eller_fakturanr: { type: 'string' },
+    fakturanummer: { type: 'string', description: 'fakturans nummer/Faktnr' },
+    ocr: { type: 'string', description: 'OCR-referens som anges vid betalning (ofta längre sifferföljd)' },
+    org_nr: { type: 'string', description: 'leverantörens organisationsnummer' },
+    bankgiro: { type: 'string', description: 'bankgiro eller plusgiro om angivet' },
     typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto eller ovrigt' },
     konteringsrader: {
       type: 'array',
@@ -102,6 +105,11 @@ Regler:
 - För insättningskvitto (kontanter till banken): debet 1930 Företagskonto, kredit 1910 Kassa.
 - Sätt momssats till 25, 12, 6 eller 0.
 - beskrivning: kort, t.ex. leverantörens namn + vad det avser.
+- fakturanummer: läs ut fakturans nummer (märkt "Fakturanummer", "Faktnr" eller liknande).
+- ocr: läs ut OCR-numret som anges vid betalning (märkt "OCR" – ofta en längre sifferföljd, ibland samma som referens). Lämna tomt om det inte finns.
+- org_nr: leverantörens organisationsnummer om det framgår.
+- bankgiro: bankgiro- eller plusgironummer om det framgår.
+- Blanda inte ihop fakturanummer och OCR – de är olika fält.
 
 KONTOPLAN (aktiva konton):
 ${kontoplan}`
