@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { background: #f5f4f0; }
+
+/* Sidebar */
+.sidebar { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.15) transparent; }
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 10px; }
+
+/* Table hover */
+.tbl tbody tr:hover td { background: #f1efe8; }
+
+/* Status badges */
+.badge-paid { @apply bg-green-50 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1; }
+.badge-pending { @apply bg-amber-50 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1; }
+.badge-overdue { @apply bg-red-50 text-red-700 text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1; }
+.badge-draft { @apply bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1; }
+.badge-active { @apply bg-green-50 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1; }
+
+/* Form inputs */
+.input {
+  @apply w-full px-3 py-2 text-sm border rounded-lg bg-white transition-colors;
+  border-color: rgba(0,0,0,0.18);
+}
+.input:focus { @apply outline-none ring-2 ring-blue-100 border-blue-500; }
+
+/* Buttons */
+.btn { @apply px-3.5 py-1.5 text-sm rounded-lg border font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer; border-color: rgba(0,0,0,0.18); }
+.btn:hover { @apply bg-gray-50; }
+.btn:active { transform: scale(0.98); }
+.btn-primary { @apply bg-blue-700 text-white border-blue-700; }
+.btn-primary:hover { @apply bg-blue-800; }
+.btn-green { @apply text-white border-green-700; background: #1a7a2e; }
+.btn-green:hover { background: #156824; }
+.btn-danger { @apply bg-red-50 text-red-700 border-red-300; }
+
+/* Verifikation cell inputs */
+.ver-cell {
+  @apply border-0 bg-transparent text-sm py-2 px-2 w-full outline-none;
+  border-bottom: 1.5px solid transparent;
+  transition: border-color 0.12s;
+}
+.ver-cell:focus { border-bottom-color: #185FA5; background: #E6F1FB; }
+
+/* Nav submenu */
+.nav-submenu { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
+.nav-submenu.open { max-height: 600px; }
+
+/* Utskrift: visa bara det som är märkt #printable */
+@media print {
+  body * { visibility: hidden !important; }
+  #printable, #printable * { visibility: visible !important; }
+  #printable { position: absolute; left: 0; top: 0; width: 100%; padding: 24px !important; }
+  .no-print { display: none !important; }
+}
