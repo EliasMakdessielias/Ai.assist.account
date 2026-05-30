@@ -7,6 +7,7 @@ const navItems = [
   { section: 'Översikt' },
   { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
+  { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
   { section: 'Ekonomi' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },
