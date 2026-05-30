@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import Dagskassa from '../components/Dagskassa'
+import Kvitto from '../components/Kvitto'
 
 const verNum = v => parseInt((v.ver_nr || '').replace(/\D/g, ''), 10) || 0
 const toAmt = s => { const n = parseFloat(String(s).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n }
@@ -188,7 +189,8 @@ export default function Bokforing() {
           </>
         )}
         {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa />}
-        {activeTab !== 0 && tabs[activeTab] !== 'Registrera dagskassa' && (
+        {tabs[activeTab] === 'Registrera kvitto' && <Kvitto />}
+        {activeTab !== 0 && tabs[activeTab] !== 'Registrera dagskassa' && tabs[activeTab] !== 'Registrera kvitto' && (
           <div className="text-center py-16 text-gray-400">
             <i className="ti ti-tools text-3xl block mb-2 opacity-30" />
             {tabs[activeTab]} – kommer snart
