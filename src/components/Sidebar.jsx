@@ -9,7 +9,7 @@ const navItems = [
   { section: 'Ekonomi' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
-  { label: 'Fakturor', icon: 'ti-file-invoice', to: '/fakturor', badge: 3 },
+  { label: 'Fakturor', icon: 'ti-file-invoice', to: '/fakturor' },
   { label: 'Leverantörsfakturor', icon: 'ti-file-import', to: '/leverantorsfakturor' },
   { label: 'Kassa och bank', icon: 'ti-building-bank', to: '/kassa-bank' },
   { label: 'Lön', icon: 'ti-wallet', to: '/lon' },
