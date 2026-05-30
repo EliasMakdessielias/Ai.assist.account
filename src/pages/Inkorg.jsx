@@ -23,6 +23,7 @@ export default function Inkorg() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [busyId, setBusyId] = useState(null)
+  const [sel, setSel] = useState(new Set())
   const fileRef = useRef()
 
   const cur = KATS.find(k => k.key === kat)
@@ -119,6 +120,26 @@ export default function Inkorg() {
   const counts = Object.fromEntries(KATS.map(k => [k.key, docs.filter(d => (d.kategori || 'dokument') === k.key && !d.verifikation_id).length]))
   const fileIcon = m => m === 'application/pdf' ? 'ti-file-type-pdf' : m?.startsWith('image/') ? 'ti-photo' : 'ti-file'
 
+  const selVisible = visible.filter(d => sel.has(d.id))
+  const toggleSel = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleAll = () => { const ids = visible.map(d => d.id); const all = ids.length && ids.every(i => sel.has(i)); setSel(s => { const n = new Set(s); ids.forEach(i => all ? n.delete(i) : n.add(i)); return n }) }
+  async function tolkaMarkerade() {
+    if (!selVisible.length) return
+    const t = toast.loading(`Tolkar ${selVisible.length} underlag…`)
+    for (const d of selVisible) await tolkaDoc(d, true)
+    toast.dismiss(t); toast.success('Tolkning klar'); setSel(new Set()); load()
+  }
+  async function flyttaMarkerade(nyKat) {
+    if (!nyKat || !selVisible.length) return
+    for (const d of selVisible) await supabase.from('documents').update({ kategori: nyKat }).eq('id', d.id)
+    toast.success(`${selVisible.length} flyttade`); setSel(new Set()); load()
+  }
+  async function raderaMarkerade() {
+    if (!selVisible.length || !confirm(`Radera ${selVisible.length} dokument? Detta går inte att ångra.`)) return
+    for (const d of selVisible) { await supabase.storage.from('underlag').remove([d.storage_path]); await supabase.from('documents').delete().eq('id', d.id) }
+    toast.success(`${selVisible.length} raderade`); setSel(new Set()); load()
+  }
+
   return (
     <div className="flex h-screen">
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -133,7 +154,7 @@ export default function Inkorg() {
         {/* Kategori-flikar */}
         <div className="bg-white border-b flex gap-0 px-7 overflow-x-auto" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           {KATS.map(k => (
-            <button key={k.key} onClick={() => { setKat(k.key); setSelected(null) }}
+            <button key={k.key} onClick={() => { setKat(k.key); setSelected(null); setSel(new Set()) }}
               className={`px-4 py-2.5 text-[13.5px] whitespace-nowrap border-b-[2.5px] -mb-px transition-colors flex items-center gap-2 ${kat === k.key ? 'text-gray-900 font-medium border-blue-700' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>
               <i className={`ti ${k.icon}`} /> {k.label}
               {counts[k.key] > 0 && <span className="bg-blue-100 text-blue-700 text-[10px] font-semibold px-1.5 rounded-full">{counts[k.key]}</span>}
@@ -160,10 +181,27 @@ export default function Inkorg() {
               <div className="text-sm">Ladda upp eller mejla in till adressen ovan.</div>
             </div>
           ) : (
+            <>
+            {selVisible.length > 0 && (
+              <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-3 text-sm flex-wrap">
+                <span className="font-medium">{selVisible.length} markerade</span>
+                {cur.tolka && <button className="btn btn-green text-xs py-1 px-3" onClick={tolkaMarkerade}><i className="ti ti-sparkles" /> Tolka markerade</button>}
+                <span className="text-gray-500 ml-1">Flytta till:</span>
+                <select className="input text-xs py-1 w-auto" value="" onChange={e => flyttaMarkerade(e.target.value)}>
+                  <option value="">Välj…</option>
+                  {KATS.filter(k => k.key !== kat).map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
+                </select>
+                <button className="btn btn-danger text-xs py-1 px-3" onClick={raderaMarkerade}><i className="ti ti-trash" /> Radera markerade</button>
+                <button className="text-gray-500 text-xs underline ml-auto" onClick={() => setSel(new Set())}>Avmarkera alla</button>
+              </div>
+            )}
             <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                    <th className="px-3 py-2.5 border-b w-8" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                      <input type="checkbox" checked={visible.length > 0 && visible.every(d => sel.has(d.id))} onChange={toggleAll} />
+                    </th>
                     <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Fil</th>
                     {cur.tolka && <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Tolkning</th>}
                     <th className="text-left px-4 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Uppladdad</th>
@@ -173,6 +211,9 @@ export default function Inkorg() {
                 <tbody>
                   {visible.map(d => (
                     <tr key={d.id} className={`cursor-pointer hover:bg-gray-50 ${selected?.id === d.id ? 'bg-blue-50' : ''}`} onClick={() => setSelected(d)}>
+                      <td className="px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={sel.has(d.id)} onChange={() => toggleSel(d.id)} />
+                      </td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                         <span className="flex items-center gap-2"><i className={`ti ${fileIcon(d.mime_type)} text-gray-400`} /> {d.file_name}</span>
                       </td>
@@ -199,6 +240,7 @@ export default function Inkorg() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>

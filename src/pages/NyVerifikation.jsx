@@ -600,7 +600,7 @@ export default function NyVerifikation() {
         <i className={`ti ${panelOpen ? 'ti-chevron-right' : 'ti-chevron-left'}`} />
       </button>
       {panelOpen && (
-        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={initialDoc} reloadSignal={reloadSignal} />
+        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={initialDoc} reloadSignal={reloadSignal} onClose={() => setPanelOpen(false)} />
       )}
     </div>
   )

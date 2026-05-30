@@ -200,7 +200,7 @@ export default function VisaVerifikation() {
 
       {/* Kopplingsläge: Inkorgen med förhandsvisning, koppla direkt */}
       {couplingMode && (
-        <UnderlagPanel company={{ id: ver.company_id }} onCouple={couple} title="KOPPLA UNDERLAG" />
+        <UnderlagPanel company={{ id: ver.company_id }} onCouple={couple} title="KOPPLA UNDERLAG" onClose={() => setCouplingMode(false)} />
       )}
 
       {/* Underlag – högerpanel (kopplade) */}

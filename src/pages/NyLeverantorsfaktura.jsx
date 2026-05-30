@@ -502,10 +502,7 @@ export default function NyLeverantorsfaktura() {
       </div>
 
       {panelOpen && (
-        <>
-          <div onMouseDown={startResize} className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors" title="Dra för att ändra storlek" />
-          <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" width={panelWidth} onClose={() => setPanelOpen(false)} />
-        </>
+        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" width={panelWidth} onClose={() => setPanelOpen(false)} />
       )}
 
       {levEditor && (

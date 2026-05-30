@@ -13,7 +13,16 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [interpreting, setInterpreting] = useState(false)
   const [coupling, setCoupling] = useState(false)
   const [scale, setScale] = useState(1)
+  const [w, setW] = useState(width)
   const fileRef = useRef()
+
+  function startResize(e) {
+    e.preventDefault()
+    const move = ev => setW(Math.min(window.innerWidth - 340, Math.max(360, window.innerWidth - ev.clientX)))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.userSelect = '' }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
 
   useEffect(() => { if (company) loadInbox() }, [company, reloadSignal])
 
@@ -137,7 +146,9 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const isAttached = current && attachIds.includes(current.id)
 
   return (
-    <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width, flexShrink: 0 }}>
+    <>
+    <div onMouseDown={startResize} className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors" title="Dra för att ändra storlek" />
+    <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: w, flexShrink: 0 }}>
       {/* Header */}
       <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0 gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight truncate">{title}</span>
@@ -233,5 +244,6 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         )}
       </div>
     </div>
+    </>
   )
 }
