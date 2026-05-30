@@ -1,6 +1,6 @@
 // Edge Function: hamta-foretag
-// Hämtar grundläggande företagsuppgifter (namn, adress m.m.) för ett
-// organisationsnummer från allabolag.se (publik företagssida).
+// Hämtar företagsuppgifter (namn, adress, telefon m.m.) för ett organisationsnummer
+// från allabolag.se. Datan ligger i sidans __NEXT_DATA__-JSON.
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -8,6 +8,20 @@ const cors = {
 }
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+
+// Djupsök efter företagsobjektet (matchar orgnr) i __NEXT_DATA__.
+function findCompany(node: unknown, orgnr: string): Record<string, unknown> | null {
+  if (!node || typeof node !== 'object') return null
+  if (Array.isArray(node)) {
+    for (const v of node) { const f = findCompany(v, orgnr); if (f) return f }
+    return null
+  }
+  const o = node as Record<string, unknown>
+  const on = String(o.orgnr ?? o.orgNumber ?? o.organisationNumber ?? '').replace(/\D/g, '')
+  if (on && on === orgnr && (o.name || o.legalName)) return o
+  for (const v of Object.values(o)) { const f = findCompany(v, orgnr); if (f) return f }
+  return null
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -23,50 +37,29 @@ Deno.serve(async (req) => {
       'Accept': 'text/html,application/xhtml+xml',
       'Accept-Language': 'sv-SE,sv;q=0.9',
     }
-    const urls = [`https://www.allabolag.se/${orgnr10}`, `https://www.allabolag.se/what/${orgnr10}`, `https://www.allabolag.se/${formatted}`]
     let html = ''
-    for (const u of urls) {
-      try {
-        const r = await fetch(u, { headers, redirect: 'follow' })
-        if (r.ok) { const t = await r.text(); if (t && t.length > 800) { html = t; break } }
-      } catch { /* nästa */ }
+    for (const u of [`https://www.allabolag.se/${orgnr10}`, `https://www.allabolag.se/what/${orgnr10}`]) {
+      try { const r = await fetch(u, { headers, redirect: 'follow' }); if (r.ok) { const t = await r.text(); if (t.length > 5000) { html = t; break } } } catch { /* nästa */ }
     }
-    if (!html) throw new Error('Kunde inte hämta sidan från allabolag.se (kan vara blockerad). Fyll i manuellt.')
+    if (!html) throw new Error('Kunde inte hämta sidan från allabolag.se. Fyll i manuellt.')
 
-    const result: Record<string, string> = { org_nr: formatted }
+    const nd = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i)
+    if (!nd) throw new Error('Kunde inte tolka sidan. Fyll i manuellt.')
+    const data = JSON.parse(nd[1])
+    const c = findCompany(data, orgnr10)
+    if (!c) throw new Error('Hittade inga uppgifter för numret. Fyll i manuellt.')
 
-    // 1) JSON-LD (schema.org Organization)
-    const lds = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
-    for (const m of lds) {
-      try {
-        const parsed = JSON.parse(m[1].trim())
-        const arr = Array.isArray(parsed) ? parsed : [parsed]
-        for (const o of arr) {
-          if (!o || typeof o !== 'object') continue
-          if (o.name && !result.name) result.name = o.name
-          if (o.legalName && !result.name) result.name = o.legalName
-          const a = o.address
-          if (a && typeof a === 'object') {
-            if (a.streetAddress) result.faktura_adress = a.streetAddress
-            if (a.postalCode) result.postnr = String(a.postalCode).replace(/\s/g, '')
-            if (a.addressLocality) result.ort = a.addressLocality
-            if (a.addressCountry) result.land = typeof a.addressCountry === 'string' ? a.addressCountry : (a.addressCountry.name || '')
-          }
-          if (o.telephone && !result.phone) result.phone = String(o.telephone)
-          if (o.url && !result.webb) result.webb = String(o.url)
-        }
-      } catch { /* ignore */ }
+    const post = (c.postalAddress || {}) as Record<string, string>
+    const vis = (c.visitorAddress || {}) as Record<string, string>
+    const result: Record<string, string> = {
+      org_nr: formatted,
+      name: String(c.name || c.legalName || ''),
+      phone: String(c.phone || c.phone2 || '').replace(/\s/g, ''),
+      faktura_adress: post.addressLine || post.boxAddressLine || vis.addressLine || '',
+      postnr: String(post.zipCode || vis.zipCode || '').replace(/\s/g, ''),
+      ort: post.postPlace || vis.postPlace || '',
+      land: 'Sverige',
     }
-
-    // 2) Fallback: og:title / title för namn
-    if (!result.name) {
-      const og = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i)
-      const ti = html.match(/<title>([^<]+)<\/title>/i)
-      const raw = (og?.[1] || ti?.[1] || '').split(/[|–-]/)[0].trim()
-      if (raw) result.name = raw
-    }
-
-    if (!result.name) throw new Error('Hittade inga uppgifter för numret. Fyll i manuellt.')
     return json({ ok: true, result })
   } catch (err) {
     return json({ error: String((err as Error)?.message || err) }, 400)
