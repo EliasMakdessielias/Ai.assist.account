@@ -8,6 +8,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [companies, setCompanies] = useState([])
   const [company, setCompany] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -32,6 +33,11 @@ export function AuthProvider({ children }) {
   }
 
   async function loadCompanies(u) {
+    // Är användaren plattformsadmin? (pa_self-policyn returnerar bara egen rad om man är admin)
+    try {
+      const { data: pa } = await supabase.from('platform_admins').select('email').limit(1)
+      setIsAdmin((pa || []).length > 0)
+    } catch { setIsAdmin(false) }
     // Acceptera ev. väntande inbjudningar (kopplar användaren till företag som bjudit in mejlet).
     await acceptInvites(u)
     let list = await fetchCompanies(u.id)
@@ -108,7 +114,7 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut()
-    setUser(null); setCompanies([]); setCompany(null)
+    setUser(null); setCompanies([]); setCompany(null); setIsAdmin(false)
   }
 
   async function reloadCompany() {
@@ -119,7 +125,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, company, companies, loading, signUp, signIn, signOut, reloadCompany, switchCompany, createCompany }}>
+    <AuthContext.Provider value={{ user, company, companies, isAdmin, loading, signUp, signIn, signOut, reloadCompany, switchCompany, createCompany }}>
       {children}
     </AuthContext.Provider>
   )

@@ -24,6 +24,7 @@ import KontoDetalj from './pages/KontoDetalj'
 import Installningar from './pages/Installningar'
 import Rakenskapsar from './pages/Rakenskapsar'
 import Team from './pages/Team'
+import Admin from './pages/Admin'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="installningar" element={<Installningar />} />
           <Route path="installningar/rakenskapsar" element={<Rakenskapsar />} />
           <Route path="installningar/team" element={<Team />} />
+          <Route path="admin" element={<Admin />} />
           <Route path="installningar/kontoplan" element={<Kontoplan />} />
           <Route path="installningar/kontoplan/:nr" element={<KontoDetalj />} />
         </Route>
