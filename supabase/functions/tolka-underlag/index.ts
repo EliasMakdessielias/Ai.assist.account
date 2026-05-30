@@ -22,8 +22,19 @@ const SCHEMA = {
     momssats: { type: 'number', description: '25, 12, 6 eller 0' },
     fakturanummer: { type: 'string', description: 'fakturans nummer/Faktnr' },
     ocr: { type: 'string', description: 'OCR-referens som anges vid betalning (ofta längre sifferföljd)' },
-    org_nr: { type: 'string', description: 'leverantörens organisationsnummer' },
-    bankgiro: { type: 'string', description: 'bankgiro eller plusgiro om angivet' },
+    org_nr: { type: 'string', description: 'leverantörens (avsändarens) organisationsnummer' },
+    bankgiro: { type: 'string', description: 'leverantörens bankgiro' },
+    plusgiro: { type: 'string', description: 'leverantörens plusgiro' },
+    iban: { type: 'string' },
+    bic: { type: 'string' },
+    vat_nummer: { type: 'string', description: 'leverantörens momsregistreringsnummer (VAT)' },
+    leverantor_adress: { type: 'string', description: 'leverantörens gatuadress' },
+    leverantor_postnr: { type: 'string', description: 'leverantörens postnummer' },
+    leverantor_ort: { type: 'string', description: 'leverantörens ort' },
+    leverantor_land: { type: 'string', description: 'leverantörens land' },
+    leverantor_telefon: { type: 'string', description: 'leverantörens telefonnummer' },
+    leverantor_epost: { type: 'string', description: 'leverantörens e-postadress' },
+    leverantor_webb: { type: 'string', description: 'leverantörens webbadress' },
     typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto eller ovrigt' },
     konteringsrader: {
       type: 'array',
@@ -108,7 +119,10 @@ Regler:
 - fakturanummer: läs ut fakturans nummer (märkt "Fakturanummer", "Faktnr" eller liknande).
 - ocr: läs ut OCR-numret som anges vid betalning (märkt "OCR" – ofta en längre sifferföljd, ibland samma som referens). Lämna tomt om det inte finns.
 - org_nr: leverantörens organisationsnummer om det framgår.
-- bankgiro: bankgiro- eller plusgironummer om det framgår.
+- bankgiro/plusgiro/iban/bic: leverantörens betaluppgifter om de framgår.
+- vat_nummer: leverantörens momsregistreringsnummer (VAT) om det framgår.
+- leverantor_adress / leverantor_postnr / leverantor_ort / leverantor_land / leverantor_telefon / leverantor_epost / leverantor_webb: leverantörens (AVSÄNDARENS/säljarens) kontakt- och adressuppgifter.
+- VIKTIGT: extrahera ALLTID leverantörens/säljarens uppgifter – ALDRIG mottagarens/köparens (den som fakturan är ställd till). Lämna fält tomma om de inte framgår.
 - Blanda inte ihop fakturanummer och OCR – de är olika fält.
 
 KONTOPLAN (aktiva konton):

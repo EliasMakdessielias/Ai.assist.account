@@ -163,7 +163,21 @@ export default function NyLeverantorsfaktura() {
       const m = suppliers.find(s => (orgRaw && (s.org_nr || '').replace(/\D/g, '') === orgRaw.replace(/\D/g, '')) ||
         (ll && (s.name.toLowerCase().includes(ll.slice(0, 8)) || ll.includes(s.name.toLowerCase().slice(0, 8)))))
       if (m) { setSupplierId(m.id); setLevForslag(null) }
-      else setLevForslag({ name: levRaw, org_nr: orgRaw, bankgiro: String(result.bankgiro || result.bg || '').trim() })
+      else setLevForslag({
+        name: levRaw, org_nr: orgRaw,
+        bankgiro: String(result.bankgiro || result.bg || '').trim(),
+        plusgiro: String(result.plusgiro || '').trim(),
+        iban: String(result.iban || '').trim(),
+        bic: String(result.bic || '').trim(),
+        vat_nummer: String(result.vat_nummer || result.vat || '').trim(),
+        phone: String(result.leverantor_telefon || result.telefon || '').trim(),
+        email: String(result.leverantor_epost || result.email || '').trim(),
+        faktura_adress: String(result.leverantor_adress || result.adress || '').trim(),
+        postnr: String(result.leverantor_postnr || result.postnr || '').trim(),
+        ort: String(result.leverantor_ort || result.ort || '').trim(),
+        land: String(result.leverantor_land || result.land || '').trim(),
+        webb: String(result.leverantor_webb || result.webb || '').trim(),
+      })
     }
     // Kontering
     const kr = Array.isArray(result.konteringsrader) ? result.konteringsrader : []
@@ -468,7 +482,7 @@ export default function NyLeverantorsfaktura() {
       )}
 
       {levEditor && (
-        <LeverantorEditor company={company} prefill={{ name: levEditor.name || '', org_nr: levEditor.org_nr || '', bankgiro: levEditor.bankgiro || '' }}
+        <LeverantorEditor company={company} prefill={levEditor}
           onCancel={() => setLevEditor(null)}
           onSaved={async (sup) => { setLevEditor(null); setLevForslag(null); await reloadSuppliers(); setSupplierId(sup.id) }} />
       )}
