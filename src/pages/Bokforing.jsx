@@ -91,7 +91,7 @@ export default function Bokforing() {
                 <div className="relative">
                   <input
                     className="input pl-8 w-64"
-                    placeholder="Verifikationsnummer, Beskrivning"
+                    placeholder="Sök nr eller beskrivning"
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                   />
