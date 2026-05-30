@@ -92,6 +92,7 @@ export default function Inkorg() {
   }
 
   async function flytta(doc, nyKat) {
+    if (!nyKat) return
     await supabase.from('documents').update({ kategori: nyKat }).eq('id', doc.id)
     toast.success('Flyttad'); load()
   }
@@ -195,7 +196,7 @@ export default function Inkorg() {
                 <button className="text-gray-500 text-xs underline ml-auto" onClick={() => setSel(new Set())}>Avmarkera alla</button>
               </div>
             )}
-            <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+            <div className="bg-white rounded-xl overflow-x-auto" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
@@ -230,8 +231,9 @@ export default function Inkorg() {
                             <i className="ti ti-file-plus" /> {cur.create === 'lev' ? 'Skapa lev.faktura' : 'Skapa verifikation'}
                           </button>
                         )}
-                        <select className="input text-xs py-1 px-1.5 w-auto inline-block mr-1.5" value={kat} onChange={e => flytta(d, e.target.value)} title="Flytta till">
-                          {KATS.map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
+                        <select className="input text-xs py-1 px-1.5 w-auto inline-block mr-1.5" value="" onChange={e => flytta(d, e.target.value)} title="Flytta till annan plats">
+                          <option value="">Flytta…</option>
+                          {KATS.filter(k => k.key !== kat).map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
                         </select>
                         <button className="text-gray-300 hover:text-red-600 align-middle" title="Radera" onClick={() => handleDelete(d)}><i className="ti ti-trash" /></button>
                       </td>
