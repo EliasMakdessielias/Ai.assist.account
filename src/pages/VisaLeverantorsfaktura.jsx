@@ -172,6 +172,7 @@ export default function VisaLeverantorsfaktura() {
           <div className="flex items-center mt-8 pt-5 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
             {!inv.makulerad && stateOf(inv) !== 'slutbetald' && <button className="btn" onClick={makulera}>Makulera</button>}
             <div className="ml-auto flex items-center gap-2.5">
+              {!inv.bokford && !inv.makulerad && <button className="btn btn-green" onClick={() => navigate(`/leverantorsfakturor/ny?edit=${inv.id}`)}><i className="ti ti-edit" /> Redigera / Bokför</button>}
               {verNr && <Link to={`/bokforing/${inv.verifikation_id}`} className="btn"><i className="ti ti-book" /> Visa verifikation</Link>}
               <button className="btn btn-primary" onClick={() => navigate('/leverantorsfakturor')}>Stäng</button>
             </div>

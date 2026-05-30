@@ -16,6 +16,7 @@ export default function NyLeverantorsfaktura() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const docId = params.get('doc')
+  const editId = params.get('edit')
   const autoTolka = params.get('tolka') === '1'
   const tolkadRef = useRef(false)
   const [accounts, setAccounts] = useState([])
@@ -63,6 +64,27 @@ export default function NyLeverantorsfaktura() {
     setAccounts(acc || [])
     setSuppliers(sup || [])
     setNextLopnr(Math.max(0, ...(inv || []).map(i => i.lopnr || 0)) + 1)
+
+    if (editId) {
+      const { data: ex } = await supabase.from('supplier_invoices').select('*').eq('id', editId).single()
+      if (ex) {
+        setSupplierId(ex.supplier_id || '')
+        setFakturadatum(ex.invoice_date || today())
+        setForfallodatum(ex.due_date || today())
+        setTotal(ex.total_amount ? fmt(ex.total_amount) : '')
+        setMoms(ex.vat_amount ? fmt(ex.vat_amount) : '')
+        setOcr(ex.ocr || '')
+        setFakturanummer(ex.invoice_nr || '')
+        setValuta(ex.currency || 'SEK')
+        setNextLopnr(ex.lopnr)
+        const amap = Object.fromEntries((acc || []).map(a => [a.account_nr, a.name]))
+        const m = ex.vat_amount || 0, net = (ex.total_amount || 0) - m
+        const r = [{ konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: ex.total_amount ? fmt(ex.total_amount) : '' }]
+        if (m > 0.005) r.push({ konto: '2640', namn: amap['2640'] || 'Ingående moms', info: '', debet: fmt(m), kredit: '' })
+        r.push({ konto: ex.kostnadskonto || '4000', namn: amap[ex.kostnadskonto || '4000'] || '', info: '', debet: net > 0 ? fmt(net) : '', kredit: '' })
+        setRows([...r, emptyRow()])
+      }
+    }
   }
 
   async function invokeTolka(id) {
@@ -246,7 +268,9 @@ export default function NyLeverantorsfaktura() {
         amount_excl_vat: t - num(moms), vat_amount: num(moms), total_amount: t,
         kostnadskonto: costRow?.nr || '4000', status: 'unpaid', lopnr: nextLopnr,
       }
-      const { data: inv, error: e0 } = await supabase.from('supplier_invoices').insert(invPayload).select().single()
+      let inv, e0
+      if (editId) ({ data: inv, error: e0 } = await supabase.from('supplier_invoices').update(invPayload).eq('id', editId).select().single())
+      else ({ data: inv, error: e0 } = await supabase.from('supplier_invoices').insert(invPayload).select().single())
       if (e0) throw e0
 
       if (bokfor) {
@@ -289,10 +313,10 @@ export default function NyLeverantorsfaktura() {
       {/* Topprad */}
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <div className="flex items-baseline gap-3">
-          <span className="text-[15px] font-bold tracking-tight">LEVERANTÖRSFAKTURA {nextLopnr || ''}*</span>
+          <span className="text-[15px] font-bold tracking-tight">LEVERANTÖRSFAKTURA {nextLopnr || ''}{editId ? ' – ÄNDRA' : '*'}</span>
         </div>
         <div className="flex items-center gap-2.5">
-          <button className="btn" onClick={() => window.location.reload()}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
+          <button className="btn" onClick={() => { navigate('/leverantorsfakturor/ny'); setTimeout(() => window.location.reload(), 0) }}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
           <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
           <button className="btn" onClick={() => setPanelOpen(o => !o)}><i className="ti ti-photo" /> {panelOpen ? 'Dölj bild' : 'Visa bild'}</button>
         </div>
