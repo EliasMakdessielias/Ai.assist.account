@@ -49,7 +49,7 @@ export default function KassaBank() {
     const [{ data: accs }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
       supabase.from('accounts').select('account_nr, name, opening_balance, is_active').eq('company_id', company.id).like('account_nr', '19%').order('account_nr'),
       supabase.from('bank_transactions').select('*').eq('company_id', company.id).order('datum', { ascending: false }),
-      supabase.from('supplier_invoices').select('id, invoice_nr, total_amount, status, suppliers(name)').eq('company_id', company.id).eq('status', 'unpaid'),
+      supabase.from('supplier_invoices').select('id, invoice_nr, ocr, due_date, total_amount, status, suppliers(name, bankgiro)').eq('company_id', company.id).eq('status', 'unpaid'),
       supabase.from('invoices').select('id, invoice_nr, total_amount, amount_excl_vat, vat_amount, status, customers(name)').eq('company_id', company.id).eq('status', 'sent'),
     ])
     const bByAcc = {}; (btx || []).forEach(t => { (bByAcc[t.account_nr] ||= []).push(t) })
@@ -66,21 +66,6 @@ export default function KassaBank() {
   const accName = nr => accounts.find(a => a.account_nr === nr)?.name || KNOWN[nr] || ''
   const selAcc = accounts.find(a => a.account_nr === selected)
   const metod = company?.bokforingsmetod || 'faktura'
-
-  // --- Matchning ---
-  function matchFor(tx) {
-    if (tx.status !== 'unmatched') return null
-    const amt = Math.abs(tx.amount); if (amt < 0.01) return null
-    if (tx.amount < 0) {
-      if (metod !== 'faktura') return null
-      const inv = openSup.find(i => Math.abs((i.total_amount || 0) - amt) < 0.01)
-      if (inv) return { type: 'sup', inv, summary: `${inv.invoice_nr || ''} Betalning av leverantörsfaktura ${inv.suppliers?.name || ''}`.trim() }
-    } else {
-      const inv = openCust.find(i => Math.abs((i.total_amount || 0) - amt) < 0.01)
-      if (inv) return { type: 'cust', inv, summary: `${inv.invoice_nr} Betalning av kundfaktura ${inv.customers?.name || ''}`.trim() }
-    }
-    return null
-  }
 
   async function bookMatch(tx, m) {
     const belopp = Math.abs(tx.amount)
@@ -205,6 +190,61 @@ export default function KassaBank() {
 
   // Härledningar
   const accBtxAll = banktxAll.filter(t => t.account_nr === selected)
+
+  // --- Smart, unik matchning ---
+  // Belopp måste stämma (full betalning). OCR / fakturanr / bankgiro / namn används
+  // för att hitta RÄTT faktura bland flera med samma belopp och ge högre säkerhet.
+  const digitsRuns = s => (String(s || '').match(/\d{3,}/g) || []).map(d => d.replace(/\D/g, ''))
+  const normName = s => String(s || '').toLowerCase()
+    .replace(/\b(ab|hb|kb|aktiebolag|filial|försäkring|forsakring|sverige)\b/g, ' ')
+    .replace(/[^a-zåäö0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+  function scoreInv(tx, inv, type) {
+    if (Math.abs((inv.total_amount || 0) - Math.abs(tx.amount)) > 0.01) return null // belopp är krav
+    const txt = ' ' + (tx.text || '').toLowerCase() + ' '
+    const txd = digitsRuns(tx.text)
+    const party = type === 'sup' ? inv.suppliers : inv.customers
+    let s = 40; const reasons = ['belopp']
+    const ocr = String(inv.ocr || '').replace(/\D/g, '')
+    if (ocr.length >= 6 && txd.some(d => d === ocr || d.includes(ocr) || ocr.includes(d))) { s += 100; reasons.unshift('OCR') }
+    const fn = String(inv.invoice_nr || '').replace(/\D/g, '')
+    if (fn.length >= 4 && txd.some(d => d === fn)) { s += 60; reasons.unshift('fakturanr') }
+    const bg = String(party?.bankgiro || '').replace(/\D/g, '')
+    if (bg.length >= 6 && txd.some(d => d === bg || d.includes(bg))) { s += 70; reasons.unshift('bankgiro') }
+    const toks = normName(party?.name).split(' ').filter(t => t.length >= 4)
+    if (toks.length && toks.some(t => txt.includes(t))) { s += 30; reasons.push('namn') }
+    if (inv.due_date) { const dd = Math.abs((new Date(tx.datum) - new Date(inv.due_date)) / 86400000); if (dd <= 12) s += 10 }
+    return { s, reasons }
+  }
+
+  const suggestions = (() => {
+    const triples = []
+    for (const tx of accBtxAll) {
+      if (tx.status !== 'unmatched' || Math.abs(tx.amount) < 0.01) continue
+      const type = tx.amount < 0 ? 'sup' : 'cust'
+      if (type === 'sup' && metod !== 'faktura') continue
+      const list = type === 'sup' ? openSup : openCust
+      for (const inv of list) {
+        const sc = scoreInv(tx, inv, type)
+        if (sc) triples.push({ txId: tx.id, invId: inv.id, type, inv, score: sc.s, reasons: sc.reasons })
+      }
+    }
+    triples.sort((a, b) => b.score - a.score || String(a.txId).localeCompare(String(b.txId)))
+    const usedTx = new Set(), usedInv = new Set(), res = {}
+    for (const t of triples) {
+      if (usedTx.has(t.txId) || usedInv.has(t.invId)) continue
+      usedTx.add(t.txId); usedInv.add(t.invId)
+      const party = (t.type === 'sup' ? t.inv.suppliers : t.inv.customers)?.name || ''
+      const summary = t.type === 'sup'
+        ? `${t.inv.invoice_nr || ''} Betalning av leverantörsfaktura ${party}`.trim()
+        : `${t.inv.invoice_nr || ''} Betalning av kundfaktura ${party}`.trim()
+      res[t.txId] = { type: t.type, inv: t.inv, summary, reasons: t.reasons, score: t.score }
+    }
+    return res
+  })()
+
+  const matchFor = tx => (tx.status === 'unmatched' ? (suggestions[tx.id] || null) : null)
+
   const inRange = t => (!from || t.datum >= from) && (!tom || t.datum <= tom)
   const matchSearch = t => !search || `${t.datum} ${t.text || ''} ${fmt(t.amount)}`.toLowerCase().includes(search.toLowerCase())
   const accBtx = accBtxAll.filter(t => inRange(t) && matchSearch(t))
@@ -342,7 +382,12 @@ export default function KassaBank() {
                         <td className="px-4 py-2.5 border-b text-right tabular-nums font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)', color: t.amount >= 0 ? '#1a7a2e' : '#b91c1c' }}>{fmt(t.amount)}</td>
                         <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                           {booked ? <span className="text-gray-500">Bokförd</span>
-                            : m ? <span className="text-blue-700">{m.summary}</span>
+                            : m ? (
+                              <span className="flex items-center gap-2">
+                                <span className="text-blue-700">{m.summary}</span>
+                                {m.reasons && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${m.reasons.some(r => ['OCR', 'bankgiro', 'fakturanr'].includes(r)) ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>via {m.reasons[0]}</span>}
+                              </span>
+                            )
                             : <span className="text-gray-400 italic">Ingen överensstämmande bokföringshändelse hittad</span>}
                         </td>
                         <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}>
