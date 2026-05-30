@@ -1,0 +1,331 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
+import toast from 'react-hot-toast'
+
+const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const today = () => new Date().toISOString().slice(0, 10)
+const num = v => { const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
+const emptyRow = () => ({ konto: '', namn: '', info: '', debet: '', kredit: '' })
+
+export default function NyLeverantorsfaktura() {
+  const { company, user } = useAuth()
+  const navigate = useNavigate()
+  const [accounts, setAccounts] = useState([])
+  const [suppliers, setSuppliers] = useState([])
+  const [nextLopnr, setNextLopnr] = useState(null)
+
+  const [supplierId, setSupplierId] = useState('')
+  const [fakturadatum, setFakturadatum] = useState(today())
+  const [forfallodatum, setForfallodatum] = useState(today())
+  const [total, setTotal] = useState('')
+  const [moms, setMoms] = useState('')
+  const [ocr, setOcr] = useState('')
+  const [fakturanummer, setFakturanummer] = useState('')
+  const [valuta, setValuta] = useState('SEK')
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [tab, setTab] = useState('konto')
+  const [rows, setRows] = useState([{ konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: '' }, emptyRow()])
+  const [avgift, setAvgift] = useState('')
+  const [frakt, setFrakt] = useState('')
+  const [ores, setOres] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { if (company) init() }, [company?.id])
+
+  async function init() {
+    const [{ data: acc }, { data: sup }, { data: inv }] = await Promise.all([
+      supabase.from('accounts').select('account_nr, name, is_active').eq('company_id', company.id).order('account_nr'),
+      supabase.from('suppliers').select('id, name, org_nr, bankgiro').eq('company_id', company.id).order('name'),
+      supabase.from('supplier_invoices').select('lopnr').eq('company_id', company.id),
+    ])
+    setAccounts(acc || [])
+    setSuppliers(sup || [])
+    setNextLopnr(Math.max(0, ...(inv || []).map(i => i.lopnr || 0)) + 1)
+  }
+
+  const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
+  const activeAccounts = useMemo(() => accounts.filter(a => a.is_active), [accounts])
+
+  const sumDebet = rows.reduce((s, r) => s + num(r.debet), 0)
+  const sumKredit = rows.reduce((s, r) => s + num(r.kredit), 0)
+  const differens = sumDebet - sumKredit
+  const balanced = Math.abs(differens) < 0.005 && sumDebet > 0
+
+  function setRow(idx, patch) {
+    setRows(rs => {
+      const next = rs.map((r, i) => i === idx ? { ...r, ...patch } : r)
+      // håll en tom rad sist
+      if (next.length === 0 || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
+      return next
+    })
+  }
+  function removeRow(idx) { setRows(rs => rs.filter((_, i) => i !== idx)) }
+
+  // Sätt 2440-kredit = Total, och 2640-debet = Moms; auto vid blur.
+  function syncHeader(nextTotal = total, nextMoms = moms) {
+    const t = num(nextTotal), m = num(nextMoms)
+    setRows(rs => {
+      let next = rs.map(r => r.konto === '2440' ? { ...r, kredit: t ? fmt(t) : '', debet: '' } : r)
+      const momsIdx = next.findIndex(r => r.konto === '2640')
+      if (m > 0.005) {
+        if (momsIdx >= 0) next[momsIdx] = { ...next[momsIdx], debet: fmt(m), kredit: '' }
+        else { const ins = next.length > 1 ? 1 : next.length; next.splice(ins, 0, { konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: fmt(m), kredit: '' }) }
+      } else if (momsIdx >= 0) next.splice(momsIdx, 1)
+      if (!next.length || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
+      return next
+    })
+  }
+
+  // När man fyllt i ett kostnadskonto och raden saknar belopp → fyll debet med kvarvarande differens.
+  function onKontoBlur(idx) {
+    setRows(rs => {
+      const r = rs[idx]; if (!r.konto) return rs
+      const namn = accMap[r.konto] || r.namn
+      let next = rs.map((x, i) => i === idx ? { ...x, namn } : x)
+      if (!num(r.debet) && !num(r.kredit) && r.konto !== '2440') {
+        const sd = next.reduce((s, x, i) => i === idx ? s : s + num(x.debet), 0)
+        const sk = next.reduce((s, x, i) => i === idx ? s : s + num(x.kredit), 0)
+        const restDebet = sk - sd
+        if (restDebet > 0.005) next[idx] = { ...next[idx], debet: fmt(restDebet) }
+      }
+      if (!next.length || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
+      return next
+    })
+  }
+
+  const supplier = suppliers.find(s => s.id === supplierId)
+
+  function konteringRows() {
+    return rows.filter(r => r.konto && (num(r.debet) > 0 || num(r.kredit) > 0))
+      .map(r => ({ nr: r.konto, name: accMap[r.konto] || r.namn || '', info: r.info || '', debet: num(r.debet), kredit: num(r.kredit) }))
+  }
+
+  async function spara(bokfor) {
+    if (!supplierId) return toast.error('Välj en leverantör')
+    const t = num(total)
+    if (t <= 0) return toast.error('Ange totalbelopp')
+    const krows = konteringRows()
+    if (bokfor && !balanced) return toast.error('Konteringen måste balansera (differens 0)')
+    if (bokfor && krows.length < 2) return toast.error('Lägg till kontering')
+
+    setSaving(true)
+    try {
+      const costRow = krows.find(r => r.debet > 0 && r.nr !== '2640')
+      const invPayload = {
+        company_id: company.id, supplier_id: supplierId, invoice_nr: fakturanummer || null, ocr: ocr || null,
+        invoice_date: fakturadatum, due_date: forfallodatum, currency: valuta,
+        amount_excl_vat: t - num(moms), vat_amount: num(moms), total_amount: t,
+        kostnadskonto: costRow?.nr || '4000', status: 'unpaid', lopnr: nextLopnr,
+      }
+      const { data: inv, error: e0 } = await supabase.from('supplier_invoices').insert(invPayload).select().single()
+      if (e0) throw e0
+
+      if (bokfor) {
+        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'L - Leverantörsfaktura' })
+        const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
+          company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: 'L - Leverantörsfaktura',
+          datum: fakturadatum, beskrivning: `Lev.faktura ${supplier?.name || ''} ${fakturanummer || ''}`.trim(),
+          total_debet: sumDebet, total_kredit: sumKredit, created_by: user.id,
+        }).select().single()
+        if (e1) throw e1
+        await supabase.from('verifikation_rows').insert(krows.map((r, ix) => ({
+          verifikation_id: ver.id, account_nr: r.nr, account_name: r.name, transaction_info: r.info || null, debet: r.debet, kredit: r.kredit, sort_order: ix,
+        })))
+        await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', [...new Set(krows.map(r => r.nr))]).eq('is_active', false)
+        await supabase.from('supplier_invoices').update({ bokford: true, verifikation_id: ver.id }).eq('id', inv.id)
+        toast.success(`Leverantörsfaktura bokförd (${ver.ver_nr})`)
+      } else {
+        toast.success('Leverantörsfaktura sparad')
+      }
+      navigate('/leverantorsfakturor')
+    } catch (e) { toast.error('Fel: ' + e.message) }
+    setSaving(false)
+  }
+
+  const Tool = ({ icon, label, onClick, disabled }) => (
+    <button disabled={disabled} onClick={onClick} className={`flex items-center gap-1.5 text-[13px] ${disabled ? 'text-gray-300' : 'text-gray-600 hover:text-gray-900'}`}>
+      <i className={`ti ${icon}`} /> {label}
+    </button>
+  )
+
+  return (
+    <div className="pb-4">
+      <datalist id="lev-konton">
+        {activeAccounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
+      </datalist>
+
+      {/* Topprad */}
+      <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+        <div className="flex items-baseline gap-3">
+          <span className="text-[15px] font-bold tracking-tight">LEVERANTÖRSFAKTURA {nextLopnr || ''}*</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <button className="btn" onClick={() => window.location.reload()}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
+          <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
+        </div>
+      </div>
+
+      {/* Verktygsrad */}
+      <div className="bg-white border-b px-7 py-2.5 flex items-center gap-6 flex-wrap" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+        <Tool icon="ti-file-minus" label="Skapa kreditfaktura" disabled />
+        <Tool icon="ti-copy" label="Kopiera" disabled />
+        <Tool icon="ti-cash" label="Utbetalningar" onClick={() => navigate('/leverantorsfakturor')} />
+        <Tool icon="ti-file-off" label="Inaktivera betalfil" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
+        <Tool icon="ti-search" label="Kreditupplysning" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
+        <Tool icon="ti-calendar" label="Periodisering" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
+        <Tool icon="ti-message" label="Kommentar" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
+      </div>
+
+      <div className="p-7">
+        {/* Huvuduppgifter */}
+        <div className="grid grid-cols-12 gap-4 mb-2">
+          <div className="col-span-5">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Leverantör</label>
+            <select className="input" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+              <option value="">Leverantörsnr, Org-/Personnr, Namn, Bg/Pg</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}{s.org_nr ? ` · ${s.org_nr}` : ''}</option>)}
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Fakturadatum</label>
+            <input className="input" type="date" value={fakturadatum} onChange={e => setFakturadatum(e.target.value)} />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Förfallodatum</label>
+            <input className="input" type="date" value={forfallodatum} onChange={e => setForfallodatum(e.target.value)} />
+          </div>
+          <div className="col-span-1.5" style={{ gridColumn: 'span 1 / span 1' }}>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Total</label>
+            <input className="input text-right" inputMode="decimal" value={total}
+              onChange={e => setTotal(e.target.value)} onBlur={e => { const n = num(e.target.value); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) }} placeholder="0,00" />
+          </div>
+          <div style={{ gridColumn: 'span 2 / span 2' }}>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Moms</label>
+            <input className="input text-right" inputMode="decimal" value={moms}
+              onChange={e => setMoms(e.target.value)} onBlur={e => { const n = num(e.target.value); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') }} placeholder="0,00" />
+          </div>
+        </div>
+        <div className="grid grid-cols-12 gap-4 mb-4">
+          <div className="col-span-5">
+            <label className="block text-xs font-medium text-gray-500 mb-1">OCR</label>
+            <input className="input" value={ocr} onChange={e => setOcr(e.target.value)} />
+          </div>
+          <div className="col-span-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Fakturanummer</label>
+            <input className="input" value={fakturanummer} onChange={e => setFakturanummer(e.target.value)} />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
+            <select className="input" value={valuta} onChange={e => setValuta(e.target.value)}><option>SEK</option><option>EUR</option><option>USD</option></select>
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Kurs</label>
+            <input className="input bg-gray-50 text-right" value="1" readOnly />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Enhet</label>
+            <input className="input bg-gray-50 text-right" value="1" readOnly />
+          </div>
+        </div>
+
+        <button className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2 border-b w-full" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={() => setMoreOpen(o => !o)}>
+          <i className={`ti ti-chevron-${moreOpen ? 'down' : 'right'} text-green-700`} /> Ytterligare uppgifter
+        </button>
+        {moreOpen && (
+          <div className="grid grid-cols-3 gap-4 py-3">
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">Vår referens</label><input className="input" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">Er referens</label><input className="input" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">Meddelande</label><input className="input" /></div>
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2 border-b mb-5" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+          <i className="ti ti-chevron-right text-green-700" /> Kontering från förra fakturan
+        </div>
+
+        {/* Tabbar */}
+        <div className="flex gap-1 mb-0">
+          {[['konto', 'Kontoregistrering'], ['artikel', 'Artikelregistrering']].map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 text-[13px] rounded-t-lg border border-b-0 ${tab === k ? 'bg-white text-gray-900 font-medium' : 'bg-gray-100 text-gray-500'}`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>{l}</button>
+          ))}
+        </div>
+
+        {tab === 'artikel' ? (
+          <div className="bg-white rounded-b-xl rounded-tr-xl p-10 text-center text-gray-400" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>Artikelregistrering – kommer snart</div>
+        ) : (
+          <div className="bg-white rounded-b-xl rounded-tr-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                  <th className="text-left px-3 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
+                  <th className="text-left px-3 py-2.5 border-b w-56" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kontobenämning</th>
+                  <th className="text-left px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Transaktionsinfo</th>
+                  <th className="text-right px-3 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Debet</th>
+                  <th className="text-right px-3 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kredit</th>
+                  <th className="px-2 py-2.5 border-b w-10" style={{ borderColor: 'rgba(0,0,0,0.10)' }} />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => (
+                  <tr key={idx}>
+                    <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                      <input className="w-full px-3 py-2 outline-none bg-transparent" list="lev-konton" value={r.konto}
+                        onChange={e => setRow(idx, { konto: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) })}
+                        onBlur={() => onKontoBlur(idx)} placeholder="––––" />
+                    </td>
+                    <td className="border-b px-3 py-2 text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{accMap[r.konto] || r.namn || ''}</td>
+                    <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                      <input className="w-full px-3 py-2 outline-none bg-transparent" value={r.info} onChange={e => setRow(idx, { info: e.target.value })} />
+                    </td>
+                    <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                      <input className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.debet}
+                        onChange={e => setRow(idx, { debet: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }) }} />
+                    </td>
+                    <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                      <input className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.kredit}
+                        onChange={e => setRow(idx, { kredit: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { kredit: n ? fmt(n) : '' }) }} />
+                    </td>
+                    <td className="border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                      {rows.length > 1 && <button className="text-gray-300 hover:text-red-600" onClick={() => removeRow(idx)}><i className="ti ti-trash text-sm" /></button>}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-gray-50 font-medium">
+                  <td colSpan="3" className="px-3 py-2.5 text-right text-gray-500">Summa</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{fmt(sumDebet)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{fmt(sumKredit)}</td>
+                  <td />
+                </tr>
+                <tr className="bg-gray-50">
+                  <td colSpan="3" className="px-3 py-2.5 text-right text-gray-500 font-medium">Differens</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums" style={{ color: balanced ? '#1a7a2e' : '#A32D2D' }}>{fmt(differens > 0 ? differens : 0)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums" style={{ color: balanced ? '#1a7a2e' : '#A32D2D' }}>{fmt(differens < 0 ? -differens : 0)}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Extra fält */}
+        <div className="grid grid-cols-3 gap-4 mt-6 max-w-3xl ml-auto">
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Fakturaavgift</label><input className="input text-right" inputMode="decimal" value={avgift} onChange={e => setAvgift(e.target.value)} placeholder="0,00" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Frakt</label><input className="input text-right" inputMode="decimal" value={frakt} onChange={e => setFrakt(e.target.value)} placeholder="0,00" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Öresutjämning</label><input className="input text-right" inputMode="decimal" value={ores} onChange={e => setOres(e.target.value)} placeholder="0,00" /></div>
+        </div>
+
+        {/* Knapprad */}
+        <div className="flex items-center mt-8 pt-5 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+          <button className="btn" onClick={() => navigate('/leverantorsfakturor')}>Makulera</button>
+          <button className="btn ml-2.5" disabled>Skapa kreditfaktura</button>
+          <div className="ml-auto flex items-center gap-2.5">
+            <button className="btn" onClick={() => navigate('/leverantorsfakturor')} disabled={saving}>Avbryt</button>
+            <button className="btn btn-green" onClick={() => spara(false)} disabled={saving}>{saving ? '…' : 'Spara'}</button>
+            <button className="btn btn-green px-6" onClick={() => spara(true)} disabled={saving}>{saving ? 'Bokför…' : 'Bokför'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

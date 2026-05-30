@@ -28,12 +28,12 @@ export default function SokBelopp() {
   async function load() {
     setLoading(true)
     const { data } = await supabase.from('verifikation_rows')
-      .select('id, account_nr, account_name, debet, kredit, transaktionsinfo, verifikationer!inner(id, company_id, datum, ver_nr, beskrivning, ver_serie)')
+      .select('id, account_nr, account_name, debet, kredit, transaction_info, verifikationer!inner(id, company_id, datum, ver_nr, beskrivning, ver_serie)')
       .eq('verifikationer.company_id', company.id)
     setAllRows((data || []).map(r => ({
       id: r.id, verId: r.verifikationer.id, verNr: r.verifikationer.ver_nr, serie: r.verifikationer.ver_serie || '',
       datum: r.verifikationer.datum, besk: r.verifikationer.beskrivning, konto: r.account_nr, kontoNamn: r.account_name || '',
-      info: r.transaktionsinfo || '', debet: r.debet || 0, kredit: r.kredit || 0,
+      info: r.transaction_info || '', debet: r.debet || 0, kredit: r.kredit || 0,
     })))
     setLoading(false)
   }

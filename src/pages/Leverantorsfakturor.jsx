@@ -232,7 +232,7 @@ export default function Leverantorsfakturor() {
               <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
             </div>
             <button className="text-sm text-blue-700 hover:underline" onClick={() => setAdvanced(a => !a)}>{advanced ? 'Stäng utökad sökning' : 'Utökad sökning'}</button>
-            <button className="btn ml-auto font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => setForm(emptyForm())}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
+            <button className="btn ml-auto font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor/ny')}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
           </div>
 
           {/* Verktygsrad */}
