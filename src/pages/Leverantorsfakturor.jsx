@@ -287,8 +287,8 @@ export default function Leverantorsfakturor() {
                 ) : pageRows.map(i => {
                   const st = STATES[i._state]
                   return (
-                    <tr key={i.id} className="hover:brightness-95 transition-all" style={{ background: st?.row }}>
-                      <td className="px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}><input type="checkbox" checked={sel.has(i.id)} onChange={() => toggle(i.id)} /></td>
+                    <tr key={i.id} className="hover:brightness-95 transition-all cursor-pointer" style={{ background: st?.row }} onClick={() => navigate(`/leverantorsfakturor/${i.id}`)}>
+                      <td className="px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(i.id)} onChange={() => toggle(i.id)} /></td>
                       <Td>{i.lopnr || '–'}</Td>
                       <Td>F</Td>
                       <Td cls="text-gray-600">{i.suppliers?.org_nr || '–'}</Td>
@@ -303,7 +303,7 @@ export default function Leverantorsfakturor() {
                       <Td cls="text-gray-600">{i.currency || 'SEK'}</Td>
                       <Td cls="text-gray-600">{i.paid_date || ''}</Td>
                       <Td>
-                        <div className="flex items-center gap-2 text-gray-300">
+                        <div className="flex items-center gap-2 text-gray-300" onClick={e => e.stopPropagation()}>
                           {i.verifikation_id && <button title="Visa verifikation" className="hover:text-blue-600" onClick={() => navigate(`/bokforing/${i.verifikation_id}`)}><i className="ti ti-eye" /></button>}
                           {!i.makulerad && i._state !== 'slutbetald' && <button title="Makulera" className="hover:text-red-600" onClick={() => makulera(i)}><i className="ti ti-ban" /></button>}
                         </div>
