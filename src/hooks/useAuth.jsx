@@ -85,7 +85,8 @@ export function AuthProvider({ children }) {
   }
 
   async function createCompany(name, orgNr) {
-    const { data: comp, error } = await supabase.from('companies').insert({ name: name.trim(), org_nr: orgNr || null }).select().single()
+    // Admin skapar aktiva företag; andra nya företag pausas (måste godkännas).
+    const { data: comp, error } = await supabase.from('companies').insert({ name: name.trim(), org_nr: orgNr || null, suspended: !isAdmin }).select().single()
     if (error) throw error
     await supabase.from('user_companies').insert({ user_id: user.id, company_id: comp.id, role: 'admin', email: user.email })
     const list = await fetchCompanies(user.id)
