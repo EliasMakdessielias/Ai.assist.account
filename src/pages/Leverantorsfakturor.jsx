@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import Utbetalningar from '../components/Utbetalningar'
 import InkomnaFakturor from '../components/InkomnaFakturor'
+import { serie } from '../lib/serier'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -150,9 +151,10 @@ export default function Leverantorsfakturor() {
         if ((i.vat_amount || 0) > 0.005) rows.push({ nr: '2640', name: 'Ingående moms', debet: i.vat_amount, kredit: 0 })
         rows.push({ nr: '2440', name: 'Leverantörsskulder', debet: 0, kredit: i.total_amount || 0 })
         const td = rows.reduce((s, r) => s + r.debet, 0), tk = rows.reduce((s, r) => s + r.kredit, 0)
-        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'L - Leverantörsfaktura' })
+        const ser = serie(company, 'leverantorsfakturor')
+        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
-          company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: 'L - Leverantörsfaktura',
+          company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: ser,
           datum: i.invoice_date, beskrivning: `Lev.faktura ${i.suppliers?.name || ''} ${i.invoice_nr || ''}`.trim(),
           total_debet: td, total_kredit: tk, created_by: user.id,
         }).select().single()
@@ -181,9 +183,10 @@ export default function Leverantorsfakturor() {
           { nr: bank, name: bk?.name || 'Bank', debet: 0, kredit: saldo },
         ]
         const td = rows.reduce((s, r) => s + r.debet, 0), tk = rows.reduce((s, r) => s + r.kredit, 0)
-        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'U - Utbetalning' })
+        const ser = serie(company, 'utbetalningar')
+        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
-          company_id: company.id, ver_nr: nr || 'U' + Date.now(), ver_serie: 'U - Utbetalning',
+          company_id: company.id, ver_nr: nr || 'U' + Date.now(), ver_serie: ser,
           datum: todayStr, beskrivning: `Betalning ${i.suppliers?.name || ''} ${i.invoice_nr || ''}`.trim(),
           total_debet: td, total_kredit: tk, created_by: user.id,
         }).select().single()

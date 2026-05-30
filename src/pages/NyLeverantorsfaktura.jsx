@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
+import { serie } from '../lib/serier'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -274,9 +275,10 @@ export default function NyLeverantorsfaktura() {
       if (e0) throw e0
 
       if (bokfor) {
-        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'L - Leverantörsfaktura' })
+        const ser = serie(company, 'leverantorsfakturor')
+        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
-          company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: 'L - Leverantörsfaktura',
+          company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: ser,
           datum: fakturadatum, beskrivning: `Lev.faktura ${supplier?.name || ''} ${fakturanummer || ''}`.trim(),
           total_debet: td, total_kredit: tk, created_by: user.id,
         }).select().single()

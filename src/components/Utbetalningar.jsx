@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { serie } from '../lib/serier'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -79,9 +80,10 @@ export default function Utbetalningar() {
           { nr: '2440', name: 'Leverantörsskulder', debet: belopp, kredit: 0 },
           { nr: bank, name: bk?.name || 'Bank', debet: 0, kredit: belopp },
         ]
-        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'U - Utbetalning' })
+        const ser = serie(company, 'utbetalningar')
+        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
-          company_id: company.id, ver_nr: nr || 'U' + Date.now(), ver_serie: 'U - Utbetalning',
+          company_id: company.id, ver_nr: nr || 'U' + Date.now(), ver_serie: ser,
           datum: l.betaldatum, beskrivning: `Betalning ${i.suppliers?.name || ''} ${i.invoice_nr || ''}`.trim(),
           total_debet: belopp, total_kredit: belopp, created_by: user.id,
         }).select().single()

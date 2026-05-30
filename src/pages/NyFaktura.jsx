@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { bokforKundfaktura } from '../lib/bokforing'
+import { serie } from '../lib/serier'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -76,7 +77,7 @@ export default function NyFaktura() {
 
       // Faktureringsmetoden: bokför kundfordran automatiskt vid skickad faktura.
       if (status === 'sent') {
-        try { await bokforKundfaktura({ companyId: company.id, metod: company.bokforingsmetod, userId: user.id, invoiceId: inv.id }) }
+        try { await bokforKundfaktura({ companyId: company.id, metod: company.bokforingsmetod, userId: user.id, invoiceId: inv.id, serie: serie(company, 'kundfakturor') }) }
         catch (e) { toast.error('Fakturan skapad, men kunde inte bokföras: ' + e.message) }
       }
 

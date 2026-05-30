@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { serie } from '../lib/serier'
 
 const MONTHS = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 const r0 = n => Math.round(Number(n) || 0)
@@ -125,9 +126,10 @@ export default function Moms() {
 
     setSaving(true)
     try {
-      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'M - Moms' })
+      const ser = serie(company, 'moms')
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
       const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
-        company_id: company.id, ver_nr: nr || 'M' + Date.now(), ver_serie: 'M - Moms',
+        company_id: company.id, ver_nr: nr || 'M' + Date.now(), ver_serie: ser,
         datum: sel.end, beskrivning: `Momsredovisning ${sel.label}`,
         kommentar: `Ruta 49: ${betala >= 0 ? 'att betala' : 'att återfå'} ${fmtInt(Math.abs(betala))} kr`,
         total_debet: totalDebet, total_kredit: totalKredit, created_by: user.id,

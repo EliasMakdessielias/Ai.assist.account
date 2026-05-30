@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { parseFile, parseAmount, parseDate, guessColumns } from '../lib/parseBank'
+import { serie } from '../lib/serier'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
@@ -85,9 +86,10 @@ export default function KassaBank() {
       rows = [{ nr: selected, d: belopp, k: 0 }, { nr: '3001', d: 0, k: ex }]
       if (vat > 0.0001) rows.push({ nr: '2611', d: 0, k: vat })
     } else rows = [{ nr: selected, d: belopp, k: 0 }, { nr: '1510', d: 0, k: belopp }]
-    const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'B - Bank' })
+    const ser = serie(company, m.type === 'sup' ? 'utbetalningar' : 'inbetalningar')
+    const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
     const { data: ver, error } = await supabase.from('verifikationer').insert({
-      company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: 'B - Bank',
+      company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: ser,
       datum: tx.datum, beskrivning: m.summary.slice(0, 200), total_debet: belopp, total_kredit: belopp, created_by: user.id,
     }).select().single()
     if (error) { toast.error(error.message); return false }
@@ -105,9 +107,10 @@ export default function KassaBank() {
     const rows = [{ nr: '2440', d: belopp, k: 0 }, { nr: selected, d: 0, k: belopp }]
     setWorking(true)
     try {
-      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'B - Bank' })
+      const ser = serie(company, 'utbetalningar')
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
       const { data: ver, error } = await supabase.from('verifikationer').insert({
-        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: 'B - Bank',
+        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: ser,
         datum: tx.datum, beskrivning: `Betalning av leverantörsfaktura ${inv.invoice_nr || ''} ${inv.suppliers?.name || ''}`.trim().slice(0, 200),
         total_debet: belopp, total_kredit: belopp, created_by: user.id,
       }).select().single()
@@ -194,9 +197,10 @@ export default function KassaBank() {
     if (Math.abs(td - tk) > 0.01) return toast.error('Konteringen måste balansera (differens 0)')
     setWorking(true)
     try {
-      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'B - Bank' })
+      const ser = serie(company, 'kassabank')
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
       const { data: ver, error } = await supabase.from('verifikationer').insert({
-        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: 'B - Bank',
+        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: ser,
         datum: mDatum, beskrivning: (mBesk || matchTx.text || 'Bankhändelse').slice(0, 200), total_debet: td, total_kredit: tk, created_by: user.id,
       }).select().single()
       if (error) throw error

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { serie } from '../lib/serier'
 
 const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -112,9 +113,10 @@ export default function Kvitto() {
     const totalKredit = rows.reduce((s, r) => s + r.kredit, 0)
     setSaving(true)
     try {
-      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: 'K - Kassa' })
+      const ser = serie(company, 'kvitto')
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
       const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
-        company_id: company.id, ver_nr: nr || 'K' + Date.now(), ver_serie: 'K - Kassa',
+        company_id: company.id, ver_nr: nr || 'K' + Date.now(), ver_serie: ser,
         datum, beskrivning: beskrivning || mall.besk, kommentar: kommentar || null,
         total_debet: totalDebet, total_kredit: totalKredit, created_by: user.id,
       }).select().single()

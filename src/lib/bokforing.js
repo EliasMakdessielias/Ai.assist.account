@@ -10,7 +10,8 @@ const VATACC = { 25: '2611', 12: '2621', 6: '2631' }
 
 // Bokför en kundfaktura enligt faktureringsmetoden: D 1510 / K 3001 (netto) + K utgående moms.
 // Gör inget i kontantmetoden (bokförs vid betalning), eller om fakturan redan är bokförd.
-export async function bokforKundfaktura({ companyId, metod, userId, invoiceId }) {
+export async function bokforKundfaktura({ companyId, metod, userId, invoiceId, serie }) {
+  const ser = (serie && String(serie).trim()) || 'A - Redovisning'
   if (metod !== 'faktura') return null
   const { data: inv } = await supabase.from('invoices').select('*, customers(name)').eq('id', invoiceId).single()
   if (!inv || inv.verifikation_id) return null
@@ -29,10 +30,10 @@ export async function bokforKundfaktura({ companyId, metod, userId, invoiceId })
     if (v > 0.0001 && acc) lines.push({ nr: acc, d: 0, k: v })
   })
 
-  const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: companyId, p_serie: 'A - Redovisning' })
+  const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: companyId, p_serie: ser })
   const total = inv.total_amount
   const { data: ver, error } = await supabase.from('verifikationer').insert({
-    company_id: companyId, ver_nr: nr || 'A' + Date.now(), ver_serie: 'A - Redovisning',
+    company_id: companyId, ver_nr: nr || ser.charAt(0) + Date.now(), ver_serie: ser,
     datum: inv.invoice_date, beskrivning: `Kundfaktura ${inv.invoice_nr} ${inv.customers?.name || ''}`.trim(),
     total_debet: total, total_kredit: total, created_by: userId,
   }).select().single()
