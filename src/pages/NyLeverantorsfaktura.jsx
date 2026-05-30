@@ -63,6 +63,11 @@ export default function NyLeverantorsfaktura() {
   }
   function removeRow(idx) { setRows(rs => rs.filter((_, i) => i !== idx)) }
 
+  // Enter-navigering
+  const focusId = id => setTimeout(() => { const el = document.getElementById(id); el?.focus(); el?.select?.() }, 0)
+  const hEnter = (e, nextId, before) => { if (e.key !== 'Enter') return; e.preventDefault(); if (before) before(); if (nextId) focusId(nextId) }
+  const focusFirstEmptyKonto = () => { const idx = rows.findIndex(r => !r.konto); focusId(`lev-konto-${idx < 0 ? rows.length - 1 : idx}`) }
+
   // Sätt 2440-kredit = Total, och 2640-debet = Moms; auto vid blur.
   function syncHeader(nextTotal = total, nextMoms = moms) {
     const t = num(nextTotal), m = num(nextMoms)
@@ -183,38 +188,40 @@ export default function NyLeverantorsfaktura() {
         <div className="grid grid-cols-12 gap-4 mb-2">
           <div className="col-span-5">
             <label className="block text-xs font-medium text-gray-500 mb-1">Leverantör</label>
-            <select className="input" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+            <select id="lev-leverantor" className="input" value={supplierId} onChange={e => setSupplierId(e.target.value)} onKeyDown={e => hEnter(e, 'lev-fakturadatum')}>
               <option value="">Leverantörsnr, Org-/Personnr, Namn, Bg/Pg</option>
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}{s.org_nr ? ` · ${s.org_nr}` : ''}</option>)}
             </select>
           </div>
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Fakturadatum</label>
-            <input className="input" type="date" value={fakturadatum} onChange={e => setFakturadatum(e.target.value)} />
+            <input id="lev-fakturadatum" className="input" type="date" value={fakturadatum} onChange={e => setFakturadatum(e.target.value)} onKeyDown={e => hEnter(e, 'lev-forfallodatum')} />
           </div>
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Förfallodatum</label>
-            <input className="input" type="date" value={forfallodatum} onChange={e => setForfallodatum(e.target.value)} />
+            <input id="lev-forfallodatum" className="input" type="date" value={forfallodatum} onChange={e => setForfallodatum(e.target.value)} onKeyDown={e => hEnter(e, 'lev-total')} />
           </div>
           <div className="col-span-1.5" style={{ gridColumn: 'span 1 / span 1' }}>
             <label className="block text-xs font-medium text-gray-500 mb-1">Total</label>
-            <input className="input text-right" inputMode="decimal" value={total}
-              onChange={e => setTotal(e.target.value)} onBlur={e => { const n = num(e.target.value); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) }} placeholder="0,00" />
+            <input id="lev-total" className="input text-right" inputMode="decimal" value={total}
+              onChange={e => setTotal(e.target.value)} onBlur={e => { const n = num(e.target.value); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) }}
+              onKeyDown={e => hEnter(e, 'lev-moms', () => { const n = num(total); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) })} placeholder="0,00" />
           </div>
           <div style={{ gridColumn: 'span 2 / span 2' }}>
             <label className="block text-xs font-medium text-gray-500 mb-1">Moms</label>
-            <input className="input text-right" inputMode="decimal" value={moms}
-              onChange={e => setMoms(e.target.value)} onBlur={e => { const n = num(e.target.value); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') }} placeholder="0,00" />
+            <input id="lev-moms" className="input text-right" inputMode="decimal" value={moms}
+              onChange={e => setMoms(e.target.value)} onBlur={e => { const n = num(e.target.value); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') }}
+              onKeyDown={e => hEnter(e, 'lev-ocr', () => { const n = num(moms); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') })} placeholder="0,00" />
           </div>
         </div>
         <div className="grid grid-cols-12 gap-4 mb-4">
           <div className="col-span-5">
             <label className="block text-xs font-medium text-gray-500 mb-1">OCR</label>
-            <input className="input" value={ocr} onChange={e => setOcr(e.target.value)} />
+            <input id="lev-ocr" className="input" value={ocr} onChange={e => setOcr(e.target.value)} onKeyDown={e => hEnter(e, 'lev-fakturanummer')} />
           </div>
           <div className="col-span-4">
             <label className="block text-xs font-medium text-gray-500 mb-1">Fakturanummer</label>
-            <input className="input" value={fakturanummer} onChange={e => setFakturanummer(e.target.value)} />
+            <input id="lev-fakturanummer" className="input" value={fakturanummer} onChange={e => setFakturanummer(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusFirstEmptyKonto() } }} />
           </div>
           <div className="col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
@@ -270,21 +277,24 @@ export default function NyLeverantorsfaktura() {
                 {rows.map((r, idx) => (
                   <tr key={idx}>
                     <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      <input className="w-full px-3 py-2 outline-none bg-transparent" list="lev-konton" value={r.konto}
+                      <input id={`lev-konto-${idx}`} className="w-full px-3 py-2 outline-none bg-transparent" list="lev-konton" value={r.konto}
                         onChange={e => setRow(idx, { konto: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) })}
-                        onBlur={() => onKontoBlur(idx)} placeholder="––––" />
+                        onBlur={() => onKontoBlur(idx)}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onKontoBlur(idx); focusId(`lev-debet-${idx}`) } }} placeholder="––––" />
                     </td>
                     <td className="border-b px-3 py-2 text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{accMap[r.konto] || r.namn || ''}</td>
                     <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      <input className="w-full px-3 py-2 outline-none bg-transparent" value={r.info} onChange={e => setRow(idx, { info: e.target.value })} />
+                      <input id={`lev-info-${idx}`} className="w-full px-3 py-2 outline-none bg-transparent" value={r.info} onChange={e => setRow(idx, { info: e.target.value })} onKeyDown={e => hEnter(e, `lev-debet-${idx}`)} />
                     </td>
                     <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      <input className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.debet}
-                        onChange={e => setRow(idx, { debet: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }) }} />
+                      <input id={`lev-debet-${idx}`} className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.debet}
+                        onChange={e => setRow(idx, { debet: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }) }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }); focusId(`lev-kredit-${idx}`) } }} />
                     </td>
                     <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      <input className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.kredit}
-                        onChange={e => setRow(idx, { kredit: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { kredit: n ? fmt(n) : '' }) }} />
+                      <input id={`lev-kredit-${idx}`} className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.kredit}
+                        onChange={e => setRow(idx, { kredit: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { kredit: n ? fmt(n) : '' }) }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const n = num(e.target.value); setRow(idx, { kredit: n ? fmt(n) : '' }); (balanced ? focusId('lev-bokfor') : focusId(`lev-konto-${idx + 1}`)) } }} />
                     </td>
                     <td className="border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                       {rows.length > 1 && <button className="text-gray-300 hover:text-red-600" onClick={() => removeRow(idx)}><i className="ti ti-trash text-sm" /></button>}
@@ -322,7 +332,8 @@ export default function NyLeverantorsfaktura() {
           <div className="ml-auto flex items-center gap-2.5">
             <button className="btn" onClick={() => navigate('/leverantorsfakturor')} disabled={saving}>Avbryt</button>
             <button className="btn btn-green" onClick={() => spara(false)} disabled={saving}>{saving ? '…' : 'Spara'}</button>
-            <button className="btn btn-green px-6" onClick={() => spara(true)} disabled={saving}>{saving ? 'Bokför…' : 'Bokför'}</button>
+            <button id="lev-bokfor" className="btn btn-green px-6" onClick={() => spara(true)} disabled={saving}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); spara(true) } }}>{saving ? 'Bokför…' : 'Bokför'}</button>
           </div>
         </div>
       </div>
