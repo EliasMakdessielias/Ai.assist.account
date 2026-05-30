@@ -24,7 +24,7 @@ const navItems = [
 const settingsItems = [
   { label: 'Företagsinställningar', to: '/installningar' },
   { label: 'Användare & behörighet', to: '/installningar/team' },
-  { label: 'Kassa- och bankkonton', to: '/installningar' },
+  { label: 'Kassa- och bankkonton', to: '/installningar/kassa-bankkonton' },
   { label: 'Löneinställningar', to: '/installningar' },
   { label: 'Räkenskapsår och IB', to: '/installningar/rakenskapsar' },
   { label: 'Kontoplan', to: '/installningar/kontoplan' },
