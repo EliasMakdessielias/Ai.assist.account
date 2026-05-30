@@ -31,9 +31,9 @@ export default function Admin() {
     setLoading(false)
   }
 
-  async function setSuspended(companyId, suspended) {
+  async function setActive(u, active) {
     setBusy(true)
-    try { await call({ action: 'set_suspended', company_id: companyId, suspended }); toast.success(suspended ? 'Avstängt' : 'Aktiverat'); await load() }
+    try { await call({ action: active ? 'activate' : 'deactivate', user_id: u.id }); toast.success(active ? 'Aktiverat' : 'Avstängt'); await load() }
     catch (e) { toast.error(e.message) }
     setBusy(false)
   }
@@ -48,14 +48,17 @@ export default function Admin() {
 
   if (!isAdmin) return <div className="p-12 text-center text-gray-400">Ingen åtkomst.</div>
 
+  // Aktivt = har ett ej-pausat företag, ELLER (inget företag men förgodkänt konto).
+  const isActive = r => r.company ? !r.company.suspended : !!r.u.approved
+
   // Bygg en kontocentrerad lista.
   const rows = (data?.users || []).map(u => {
     const member = (data.members || []).find(m => m.user_id === u.id)
     const company = member ? (data.companies || []).find(c => c.id === member.company_id) : null
     return { u, company, ver: company ? (data.verCounts?.[company.id] || 0) : 0 }
-  }).sort((a, b) => (b.company?.suspended ? 1 : 0) - (a.company?.suspended ? 1 : 0))
+  }).sort((a, b) => (isActive(a) ? 1 : 0) - (isActive(b) ? 1 : 0))
 
-  const pending = rows.filter(r => r.company?.suspended).length
+  const pending = rows.filter(r => !isActive(r)).length
   const visible = rows.filter(r => !search ||
     (r.u.email || '').toLowerCase().includes(search.toLowerCase()) ||
     (r.company?.name || '').toLowerCase().includes(search.toLowerCase()))
@@ -99,27 +102,31 @@ export default function Admin() {
                   <tr><td colSpan="6" className="text-center py-12 text-gray-400">Laddar…</td></tr>
                 ) : visible.length === 0 ? (
                   <tr><td colSpan="6" className="text-center py-12 text-gray-400">Inga konton.</td></tr>
-                ) : visible.map(({ u, company }) => (
-                  <tr key={u.id} className={company?.suspended ? 'bg-amber-50/40' : ''}>
-                    <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      {u.email}{u.id === user.id && <span className="text-xs text-gray-400"> · du</span>}
-                    </td>
-                    <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{company?.name || <span className="text-gray-400">–</span>}</td>
-                    <td className="px-4 py-2.5 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{u.created_at?.slice(0, 10)}</td>
-                    <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{u.confirmed ? <i className="ti ti-check text-green-600" /> : <span className="text-amber-600 text-xs">väntar</span>}</td>
-                    <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      {!company ? <span className="text-gray-400 text-xs">inget företag</span>
-                        : company.suspended ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Ej aktivt</span>
-                        : <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: 'rgba(52,211,153,0.15)', color: '#1a7a2e' }}>Aktivt</span>}
-                    </td>
-                    <td className="px-4 py-2.5 border-b text-right whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                      {company && (company.suspended
-                        ? <button className="btn btn-green text-xs py-1 px-3 mr-1.5" disabled={busy} onClick={() => setSuspended(company.id, false)}>Aktivera</button>
-                        : <button className="btn btn-danger text-xs py-1 px-3 mr-1.5" disabled={busy} onClick={() => setSuspended(company.id, true)}>Stäng av</button>)}
-                      {u.id !== user.id && <button className="text-gray-300 hover:text-red-600 align-middle" title="Radera konto" disabled={busy} onClick={() => deleteUser(u)}><i className="ti ti-trash" /></button>}
-                    </td>
-                  </tr>
-                ))}
+                ) : visible.map(r => {
+                  const { u, company } = r
+                  const active = isActive(r)
+                  return (
+                    <tr key={u.id} className={!active ? 'bg-amber-50/40' : ''}>
+                      <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                        {u.email}{u.id === user.id && <span className="text-xs text-gray-400"> · du</span>}
+                      </td>
+                      <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{company?.name || <span className="text-gray-400">– (ej inloggad än)</span>}</td>
+                      <td className="px-4 py-2.5 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{u.created_at?.slice(0, 10)}</td>
+                      <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{u.confirmed ? <i className="ti ti-check text-green-600" /> : <span className="text-amber-600 text-xs">väntar</span>}</td>
+                      <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                        {active
+                          ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: 'rgba(52,211,153,0.15)', color: '#1a7a2e' }}>{company ? 'Aktivt' : 'Förgodkänd'}</span>
+                          : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">{company ? 'Ej aktivt' : 'Väntar'}</span>}
+                      </td>
+                      <td className="px-4 py-2.5 border-b text-right whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                        {u.id !== user.id && (active
+                          ? <button className="btn btn-danger text-xs py-1 px-3 mr-1.5" disabled={busy} onClick={() => setActive(u, false)}>Stäng av</button>
+                          : <button className="btn btn-green text-xs py-1 px-3 mr-1.5" disabled={busy} onClick={() => setActive(u, true)}>Aktivera</button>)}
+                        {u.id !== user.id && <button className="text-gray-300 hover:text-red-600 align-middle" title="Radera konto" disabled={busy} onClick={() => deleteUser(u)}><i className="ti ti-trash" /></button>}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

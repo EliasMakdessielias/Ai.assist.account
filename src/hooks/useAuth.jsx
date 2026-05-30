@@ -71,8 +71,9 @@ export function AuthProvider({ children }) {
   async function ensureCompanyFromMetadata(u) {
     const meta = u.user_metadata || {}
     if (!meta.company_name) return
-    // Nya självregistreringar startar pausade (suspended) och måste aktiveras av en plattformsadmin.
-    const { data: comp, error } = await supabase.from('companies').insert({ name: meta.company_name, org_nr: meta.org_nr || null, suspended: true }).select().single()
+    // Pausat om inte plattformsadmin förgodkänt kontot (app_metadata.approved).
+    const approved = !!(u.app_metadata && u.app_metadata.approved)
+    const { data: comp, error } = await supabase.from('companies').insert({ name: meta.company_name, org_nr: meta.org_nr || null, suspended: !approved }).select().single()
     if (!error && comp) {
       await supabase.from('user_companies').insert({ user_id: u.id, company_id: comp.id, role: 'admin', email: u.email })
       localStorage.setItem(ACTIVE_KEY, comp.id)

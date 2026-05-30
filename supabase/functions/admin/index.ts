@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
       const users = (list?.users || []).map(u => ({
         id: u.id, email: u.email, created_at: u.created_at,
         last_sign_in_at: u.last_sign_in_at, confirmed: !!u.email_confirmed_at,
+        approved: !!(u.app_metadata && u.app_metadata.approved),
       }))
       const [{ data: companies }, { data: members }, { data: vers }] = await Promise.all([
         admin.from('companies').select('id, name, org_nr, created_at, suspended'),
@@ -45,6 +46,19 @@ Deno.serve(async (req) => {
       return json({ ok: true, users, companies: companies || [], members: members || [], verCounts })
     }
 
+    // Godkänn/stäng av på ANVÄNDARNIVÅ: sätter flagga på kontot + togglar alla deras företag.
+    if (action === 'activate' || action === 'deactivate') {
+      if (!user_id) return json({ error: 'user_id saknas' }, 400)
+      const approved = action === 'activate'
+      await admin.auth.admin.updateUserById(user_id, { app_metadata: { approved } })
+      const { data: ucs } = await admin.from('user_companies').select('company_id').eq('user_id', user_id)
+      for (const uc of ucs || []) {
+        await admin.from('companies').update({ suspended: !approved }).eq('id', uc.company_id)
+      }
+      return json({ ok: true })
+    }
+
+    // (kvar för bakåtkompabilitet)
     if (action === 'set_suspended') {
       if (!company_id) return json({ error: 'company_id saknas' }, 400)
       const { error } = await admin.from('companies').update({ suspended: !!suspended }).eq('id', company_id)
