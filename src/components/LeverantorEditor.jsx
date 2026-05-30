@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
+
+const MOMSTYPER = ['25%', '12%', '6%', '0%', 'Unionsinternt förvärv', 'Omvänd skattskyldighet']
+const BETALVILLKOR = ['0 dagar', '5 dagar', '7 dagar', '10 dagar', '14 dagar', '15 dagar', '20 dagar', '30 dagar', 'Autogiro', 'Kontant', 'Postförskott']
 
 const empty = {
   leverantorsnr: '', org_nr: '', aktiv: true, name: '', phone: '', email: '',
@@ -19,9 +22,15 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
   const [moreAddr, setMoreAddr] = useState(false)
   const [refs, setRefs] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [accounts, setAccounts] = useState([])
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+  const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
 
-  useEffect(() => { genNr() }, [])
+  useEffect(() => { genNr(); loadAccounts() }, [])
+  async function loadAccounts() {
+    const { data } = await supabase.from('accounts').select('account_nr, name').eq('company_id', company.id).eq('is_active', true).order('account_nr')
+    setAccounts(data || [])
+  }
   async function genNr() {
     const { data } = await supabase.from('suppliers').select('leverantorsnr').eq('company_id', company.id)
     const max = Math.max(0, ...(data || []).map(s => parseInt(s.leverantorsnr, 10)).filter(n => !isNaN(n)))
@@ -163,12 +172,26 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
         ) : (
           <div className="grid grid-cols-3 gap-x-12 gap-y-1">
             <div>
+              <datalist id="lev-motkonton">
+                {accounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
+              </datalist>
               <div className="text-sm font-semibold mb-3">Bokföring</div>
-              {F({ label: 'Fördefinierat motkonto', k: 'default_motkonto', placeholder: 'Konto, Benämning' })}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Fördefinierat motkonto</label>
+                <input className="input" list="lev-motkonton" value={f.default_motkonto || ''} placeholder="Konto, Benämning"
+                  onChange={e => set('default_motkonto', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
+                {accMap[f.default_motkonto] && <div className="text-xs text-gray-500 mt-1">{f.default_motkonto} – {accMap[f.default_motkonto]}</div>}
+              </div>
               <div className="mt-4">{F({ label: 'Konteringsmall', k: 'konteringsmall', placeholder: 'Kod, Benämning' })}</div>
               <div className="mt-4"><Toggle label="Artikelregistrering (e-faktura)" k="artikelregistrering" opts={[[true, 'PÅ'], [false, 'AV']]} /></div>
               <div className="mt-4"><Toggle label="Öresavrundning (e-faktura)" k="oresavrundning" opts={[[true, 'PÅ'], [false, 'AV']]} /></div>
-              <div className="mt-4">{F({ label: 'Momstyp', k: 'momstyp' })}</div>
+              <div className="mt-4">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Momstyp</label>
+                <select className="input" value={f.momstyp || ''} onChange={e => set('momstyp', e.target.value)}>
+                  <option value=""></option>
+                  {MOMSTYPER.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
             </div>
             <div>
               <div className="text-sm font-semibold mb-3">&nbsp;</div>
@@ -176,7 +199,11 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <div><label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
                   <select className="input" value={f.valuta} onChange={e => set('valuta', e.target.value)}><option>SEK</option><option>EUR</option><option>USD</option></select></div>
-                {F({ label: 'Betalningsvillkor', k: 'betalningsvillkor' })}
+                <div><label className="block text-xs font-medium text-gray-500 mb-1">Betalningsvillkor</label>
+                  <select className="input" value={f.betalningsvillkor || ''} onChange={e => set('betalningsvillkor', e.target.value)}>
+                    <option value=""></option>
+                    {BETALVILLKOR.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select></div>
               </div>
             </div>
             <div>
