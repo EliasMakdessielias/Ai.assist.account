@@ -29,7 +29,7 @@ export default function Admin() {
     })
     setRows((companies || []).map(c => ({
       ...c, members: memByCo[c.id] || [], verCount: verCount[c.id] || 0,
-    })))
+    })).sort((a, b) => (b.suspended ? 1 : 0) - (a.suspended ? 1 : 0)))  // pausade/väntande överst
     setUsers([...allUsers.values()])
     setLoading(false)
   }
@@ -56,7 +56,10 @@ export default function Admin() {
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-base font-medium flex items-center gap-2"><i className="ti ti-shield-lock text-purple-600" /> Superadmin</span>
-        <span className="text-sm text-gray-500">{rows.length} företag · {users.length} användare</span>
+        <span className="text-sm text-gray-500">
+          {rows.filter(c => c.suspended).length > 0 && <span className="text-amber-700 font-medium mr-3">{rows.filter(c => c.suspended).length} väntar på aktivering</span>}
+          {rows.length} företag · {users.length} användare
+        </span>
       </div>
 
       <div className="p-7">
@@ -95,12 +98,12 @@ export default function Admin() {
                   <td className="px-4 py-2.5 border-b text-right tabular-nums text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{c.verCount}</td>
                   <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                     {c.suspended
-                      ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Avstängt</span>
+                      ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Ej aktivt</span>
                       : <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: 'rgba(52,211,153,0.15)', color: '#1a7a2e' }}>Aktivt</span>}
                   </td>
                   <td className="px-4 py-2.5 border-b text-right" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                     <button className={`btn text-xs py-1 px-3 ${c.suspended ? 'btn-green' : 'btn-danger'}`} onClick={() => toggleSuspend(c)}>
-                      {c.suspended ? 'Återaktivera' : 'Stäng av'}
+                      {c.suspended ? 'Aktivera' : 'Stäng av'}
                     </button>
                   </td>
                 </tr>
