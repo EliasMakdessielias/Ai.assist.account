@@ -54,6 +54,8 @@ export default function NyVerifikation() {
   const [kommentarOpen, setKommentarOpen] = useState(false)
   const [searchParams] = useSearchParams()
   const initialDoc = searchParams.get('underlag')
+  const autoTolka = searchParams.get('tolka') === '1'
+  const tolkadRef = useRef(false)
   const rattaId = searchParams.get('ratta')
   const [rattaInfo, setRattaInfo] = useState(null)   // { id, ver_nr } om vi rättar en verifikation
   const [orsak, setOrsak] = useState('')
@@ -62,6 +64,29 @@ export default function NyVerifikation() {
   useEffect(() => {
     if (initialDoc) setAttachIds(prev => prev.includes(initialDoc) ? prev : [...prev, initialDoc])
   }, [initialDoc])
+
+  async function invokeTolka(id) {
+    const { data, error } = await supabase.functions.invoke('tolka-underlag', { body: { document_id: id } })
+    if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
+    if (data?.error) throw new Error(data.error)
+    return data.result
+  }
+
+  // Auto-tolka när man kommer från Inkorgen (?underlag=…&tolka=1)
+  useEffect(() => {
+    if (!initialDoc || !autoTolka || tolkadRef.current || !accounts.length) return
+    tolkadRef.current = true
+    ;(async () => {
+      const t = toast.loading('Tolkar underlaget…')
+      try {
+        let r
+        const { data: dd } = await supabase.from('documents').select('tolkning').eq('id', initialDoc).maybeSingle()
+        if (dd?.tolkning) r = dd.tolkning
+        else { try { r = await invokeTolka(initialDoc) } catch { r = await invokeTolka(initialDoc) } }
+        fyllFranTolkning(r); toast.dismiss(t)
+      } catch (e) { toast.dismiss(t); toast.error('Tolkning misslyckades: ' + (e.message || e)) }
+    })()
+  }, [initialDoc, autoTolka, accounts.length])
 
   // Rättelse-läge: ladda originalet och förifyll med en motbokning (redigerbar).
   useEffect(() => {

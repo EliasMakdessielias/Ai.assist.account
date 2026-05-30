@@ -101,7 +101,10 @@ export default function NyLeverantorsfaktura() {
     ;(async () => {
       const t = toast.loading('Tolkar underlaget…')
       try {
-        let r; try { r = await invokeTolka(docId) } catch { r = await invokeTolka(docId) }
+        let r
+        const { data: dd } = await supabase.from('documents').select('tolkning').eq('id', docId).maybeSingle()
+        if (dd?.tolkning) r = dd.tolkning
+        else { try { r = await invokeTolka(docId) } catch { r = await invokeTolka(docId) } }
         fyllFranTolkning(r); toast.dismiss(t)
       } catch (e) { toast.dismiss(t); toast.error('Tolkning misslyckades: ' + (e.message || e)) }
     })()
