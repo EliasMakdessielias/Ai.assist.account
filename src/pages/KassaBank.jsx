@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { parseFile, parseAmount, parseDate, guessColumns } from '../lib/parseBank'
 import { serie } from '../lib/serier'
+import { foreslaKontoFromText } from '../lib/kontering'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
@@ -45,6 +46,7 @@ export default function KassaBank() {
   const [mRows, setMRows] = useState([emptyKRow()])
   const [mBesk, setMBesk] = useState('')
   const [mDatum, setMDatum] = useState('')
+  const [mForslag, setMForslag] = useState(null)
   const [payTx, setPayTx] = useState(null)        // tx vi väljer leverantörsfaktura för
   const [paySearch, setPaySearch] = useState('')
   const [batchOpen, setBatchOpen] = useState(false)
@@ -163,8 +165,16 @@ export default function KassaBank() {
     setMatchTx(tx)
     setMBesk((m?.summary || tx.text || '').slice(0, 200))
     setMDatum(tx.datum)
+    setMForslag(null)
     const motkonto = m ? (m.type === 'sup' ? '2440' : (metod === 'kontant' ? '3001' : '1510')) : ''
     setMRows(motkonto ? [{ konto: motkonto, debet: '', kredit: '' }, emptyKRow()] : [emptyKRow()])
+    // Smart kontering med minne: föreslå kostnadskonto från historik (för kostnader utan fakturamatch)
+    if (!m && tx.amount < 0 && tx.text) {
+      const belopp = Math.abs(tx.amount)
+      foreslaKontoFromText(company.id, tx.text).then(res => {
+        if (res) { setMForslag(res); setMRows([{ konto: res.konto, debet: fmt(belopp), kredit: '' }, emptyKRow()]) }
+      })
+    }
   }
   function setMRow(idx, patch) {
     setMRows(rs => {
@@ -613,6 +623,12 @@ export default function KassaBank() {
                   <label className="text-sm text-gray-600 self-center">Beskrivning</label>
                   <input className="input" value={mBesk} onChange={e => setMBesk(e.target.value)} />
                 </div>
+
+                {mForslag && (
+                  <div className="text-xs text-purple-800 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 mb-3 flex items-center gap-1.5">
+                    <i className="ti ti-sparkles" /> Smart förslag från historik: <b>{mForslag.konto} {accName(mForslag.konto)}</b> (bokfört så {mForslag.count} ggr på liknande). Justera vid behov.
+                  </div>
+                )}
 
                 <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
                   <table className="w-full text-sm">

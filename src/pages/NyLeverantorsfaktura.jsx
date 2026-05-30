@@ -62,7 +62,7 @@ export default function NyLeverantorsfaktura() {
   async function init() {
     const [{ data: acc }, { data: sup }, { data: inv }] = await Promise.all([
       supabase.from('accounts').select('account_nr, name, is_active').eq('company_id', company.id).order('account_nr'),
-      supabase.from('suppliers').select('id, name, org_nr, bankgiro').eq('company_id', company.id).order('name'),
+      supabase.from('suppliers').select('id, name, org_nr, bankgiro, default_motkonto').eq('company_id', company.id).order('name'),
       supabase.from('supplier_invoices').select('lopnr').eq('company_id', company.id),
     ])
     setAccounts(acc || [])
@@ -108,9 +108,22 @@ export default function NyLeverantorsfaktura() {
   }, [company, accounts.length])
 
   async function reloadSuppliers() {
-    const { data } = await supabase.from('suppliers').select('id, name, org_nr, bankgiro').eq('company_id', company.id).order('name')
+    const { data } = await supabase.from('suppliers').select('id, name, org_nr, bankgiro, default_motkonto').eq('company_id', company.id).order('name')
     setSuppliers(data || [])
     return data || []
+  }
+
+  // Smart kontering: förifyll kostnadskonto från leverantörens fördefinierade motkonto.
+  function applySupplier(sup) {
+    setSupplierId(sup.id); setLevForslag(null); setLevOpen(false)
+    const konto = sup.default_motkonto
+    if (konto) setRows(rs => {
+      const idx = rs.findIndex(r => !r.konto)
+      if (idx < 0) return rs
+      const n = rs.map((r, i) => i === idx ? { ...r, konto, namn: accMap[konto] || '' } : r)
+      if (idx === n.length - 1) n.push(emptyRow())
+      return n
+    })
   }
 
   const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
@@ -365,7 +378,7 @@ export default function NyLeverantorsfaktura() {
                   {levFiltered.length === 0 && <div className="px-3 py-2 text-sm text-gray-400">Inga leverantörer matchar</div>}
                   {levFiltered.map(s => (
                     <button key={s.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between gap-2"
-                      onMouseDown={() => { setSupplierId(s.id); setLevForslag(null); setLevOpen(false) }}>
+                      onMouseDown={() => applySupplier(s)}>
                       <span className="truncate">{s.name}</span>
                       <span className="text-gray-400 text-xs shrink-0">{s.org_nr || ''}</span>
                     </button>
