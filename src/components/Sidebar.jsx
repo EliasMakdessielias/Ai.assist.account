@@ -12,6 +12,7 @@ const navItems = [
   { label: 'Kundfakturor', icon: 'ti-file-invoice', to: '/fakturor' },
   { label: 'Leverantörsfakturor', icon: 'ti-file-import', to: '/leverantorsfakturor' },
   { label: 'Kassa och bank', icon: 'ti-building-bank', to: '/kassa-bank' },
+  { label: 'Kontoanalys', icon: 'ti-report-search', to: '/kontoanalys' },
   { label: 'Lön', icon: 'ti-wallet', to: '/lon' },
   { label: 'Moms', icon: 'ti-receipt-tax', to: '/moms' },
   { label: 'Rapporter', icon: 'ti-chart-bar', to: '/rapporter' },
