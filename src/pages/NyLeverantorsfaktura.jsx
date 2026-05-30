@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
@@ -13,6 +13,10 @@ const emptyRow = () => ({ konto: '', namn: '', info: '', debet: '', kredit: '' }
 export default function NyLeverantorsfaktura() {
   const { company, user } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const docId = params.get('doc')
+  const autoTolka = params.get('tolka') === '1'
+  const tolkadRef = useRef(false)
   const [accounts, setAccounts] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [nextLopnr, setNextLopnr] = useState(null)
@@ -32,7 +36,7 @@ export default function NyLeverantorsfaktura() {
   const [frakt, setFrakt] = useState('')
   const [ores, setOres] = useState('')
   const [saving, setSaving] = useState(false)
-  const [attachIds, setAttachIds] = useState([])
+  const [attachIds, setAttachIds] = useState(docId ? [docId] : [])
   const [panelOpen, setPanelOpen] = useState(true)
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
@@ -48,6 +52,26 @@ export default function NyLeverantorsfaktura() {
     setSuppliers(sup || [])
     setNextLopnr(Math.max(0, ...(inv || []).map(i => i.lopnr || 0)) + 1)
   }
+
+  async function invokeTolka(id) {
+    const { data, error } = await supabase.functions.invoke('tolka-underlag', { body: { document_id: id } })
+    if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
+    if (data?.error) throw new Error(data.error)
+    return data.result
+  }
+
+  // Auto-tolka när man kommer från Inkomna fakturor (?doc=…&tolka=1)
+  useEffect(() => {
+    if (!company || !docId || !autoTolka || tolkadRef.current || !accounts.length) return
+    tolkadRef.current = true
+    ;(async () => {
+      const t = toast.loading('Tolkar underlaget…')
+      try {
+        let r; try { r = await invokeTolka(docId) } catch { r = await invokeTolka(docId) }
+        fyllFranTolkning(r); toast.dismiss(t)
+      } catch (e) { toast.dismiss(t); toast.error('Tolkning misslyckades: ' + (e.message || e)) }
+    })()
+  }, [company, accounts.length])
 
   const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
   const activeAccounts = useMemo(() => accounts.filter(a => a.is_active), [accounts])
@@ -392,7 +416,7 @@ export default function NyLeverantorsfaktura() {
 
       {panelOpen && (
         <div className="w-[42%] border-l bg-white overflow-hidden flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-          <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} title="KOPPLA BILD" />
+          <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" />
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import Utbetalningar from '../components/Utbetalningar'
+import InkomnaFakturor from '../components/InkomnaFakturor'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -217,7 +218,10 @@ export default function Leverantorsfakturor() {
         </div>
       </div>
 
-      {tab === 1 ? <Utbetalningar /> : tab !== 0 ? (
+      {tab === 1 ? <Utbetalningar />
+        : tab === 2 ? <InkomnaFakturor />
+        : tab === 3 ? <InkomnaFakturor tolkningMode />
+        : tab !== 0 ? (
         <div className="text-center py-20 text-gray-400">
           <i className="ti ti-tools text-3xl block mb-2 opacity-30" />
           {TABS[tab]} – kommer snart
