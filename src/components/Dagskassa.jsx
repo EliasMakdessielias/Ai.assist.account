@@ -51,9 +51,8 @@ export default function Dagskassa() {
   }
 
   // Enter-navigering: kedjan beror på mall (momsfälten hoppas över i inkl-läge).
-  const chain = inkl
-    ? ['ds-mall', 'ds-datum', 'ds-beskrivning', 'ds-vg25', 'ds-vg12', 'ds-vg6', 'ds-vg0', 'ds-kontant', 'ds-kort', 'ds-bokfor']
-    : ['ds-mall', 'ds-datum', 'ds-beskrivning', 'ds-vg25', 'ds-vg12', 'ds-vg6', 'ds-vg0', 'ds-moms25', 'ds-moms12', 'ds-moms6', 'ds-kontant', 'ds-kort', 'ds-bokfor']
+  // Momsen räknas alltid ut automatiskt -> hoppa över momsfälten i Enter-kedjan.
+  const chain = ['ds-mall', 'ds-datum', 'ds-beskrivning', 'ds-vg25', 'ds-vg12', 'ds-vg6', 'ds-vg0', 'ds-kontant', 'ds-kort', 'ds-bokfor']
   function handleEnter(e, id) {
     if (e.key !== 'Enter') return
     e.preventDefault()
@@ -64,12 +63,12 @@ export default function Dagskassa() {
   const split = (vg, rate) => {
     const g = num(vg)
     if (rate === 0) return { net: g, moms: 0 }
-    if (inkl) { const net = g / (1 + rate / 100); return { net, moms: g - net } }
-    return { net: g, moms: 0 }
+    if (inkl) { const net = g / (1 + rate / 100); return { net, moms: g - net } }   // brutto in -> dela upp
+    return { net: g, moms: g * rate / 100 }                                          // netto in -> moms = netto * sats
   }
   const s25 = split(f.vg25, 25), s12 = split(f.vg12, 12), s6 = split(f.vg6, 6), s0 = split(f.vg0, 0)
   const net = { 25: s25.net, 12: s12.net, 6: s6.net, 0: s0.net }
-  const moms = inkl ? { 25: s25.moms, 12: s12.moms, 6: s6.moms } : { 25: num(f.moms25), 12: num(f.moms12), 6: num(f.moms6) }
+  const moms = { 25: s25.moms, 12: s12.moms, 6: s6.moms }   // alltid automatiskt
 
   const salesTotal = net[25] + net[12] + net[6] + net[0]
   const momsTotal = moms[25] + moms[12] + moms[6]
@@ -175,10 +174,10 @@ export default function Dagskassa() {
       </div>
 
       <div className="mb-5">
-        <div className="text-sm font-semibold mb-2">Moms{inkl && <span className="text-xs font-normal text-gray-400"> (beräknas automatiskt)</span>}</div>
-        {amt('Moms 25%', 'moms25', { locked: inkl, value: moms[25] })}
-        {amt('Moms 12%', 'moms12', { locked: inkl, value: moms[12] })}
-        {amt('Moms 6%', 'moms6', { locked: inkl, value: moms[6] })}
+        <div className="text-sm font-semibold mb-2">Moms <span className="text-xs font-normal text-gray-400">(beräknas automatiskt)</span></div>
+        {amt('Moms 25%', 'moms25', { locked: true, value: moms[25] })}
+        {amt('Moms 12%', 'moms12', { locked: true, value: moms[12] })}
+        {amt('Moms 6%', 'moms6', { locked: true, value: moms[6] })}
         {subtotal('Moms', momsTotal)}
       </div>
 
