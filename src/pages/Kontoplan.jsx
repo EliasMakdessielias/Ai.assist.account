@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { CLASS_NAMES } from '../lib/kontoplan'
+import { fetchAccountsPage, fetchAllAccountNumbers } from '../lib/accountsQuery'
 import ImportWizard from '../components/kontoplan/ImportWizard'
 import AccountEditModal from '../components/kontoplan/AccountEditModal'
 import ConfirmDialog from '../components/kontoplan/ConfirmDialog'
@@ -11,55 +12,63 @@ const PER_PAGE = 100
 
 export default function Kontoplan() {
   const { company } = useAuth()
-  const [accounts, setAccounts] = useState([])
+  const [items, setItems] = useState([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('alla')
   const [classFilter, setClassFilter] = useState('alla')
   const [sort, setSort] = useState({ key: 'account_nr', dir: 'asc' })
   const [page, setPage] = useState(1)
+  const [existingNrs, setExistingNrs] = useState([])
 
   const [showImport, setShowImport] = useState(false)
-  const [editAccount, setEditAccount] = useState(undefined) // undefined=stängd, null=ny, obj=redigera
+  const [editAccount, setEditAccount] = useState(undefined)
   const [confirmClear, setConfirmClear] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(null)   // account-objekt
+  const [confirmDelete, setConfirmDelete] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [history, setHistory] = useState(null)               // null=stängd, array=öppen
+  const [history, setHistory] = useState(null)
 
-  useEffect(() => { if (company) loadAccounts() }, [company])
+  // Debounce sökfältet så vi inte gör en query per tangenttryck.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
-  async function loadAccounts() {
+  // Återställ till sida 1 när filter/sök ändras.
+  useEffect(() => { setPage(1) }, [debouncedSearch, statusFilter, classFilter])
+
+  const loadPage = useCallback(async () => {
+    if (!company) return
     setLoading(true)
-    const { data } = await supabase.from('accounts').select('*').eq('company_id', company.id).order('account_nr')
-    setAccounts(data || [])
+    try {
+      const res = await fetchAccountsPage(supabase, {
+        companyId: company.id, search: debouncedSearch, status: statusFilter,
+        accountClass: classFilter, page, pageSize: PER_PAGE, sort,
+      })
+      setItems(res.items)
+      setTotalCount(res.totalCount)
+      setTotalPages(res.totalPages)
+    } catch (e) { toast.error('Kunde inte ladda kontoplan: ' + e.message) }
     setLoading(false)
-  }
+  }, [company, debouncedSearch, statusFilter, classFilter, page, sort])
 
-  const existingNrs = useMemo(() => accounts.map(a => a.account_nr), [accounts])
+  useEffect(() => { loadPage() }, [loadPage])
 
-  const filtered = useMemo(() => {
-    let list = accounts.filter(a => {
-      if (statusFilter === 'aktiva' && !a.is_active) return false
-      if (statusFilter === 'inaktiva' && a.is_active) return false
-      if (classFilter !== 'alla' && String(a.account_class) !== classFilter) return false
-      if (search && !a.account_nr.includes(search) && !a.name.toLowerCase().includes(search.toLowerCase())) return false
-      return true
-    })
-    const { key, dir } = sort
-    const mul = dir === 'asc' ? 1 : -1
-    list = [...list].sort((a, b) => {
-      if (key === 'name') return a.name.localeCompare(b.name, 'sv') * mul
-      if (key === 'account_class') return ((a.account_class || 0) - (b.account_class || 0) || a.account_nr.localeCompare(b.account_nr)) * mul
-      return a.account_nr.localeCompare(b.account_nr, 'sv', { numeric: true }) * mul
-    })
-    return list
-  }, [accounts, statusFilter, classFilter, search, sort])
+  const loadExisting = useCallback(async () => {
+    if (!company) return
+    try { setExistingNrs(await fetchAllAccountNumbers(supabase, company.id)) } catch { /* tyst */ }
+  }, [company])
+  useEffect(() => { loadExisting() }, [loadExisting])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
-  const pageData = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  // Anropas efter mutationer (skapa/redigera/radera/importera/töm).
+  async function refresh() { await Promise.all([loadPage(), loadExisting()]) }
 
   function toggleSort(key) {
     setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
+    setPage(1)
   }
   const sortIcon = key => sort.key !== key ? 'ti-arrows-sort' : sort.dir === 'asc' ? 'ti-sort-ascending' : 'ti-sort-descending'
 
@@ -76,10 +85,9 @@ export default function Kontoplan() {
         toast.success(`Konto ${account.account_nr} raderat`)
       }
       setConfirmDelete(null)
-      await loadAccounts()
+      await refresh()
     } catch (e) {
       if (String(e.message || '').includes('KONTO_ANVANDS')) {
-        // Behåll dialogen men växla till inaktiveringsförslag
         setConfirmDelete(d => d ? { ...d, _used: true } : d)
         toast('Kontot används i bokföringen – inaktivera istället', { icon: 'ℹ️' })
       } else toast.error(e.message)
@@ -95,7 +103,7 @@ export default function Kontoplan() {
       const d = data || {}
       toast.success(`Kontoplan tömd: ${d.deleted || 0} raderade, ${d.deactivated || 0} inaktiverade (används i bokföring)`)
       setConfirmClear(false)
-      await loadAccounts()
+      await refresh()
     } catch (e) { toast.error(e.message) }
     setBusy(false)
   }
@@ -122,23 +130,23 @@ export default function Kontoplan() {
           <div className="flex items-center gap-3 flex-wrap">
             <div className="relative">
               <input className="input pl-8 w-64" placeholder="Konto, benämning" value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1) }} />
+                onChange={e => setSearch(e.target.value)} />
               <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
             </div>
             {['alla', 'aktiva', 'inaktiva'].map(s => (
-              <button key={s} onClick={() => { setStatusFilter(s); setPage(1) }}
+              <button key={s} onClick={() => setStatusFilter(s)}
                 className={`btn text-xs ${statusFilter === s ? 'bg-gray-100' : ''}`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>
             ))}
-            <select className="input text-xs py-1 w-44" value={classFilter} onChange={e => { setClassFilter(e.target.value); setPage(1) }}>
+            <select className="input text-xs py-1 w-44" value={classFilter} onChange={e => setClassFilter(e.target.value)}>
               <option value="alla">Alla kontoklasser</option>
               {Object.entries(CLASS_NAMES).filter(([k]) => k !== '6').map(([k, v]) => <option key={k} value={k}>{k} – {v}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span>{filtered.length} konton</span>
-            <button className="btn text-xs py-1 px-2" disabled={page <= 1} onClick={() => setPage(p => p - 1)}><i className="ti ti-chevron-left" /></button>
+            <span>{totalCount.toLocaleString('sv-SE')} konton</span>
+            <button className="btn text-xs py-1 px-2" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><i className="ti ti-chevron-left" /></button>
             <span>{page} / {totalPages}</span>
-            <button className="btn text-xs py-1 px-2" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}><i className="ti ti-chevron-right" /></button>
+            <button className="btn text-xs py-1 px-2" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}><i className="ti ti-chevron-right" /></button>
           </div>
         </div>
 
@@ -157,9 +165,9 @@ export default function Kontoplan() {
             <tbody>
               {loading ? (
                 <tr><td colSpan="6" className="text-center py-12 text-gray-400">Laddar kontoplan...</td></tr>
-              ) : pageData.length === 0 ? (
-                <tr><td colSpan="6" className="text-center py-12 text-gray-400">Inga konton. Skapa ett eller ladda upp en kontoplan.</td></tr>
-              ) : pageData.map(a => (
+              ) : items.length === 0 ? (
+                <tr><td colSpan="6" className="text-center py-12 text-gray-400">Inga konton matchar. Skapa ett eller ladda upp en kontoplan.</td></tr>
+              ) : items.map(a => (
                 <tr key={a.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5 border-b font-medium cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.account_nr}</td>
                   <td className="px-4 py-2.5 border-b cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.name}</td>
@@ -180,10 +188,10 @@ export default function Kontoplan() {
       </div>
 
       <ImportWizard open={showImport} companyId={company?.id} existingNrs={existingNrs}
-        onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); loadAccounts() }} />
+        onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); refresh() }} />
 
       <AccountEditModal open={editAccount !== undefined} account={editAccount} companyId={company?.id} existingNrs={existingNrs}
-        onClose={() => setEditAccount(undefined)} onSaved={() => { setEditAccount(undefined); loadAccounts() }} />
+        onClose={() => setEditAccount(undefined)} onSaved={() => { setEditAccount(undefined); refresh() }} />
 
       <ConfirmDialog open={confirmClear} danger title="Töm hela kontoplanen?" confirmLabel="Töm kontoplan"
         confirmText="TÖM" busy={busy} onCancel={() => !busy && setConfirmClear(false)} onConfirm={doClear}>
