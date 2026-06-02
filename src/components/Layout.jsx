@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import { useAuth } from '../hooks/useAuth'
+import StartGuide from './StartGuide'
 
 export default function Layout() {
   const { company, isAdmin, signOut } = useAuth()
@@ -17,6 +18,11 @@ export default function Layout() {
         </div>
       </div>
     )
+  }
+
+  // Nytt företag som inte gått igenom startguiden ännu.
+  if (company && company.onboarded === false) {
+    return <StartGuide />
   }
 
   return (

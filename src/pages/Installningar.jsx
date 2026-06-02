@@ -331,6 +331,7 @@ export default function Installningar() {
               <div className="flex gap-2">
                 <Link to="/installningar/kontoplan" className="btn text-sm"><i className="ti ti-list-numbers" /> Kontoplan</Link>
                 <Link to="/installningar/rakenskapsar" className="btn text-sm"><i className="ti ti-calendar" /> Räkenskapsår</Link>
+                <Link to="/installningar/aterstall" className="btn btn-danger text-sm"><i className="ti ti-alert-triangle" /> Återställ företag</Link>
               </div>
               <button className="btn btn-primary px-6 py-2" onClick={save} disabled={saving}><i className="ti ti-device-floppy" /> {saving ? 'Sparar…' : 'Spara ändringar'}</button>
             </div>
