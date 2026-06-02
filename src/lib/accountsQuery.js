@@ -53,3 +53,17 @@ export async function fetchAllAccountNumbers(supabase, companyId, batch = 1000) 
   }
   return all
 }
+
+// Som ovan men inkluderar låsstatus – för lås-medveten importförhandsgranskning.
+export async function fetchAllAccountKeys(supabase, companyId, batch = 1000) {
+  const all = []
+  for (let from = 0; ; from += batch) {
+    const { data, error } = await supabase
+      .from('accounts').select('account_nr, is_locked').eq('company_id', companyId)
+      .order('account_nr').range(from, from + batch - 1)
+    if (error) throw error
+    all.push(...(data || []))
+    if (!data || data.length < batch) break
+  }
+  return all
+}

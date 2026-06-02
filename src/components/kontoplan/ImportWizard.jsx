@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { parseAccountsFile, validateAccounts, planImport } from '../../lib/kontoplan'
+import { parseAccountsFile, parseRows, validateAccounts, planImport } from '../../lib/kontoplan'
 import ConfirmDialog from './ConfirmDialog'
 import toast from 'react-hot-toast'
 
@@ -25,18 +25,34 @@ export default function ImportWizard({ open, companyId, existingNrs = [], onDone
   function reset() { setFilename(''); setParsed(null); setValidation(null); setMode('add') }
   function close() { if (!busy) { reset(); onClose?.() } }
 
+  function handleParsed(res) {
+    if (!res.ok) { toast.error(res.error); setParsed(null); return }
+    setParsed(res)
+    setValidation(validateAccounts(res.accounts))
+  }
+
   function onFile(e) {
     const f = e.target.files?.[0]; e.target.value = ''
     if (!f) return
     setFilename(f.name)
     const rd = new FileReader()
-    rd.onload = () => {
-      const res = parseAccountsFile(String(rd.result))
-      if (!res.ok) { toast.error(res.error); setParsed(null); return }
-      setParsed(res)
-      setValidation(validateAccounts(res.accounts))
+    rd.onerror = () => toast.error('Kunde inte läsa filen')
+    if (/\.(xlsx|xls)$/i.test(f.name)) {
+      rd.onload = async () => {
+        try {
+          const XLSX = await import('xlsx')   // laddas dynamiskt först vid behov
+          const wb = XLSX.read(rd.result, { type: 'array' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false })
+          const header = (grid[0] || []).map(h => String(h))
+          handleParsed(parseRows(header, grid.slice(1)))
+        } catch { toast.error('Kunde inte tolka Excel-filen'); setParsed(null) }
+      }
+      rd.readAsArrayBuffer(f)
+    } else {
+      rd.onload = () => handleParsed(parseAccountsFile(String(rd.result)))
+      rd.readAsText(f, 'utf-8')
     }
-    rd.readAsText(f, 'utf-8')
   }
 
   const plan = parsed ? planImport(parsed.accounts, existingNrs, mode) : null
@@ -47,13 +63,14 @@ export default function ImportWizard({ open, companyId, existingNrs = [], onDone
     try {
       const rows = parsed.accounts.map(a => ({
         account_nr: a.account_nr, name: a.name, is_active: a.is_active, vat_code: a.vat_code, sru: a.sru,
+        is_blocked_for_manual_booking: a.is_blocked_for_manual_booking,
       }))
       const { data, error } = await supabase.rpc('import_chart_of_accounts', {
         p_company: companyId, p_mode: mode, p_filename: filename, p_rows: rows,
       })
       if (error) throw error
       const d = data || {}
-      toast.success(`Import klar: ${d.inserted || 0} nya, ${d.updated || 0} uppdaterade${d.deactivated ? `, ${d.deactivated} inaktiverade` : ''}${d.deleted ? `, ${d.deleted} raderade` : ''}`)
+      toast.success(`Import klar: ${d.inserted || 0} nya, ${d.updated || 0} uppdaterade${d.new_locked ? `, ${d.new_locked} låsta` : ''}${d.ignored_locked ? `, ${d.ignored_locked} låsta bevarade` : ''}${d.deactivated ? `, ${d.deactivated} inaktiverade` : ''}${d.deleted ? `, ${d.deleted} raderade` : ''}`)
       setConfirmReplace(false); reset(); onDone?.()
     } catch (e) {
       toast.error('Import misslyckades: ' + (e.message || e))
@@ -75,15 +92,15 @@ export default function ImportWizard({ open, companyId, existingNrs = [], onDone
           <button className="text-gray-400 hover:text-gray-700" onClick={close}><i className="ti ti-x" /></button>
         </div>
 
-        <input ref={fileRef} type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" onChange={onFile} />
+        <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={onFile} />
 
         {!parsed ? (
           <div className="px-5 py-8 text-center">
             <button className="rounded-xl border-2 border-dashed w-full py-10 hover:border-blue-400 transition-colors"
               style={{ borderColor: 'rgba(0,0,0,0.15)' }} onClick={() => fileRef.current?.click()}>
               <i className="ti ti-file-upload text-4xl text-blue-600 block mb-2" />
-              <div className="font-medium text-sm">Välj en kontoplanfil (CSV)</div>
-              <div className="text-xs text-gray-500 mt-1">Stöder Fortnox-export och projektets egna CSV-format</div>
+              <div className="font-medium text-sm">Välj en kontoplanfil (CSV eller Excel)</div>
+              <div className="text-xs text-gray-500 mt-1">Stöder Fortnox-export (.csv/.xlsx) och projektets egna CSV-format</div>
             </button>
             <div className="text-xs text-gray-400 mt-3">Filen måste minst innehålla kolumner för kontonummer och benämning.</div>
           </div>
@@ -136,14 +153,24 @@ export default function ImportWizard({ open, companyId, existingNrs = [], onDone
             </div>
 
             {/* Förhandsgranskning */}
-            {plan && validation?.valid && (
-              <div className="rounded-lg border p-3 grid grid-cols-3 gap-2 text-center" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-                <div><div className="text-lg font-semibold text-green-700">{plan.inserted}</div><div className="text-[11px] text-gray-500">Nya</div></div>
-                <div><div className="text-lg font-semibold text-blue-700">{plan.updated}</div><div className="text-[11px] text-gray-500">Uppdateras</div></div>
-                <div><div className="text-lg font-semibold text-gray-500">{plan.skipped}</div><div className="text-[11px] text-gray-500">Hoppas över</div></div>
+            {plan && (
+              <div className="rounded-lg border p-3" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                <div className="grid grid-cols-3 gap-y-3 gap-x-2 text-center">
+                  <div><div className="text-lg font-semibold text-green-700">{plan.inserted}</div><div className="text-[11px] text-gray-500">Nya</div></div>
+                  <div><div className="text-lg font-semibold text-blue-700">{plan.updated}</div><div className="text-[11px] text-gray-500">Uppdateras</div></div>
+                  <div><div className="text-lg font-semibold text-purple-700">{plan.newLocked}</div><div className="text-[11px] text-gray-500">Nya låsta</div></div>
+                  <div><div className="text-lg font-semibold text-amber-600">{plan.ignoredLocked}</div><div className="text-[11px] text-gray-500">Ignorerade (låsta)</div></div>
+                  <div><div className="text-lg font-semibold text-gray-500">{plan.skipped}</div><div className="text-[11px] text-gray-500">Hoppas över</div></div>
+                  <div><div className="text-lg font-semibold text-gray-500">{validation?.duplicatesInFile.length || 0}</div><div className="text-[11px] text-gray-500">Dubbletter</div></div>
+                </div>
+                {plan.ignoredLocked > 0 && (
+                  <div className="text-xs text-amber-700 border-t pt-2 mt-3" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+                    <i className="ti ti-lock mr-1" />{plan.ignoredLocked} låsta systemkonton bevaras oförändrade och påverkas inte av importen.
+                  </div>
+                )}
                 {mode === 'replace' && (
-                  <div className="col-span-3 text-xs text-amber-700 border-t pt-2 mt-1" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-                    <i className="ti ti-info-circle mr-1" />{plan.missingCount} befintliga konton saknas i filen och kommer tas bort (använda inaktiveras).
+                  <div className="text-xs text-amber-700 border-t pt-2 mt-2" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+                    <i className="ti ti-info-circle mr-1" />{plan.missingCount} olåsta konton saknas i filen och tas bort (använda inaktiveras). {plan.preservedLocked} låsta konton skyddas.
                   </div>
                 )}
               </div>

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { CLASS_NAMES } from '../lib/kontoplan'
-import { fetchAccountsPage, fetchAllAccountNumbers } from '../lib/accountsQuery'
+import { fetchAccountsPage, fetchAllAccountKeys } from '../lib/accountsQuery'
 import ImportWizard from '../components/kontoplan/ImportWizard'
 import AccountEditModal from '../components/kontoplan/AccountEditModal'
 import ConfirmDialog from '../components/kontoplan/ConfirmDialog'
@@ -22,7 +22,8 @@ export default function Kontoplan() {
   const [classFilter, setClassFilter] = useState('alla')
   const [sort, setSort] = useState({ key: 'account_nr', dir: 'asc' })
   const [page, setPage] = useState(1)
-  const [existingNrs, setExistingNrs] = useState([])
+  const [existing, setExisting] = useState([]) // [{ account_nr, is_locked }]
+  const existingNrs = existing.map(e => e.account_nr)
 
   const [showImport, setShowImport] = useState(false)
   const [editAccount, setEditAccount] = useState(undefined)
@@ -59,7 +60,7 @@ export default function Kontoplan() {
 
   const loadExisting = useCallback(async () => {
     if (!company) return
-    try { setExistingNrs(await fetchAllAccountNumbers(supabase, company.id)) } catch { /* tyst */ }
+    try { setExisting(await fetchAllAccountKeys(supabase, company.id)) } catch { /* tyst */ }
   }, [company])
   useEffect(() => { loadExisting() }, [loadExisting])
 
@@ -170,15 +171,32 @@ export default function Kontoplan() {
               ) : items.map(a => (
                 <tr key={a.id} className="hover:bg-gray-50">
                   <td className="px-4 py-2.5 border-b font-medium cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.account_nr}</td>
-                  <td className="px-4 py-2.5 border-b cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.name}</td>
+                  <td className="px-4 py-2.5 border-b cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>
+                    {a.name}
+                    {a.is_locked && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 align-middle"
+                        title="Kontot är blockerat för manuell bokföring och kan inte ändras eller raderas.">
+                        <i className="ti ti-lock text-[10px]" /> Låst
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 border-b text-xs text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{a.account_class ? `${a.account_class} – ${CLASS_NAMES[a.account_class]}` : '—'}</td>
                   <td className="px-4 py-2.5 border-b text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{a.vat_code || '—'}</td>
                   <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                     {a.is_active ? <span className="badge-active"><i className="ti ti-check text-xs" /> Aktiv</span> : <span className="badge-draft">Inaktiv</span>}
                   </td>
                   <td className="px-4 py-2.5 border-b text-right" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-                    <button className="text-gray-400 hover:text-blue-600 px-1" title="Redigera" onClick={() => setEditAccount(a)}><i className="ti ti-pencil" /></button>
-                    <button className="text-gray-400 hover:text-red-600 px-1" title="Radera" onClick={() => setConfirmDelete(a)}><i className="ti ti-trash" /></button>
+                    {a.is_locked ? (
+                      <span className="inline-flex gap-1 text-gray-300" title="Systemkonto – blockerat för manuell bokföring. Kan inte ändras eller raderas.">
+                        <i className="ti ti-pencil px-1 cursor-not-allowed" />
+                        <i className="ti ti-trash px-1 cursor-not-allowed" />
+                      </span>
+                    ) : (
+                      <>
+                        <button className="text-gray-400 hover:text-blue-600 px-1" title="Redigera" onClick={() => setEditAccount(a)}><i className="ti ti-pencil" /></button>
+                        <button className="text-gray-400 hover:text-red-600 px-1" title="Radera" onClick={() => setConfirmDelete(a)}><i className="ti ti-trash" /></button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -187,7 +205,7 @@ export default function Kontoplan() {
         </div>
       </div>
 
-      <ImportWizard open={showImport} companyId={company?.id} existingNrs={existingNrs}
+      <ImportWizard open={showImport} companyId={company?.id} existingNrs={existing}
         onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); refresh() }} />
 
       <AccountEditModal open={editAccount !== undefined} account={editAccount} companyId={company?.id} existingNrs={existingNrs}

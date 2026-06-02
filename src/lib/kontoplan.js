@@ -33,6 +33,7 @@ const ALIASES = {
   is_active: ['isactive', 'is_active', 'aktiv', 'aktivt', 'active'],
   vat_code: ['vatcodeandpercent', 'vat_code', 'vatcode', 'momskod', 'moms'],
   sru: ['sru'],
+  is_blocked: ['isblockedformanualbooking', 'is_blocked_for_manual_booking', 'blockerad', 'last', 'låst', 'systemkonto'],
 }
 
 const normalize = h => String(h ?? '').toLowerCase().replace(/\s+/g, '').replace(/[._-]/g, '')
@@ -54,24 +55,32 @@ export function parseBool(v, dflt = true) {
   return /^(1|true|ja|aktiv|active|x|yes)$/.test(s)
 }
 
-// Tolkar en hel fil till konton. Returnerar { ok, error, accounts, header }.
-export function parseAccountsFile(text) {
-  const { header, rows } = parseDelimited(text)
+// Tolkar redan uppdelade rubrik+rader (från CSV eller Excel) till konton.
+// Returnerar { ok, error, accounts, header }.
+export function parseRows(header, rows) {
   const map = mapColumns(header)
   if (map.account_nr == null || map.name == null) {
     return { ok: false, error: 'Filen saknar kolumner för kontonummer och/eller benämning.', accounts: [], header }
   }
+  const cell = (cells, i) => String(cells[i] ?? '').trim()
   const accounts = rows
     .map((cells, idx) => ({
       _line: idx + 2,
-      account_nr: (cells[map.account_nr] ?? '').trim(),
-      name: (cells[map.name] ?? '').trim(),
+      account_nr: cell(cells, map.account_nr),
+      name: cell(cells, map.name),
       is_active: map.is_active != null ? parseBool(cells[map.is_active]) : true,
-      vat_code: map.vat_code != null ? (cells[map.vat_code] ?? '').trim() : '',
-      sru: map.sru != null ? (cells[map.sru] ?? '').trim() : '',
+      vat_code: map.vat_code != null ? cell(cells, map.vat_code) : '',
+      sru: map.sru != null ? cell(cells, map.sru) : '',
+      is_blocked_for_manual_booking: map.is_blocked != null ? parseBool(cells[map.is_blocked], false) : false,
     }))
     .filter(a => a.account_nr !== '' || a.name !== '')
   return { ok: true, accounts, header }
+}
+
+// Tolkar en CSV-/semikolonfil (text) till konton.
+export function parseAccountsFile(text) {
+  const { header, rows } = parseDelimited(text)
+  return parseRows(header, rows)
 }
 
 // --- BAS-klass/typ (speglar serverns bas_class/bas_type) -------------------
@@ -108,16 +117,29 @@ export function validateAccounts(accounts) {
 
 // --- Förhandsberäkna importens effekt mot befintliga konton ---------------
 // mode: 'replace' | 'add' | 'update'
-export function planImport(accounts, existingNrs, mode) {
-  const existing = new Set((existingNrs || []).map(String))
+// existing: array av kontonummer (string) ELLER objekt { account_nr, is_locked }.
+// Låsta befintliga konton bevaras: de ignoreras vid import och raderas aldrig.
+export function planImport(accounts, existing, mode) {
+  const norm = (existing || []).map(e =>
+    typeof e === 'string' ? { account_nr: String(e), is_locked: false }
+      : { account_nr: String(e.account_nr), is_locked: !!e.is_locked })
+  const byNr = new Map(norm.map(e => [e.account_nr, e]))
   const fileNrs = new Set(accounts.map(a => a.account_nr))
-  let inserted = 0, updated = 0, skipped = 0
+  let inserted = 0, updated = 0, skipped = 0, ignoredLocked = 0, newLocked = 0
   for (const a of accounts) {
-    const has = existing.has(a.account_nr)
-    if (mode === 'add') has ? skipped++ : inserted++
-    else if (mode === 'update') has ? updated++ : skipped++
-    else has ? updated++ : inserted++ // replace
+    const ex = byNr.get(a.account_nr)
+    const blocked = !!a.is_blocked_for_manual_booking
+    if (ex && ex.is_locked) { ignoredLocked++; continue }  // bevaras exakt
+    if (mode === 'add') {
+      if (ex) skipped++; else { inserted++; if (blocked) newLocked++ }
+    } else if (mode === 'update') {
+      if (ex) { updated++; if (blocked) newLocked++ } else skipped++
+    } else { // replace
+      if (ex) { updated++; if (blocked) newLocked++ } else { inserted++; if (blocked) newLocked++ }
+    }
   }
-  const missing = mode === 'replace' ? (existingNrs || []).filter(n => !fileNrs.has(String(n))) : []
-  return { mode, inserted, updated, skipped, missing, missingCount: missing.length }
+  // replace: befintliga konton som saknas i filen och INTE är låsta tas bort
+  const missing = mode === 'replace' ? norm.filter(e => !fileNrs.has(e.account_nr) && !e.is_locked).map(e => e.account_nr) : []
+  const preservedLocked = norm.filter(e => e.is_locked).length
+  return { mode, inserted, updated, skipped, ignoredLocked, newLocked, missing, missingCount: missing.length, preservedLocked }
 }

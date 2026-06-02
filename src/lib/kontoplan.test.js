@@ -61,6 +61,11 @@ describe('parseAccountsFile', () => {
     expect(res.accounts[0]).toMatchObject({ account_nr: '1930', name: 'Företagskonto', is_active: true })
     expect(res.accounts[1]).toMatchObject({ account_nr: '3041', is_active: false, vat_code: '05-25%' })
   })
+  it('läser IsBlockedForManualBooking som lås-flagga', () => {
+    const res = parseAccountsFile(FORTNOX)
+    expect(res.accounts[0].is_blocked_for_manual_booking).toBe(true)   // 1930
+    expect(res.accounts[1].is_blocked_for_manual_booking).toBe(false)  // 3041
+  })
   it('returnerar fel när nyckelkolumner saknas', () => {
     const res = parseAccountsFile('foo;bar\n1;2')
     expect(res.ok).toBe(false)
@@ -133,5 +138,45 @@ describe('planImport', () => {
     expect(p.updated).toBe(2)         // 1930, 3041
     expect(p.missing).toEqual(['2440'])
     expect(p.missingCount).toBe(1)
+  })
+})
+
+describe('planImport – låsta systemkonton', () => {
+  const file = [
+    { account_nr: '1930', name: 'Företagskonto', is_blocked_for_manual_booking: true },
+    { account_nr: '3041', name: 'Försäljning', is_blocked_for_manual_booking: false },
+    { account_nr: '9999', name: 'Nytt låst', is_blocked_for_manual_booking: true },
+  ]
+
+  it('ignorerar befintligt låst konto och räknar nya låsta (replace)', () => {
+    const existing = [{ account_nr: '1930', is_locked: true }, { account_nr: '3041', is_locked: false }]
+    const p = planImport(file, existing, 'replace')
+    expect(p.ignoredLocked).toBe(1) // 1930 är låst → bevaras, ej uppdateras
+    expect(p.updated).toBe(1)       // 3041
+    expect(p.inserted).toBe(1)      // 9999
+    expect(p.newLocked).toBe(1)     // 9999 blockerat
+  })
+
+  it('skriver inte över låst konto vid import (update)', () => {
+    const existing = [{ account_nr: '1930', is_locked: true }]
+    const p = planImport([{ account_nr: '1930', name: 'Ändrat', is_blocked_for_manual_booking: true }], existing, 'update')
+    expect(p.ignoredLocked).toBe(1)
+    expect(p.updated).toBe(0)
+  })
+
+  it('låst konto som saknas i filen bevaras vid "Ersätt" (ej i missing)', () => {
+    const existing = [{ account_nr: '1930', is_locked: true }, { account_nr: '2440', is_locked: false }]
+    const onlyOther = [{ account_nr: '3041', name: 'x', is_blocked_for_manual_booking: false }]
+    const p = planImport(onlyOther, existing, 'replace')
+    expect(p.missing).toEqual(['2440']) // olåst saknas → tas bort
+    expect(p.missing).not.toContain('1930')
+    expect(p.preservedLocked).toBe(1)
+  })
+
+  it('nytt blockerat konto skapas som låst (add)', () => {
+    const p = planImport([{ account_nr: '1630', name: 'Skattekonto', is_blocked_for_manual_booking: true }], [], 'add')
+    expect(p.inserted).toBe(1)
+    expect(p.newLocked).toBe(1)
+    expect(p.ignoredLocked).toBe(0)
   })
 })
