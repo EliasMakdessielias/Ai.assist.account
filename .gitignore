@@ -4,3 +4,6 @@ dist
 .DS_Store
 *.local
 .vercel
+
+# Lokala verktygsfiler (Claude Code preview m.m.) – ska inte deployas
+.claude/
