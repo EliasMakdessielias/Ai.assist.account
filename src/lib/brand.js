@@ -1,12 +1,15 @@
-// Central varumärkeskonfiguration för Redo Flow.
+// Central varumärkeskonfiguration för BokPilot.
 // Ändra produktnamn/företagsnamn/underrubrik på ETT ställe.
 export const BRAND = {
-  appName: 'Redo Flow',          // produktnamn – huvudnamn i UI
-  companyName: 'REDOFLOW AB',    // juridiskt företagsnamn
+  appName: 'BokPilot',           // produktnamn – huvudnamn i UI
+  productName: 'BokPilot',
+  companyName: 'REDOFLOW AB',    // juridiskt företagsnamn (bolaget bakom produkten)
   tagline: 'Bokföring & ekonomi',
+  description: 'BokPilot automatiserar svensk bokföring med AI, fakturatolkning och smart granskning.',
 }
 
 export const APP_NAME = BRAND.appName
+export const PRODUCT_NAME = BRAND.productName
 export const COMPANY_NAME = BRAND.companyName
 export const TAGLINE = BRAND.tagline
 

@@ -1,4 +1,4 @@
-# Komma igång på en ny dator – Redo Flow
+# Komma igång på en ny dator – BokPilot
 
 Den här guiden tar dig från en ren dator till att appen kör lokalt och du kan
 jobba vidare på projektet. Koden ligger på GitHub, din data ligger i Supabase

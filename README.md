@@ -1,4 +1,4 @@
-# Redo Flow – Bokföring & ekonomi
+# BokPilot – Bokföring & ekonomi
 
 En modern bokföringsapp byggd med React + Supabase, inspirerad av Fortnox.
 

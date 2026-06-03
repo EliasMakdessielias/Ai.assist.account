@@ -1,4 +1,4 @@
-# HANDOFF – var vi är i Redo Flow-projektet
+# HANDOFF – var vi är i BokPilot-projektet
 
 > **Till Claude på en ny dator:** Läs denna fil först. Den ger full kontext om
 > projektet så vi kan fortsätta där vi slutade. (Användaren: Elias, svensktalande
@@ -6,7 +6,7 @@
 > varje steg. "kör"/"ja" = fortsätt med rekommendationen.)
 
 ## Vad det är
-Redo Flow (REDOFLOW AB) – en svensk bokföringsapp (Visma eEkonomi/Spiris-stil). React 18 + Vite +
+BokPilot (av REDOFLOW AB) – en svensk bokföringsapp (Visma eEkonomi/Spiris-stil). React 18 + Vite +
 Tailwind + React Router + react-hot-toast. Backend: Supabase (Postgres, Auth, RLS,
 Storage, Edge Functions). AI via Google Gemini (2.5-flash-lite) i edge functions.
 
