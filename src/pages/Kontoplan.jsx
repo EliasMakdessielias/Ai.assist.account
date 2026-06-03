@@ -6,6 +6,8 @@ import { fetchAccountsPage, fetchAllAccountKeys } from '../lib/accountsQuery'
 import ImportWizard from '../components/kontoplan/ImportWizard'
 import AccountEditModal from '../components/kontoplan/AccountEditModal'
 import ConfirmDialog from '../components/kontoplan/ConfirmDialog'
+import AccountRowActions from '../components/kontoplan/AccountRowActions'
+import { isAccountLocked } from '../components/kontoplan/LockedStandardPostBadge'
 import toast from 'react-hot-toast'
 
 const PER_PAGE = 100
@@ -160,7 +162,7 @@ export default function Kontoplan() {
                 <th className="text-left px-4 py-2.5 border-b w-44 cursor-pointer select-none" style={{ borderColor: 'rgba(0,0,0,0.10)' }} onClick={() => toggleSort('account_class')}>Kontoklass <i className={`ti ${sortIcon('account_class')}`} /></th>
                 <th className="text-left px-4 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Momskod</th>
                 <th className="text-left px-4 py-2.5 border-b w-24" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Status</th>
-                <th className="text-right px-4 py-2.5 border-b w-24" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Åtgärd</th>
+                <th className="text-right px-4 py-2.5 border-b w-52" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Åtgärd</th>
               </tr>
             </thead>
             <tbody>
@@ -170,33 +172,15 @@ export default function Kontoplan() {
                 <tr><td colSpan="6" className="text-center py-12 text-gray-400">Inga konton matchar. Skapa ett eller ladda upp en kontoplan.</td></tr>
               ) : items.map(a => (
                 <tr key={a.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2.5 border-b font-medium cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.account_nr}</td>
-                  <td className="px-4 py-2.5 border-b cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>
-                    {a.name}
-                    {a.is_locked && (
-                      <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 align-middle"
-                        title="Kontot är blockerat för manuell bokföring och kan inte ändras eller raderas.">
-                        <i className="ti ti-lock text-[10px]" /> Låst
-                      </span>
-                    )}
-                  </td>
+                  <td className={`px-4 py-2.5 border-b font-medium ${isAccountLocked(a) ? '' : 'cursor-pointer'}`} style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => !isAccountLocked(a) && setEditAccount(a)}>{a.account_nr}</td>
+                  <td className={`px-4 py-2.5 border-b ${isAccountLocked(a) ? '' : 'cursor-pointer'}`} style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => !isAccountLocked(a) && setEditAccount(a)}>{a.name}</td>
                   <td className="px-4 py-2.5 border-b text-xs text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{a.account_class ? `${a.account_class} – ${CLASS_NAMES[a.account_class]}` : '—'}</td>
                   <td className="px-4 py-2.5 border-b text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{a.vat_code || '—'}</td>
                   <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                     {a.is_active ? <span className="badge-active"><i className="ti ti-check text-xs" /> Aktiv</span> : <span className="badge-draft">Inaktiv</span>}
                   </td>
                   <td className="px-4 py-2.5 border-b text-right" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-                    {a.is_locked ? (
-                      <span className="inline-flex gap-1 text-gray-300" title="Systemkonto – blockerat för manuell bokföring. Kan inte ändras eller raderas.">
-                        <i className="ti ti-pencil px-1 cursor-not-allowed" />
-                        <i className="ti ti-trash px-1 cursor-not-allowed" />
-                      </span>
-                    ) : (
-                      <>
-                        <button className="text-gray-400 hover:text-blue-600 px-1" title="Redigera" onClick={() => setEditAccount(a)}><i className="ti ti-pencil" /></button>
-                        <button className="text-gray-400 hover:text-red-600 px-1" title="Radera" onClick={() => setConfirmDelete(a)}><i className="ti ti-trash" /></button>
-                      </>
-                    )}
+                    <AccountRowActions account={a} onEdit={setEditAccount} onDelete={setConfirmDelete} />
                   </td>
                 </tr>
               ))}
