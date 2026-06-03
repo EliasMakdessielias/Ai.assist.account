@@ -1,4 +1,5 @@
 // Hjälplogik för admin-funktionen "Töm testdata". Ren och testbar.
+// OBS: Kontoplanen (accounts) är grunddata och raderas ALDRIG av tömningen.
 
 export const PURGE_CONFIRM_PHRASE = 'RADERA TESTDATA'
 
@@ -7,17 +8,17 @@ export function isPurgeConfirmed(input) {
 }
 
 // Etiketter + ordning för sammanfattningen (matchar nycklarna från purge_test_data).
+// Kontoplan finns medvetet INTE med – den raderas aldrig.
 const LABELS = [
   ['invoices', 'Kundfakturor'],
   ['supplier_invoices', 'Leverantörsfakturor'],
   ['verifikationer', 'Verifikationer'],
   ['bank_transactions', 'Banktransaktioner'],
-  ['documents', 'Filer & underlag (OCR)'],
+  ['documents', 'Filer & underlag (OCR/AI)'],
   ['import_batches', 'Importhistorik'],
   ['products', 'Produkter'],
   ['customers', 'Kunder'],
   ['suppliers', 'Leverantörer'],
-  ['accounts', 'Konton (olåsta)'],
 ]
 
 export function summarizePurge(result) {
@@ -26,6 +27,7 @@ export function summarizePurge(result) {
   return {
     deleted,
     totalDeleted: deleted.reduce((s, r) => s + r.count, 0),
-    preservedLockedAccounts: Number(result?.preserved_locked_accounts || 0),
+    preservedAccounts: Number(result?.preserved_accounts || 0),
+    chartOfAccountsPreserved: result?.chart_of_accounts_preserved !== false,
   }
 }

@@ -154,7 +154,7 @@ export default function Admin() {
 
         <div className="text-xs text-gray-400 mt-4">
           Du ser alla registrerade konton. <b>Aktivera</b> släpper in nya företag, <b>Stäng av</b> blockerar dem (på databasnivå), och <b>papperskorgen</b> raderar kontot + dess data permanent.
-          <br /><b>Töm testdata</b> rensar all affärsdata för ett företag men behåller användare, behörigheter, inställningar och låsta systemkonton.
+          <br /><b>Töm testdata</b> rensar affärsdata (fakturor, verifikationer, dokument m.m.) för ett företag men behåller <b>hela kontoplanen</b>, användare, behörigheter och inställningar.
         </div>
       </div>
 
@@ -162,9 +162,9 @@ export default function Admin() {
       <ConfirmDialog open={!!purgeTarget} danger title="Töm testdata"
         confirmLabel="Töm testdata permanent" confirmText={PURGE_CONFIRM_PHRASE} busy={purgeBusy}
         onCancel={() => !purgeBusy && setPurgeTarget(null)} onConfirm={runPurge}>
-        <p>Detta kommer att radera <b>all testdata permanent</b> för <b>{purgeTarget?.name}</b>. Åtgärden kan inte ångras.</p>
-        <p className="text-xs text-gray-500">Raderas: kund-/leverantörsfakturor, verifikationer, banktransaktioner, filer & underlag, importhistorik, produkter, kunder, leverantörer och olåsta konton.</p>
-        <p className="text-xs text-gray-500">Bevaras: användare, behörigheter, företagsinställningar och <b>låsta systemkonton</b>.</p>
+        <p>Detta raderar uppladdade dokument, fakturor, bokföringsposter och testtransaktioner för <b>{purgeTarget?.name}</b>. <b>Kontoplanen och systemets grundinställningar behålls.</b> Åtgärden kan inte ångras.</p>
+        <p className="text-xs text-gray-500">Raderas: kund-/leverantörsfakturor, verifikationer & bokföringsrader, banktransaktioner, filer & underlag (OCR/AI), importhistorik, produkter, kunder och leverantörer.</p>
+        <p className="text-xs text-gray-500">Bevaras: <b>hela kontoplanen</b>, användare, roller & behörigheter, företagsprofil, moms- och systeminställningar.</p>
       </ConfirmDialog>
 
       {/* Sammanfattning efter tömning */}
@@ -189,12 +189,12 @@ export default function Admin() {
                     <td className="py-1.5 text-right font-semibold">{purgeSummary.totalDeleted.toLocaleString('sv-SE')}</td>
                   </tr>
                   <tr>
-                    <td className="py-1 text-gray-600"><i className="ti ti-lock text-gray-400 mr-1" />Bevarade låsta systemkonton</td>
-                    <td className="py-1 text-right font-medium text-purple-700">{purgeSummary.preservedLockedAccounts.toLocaleString('sv-SE')}</td>
+                    <td className="py-1 text-gray-600"><i className="ti ti-list-numbers text-gray-400 mr-1" />Kontoplan bevarad (konton kvar)</td>
+                    <td className="py-1 text-right font-medium text-green-700">{purgeSummary.preservedAccounts.toLocaleString('sv-SE')}</td>
                   </tr>
                 </tbody>
               </table>
-              <p className="text-xs text-gray-400 mt-3">Användare, behörigheter och företagsinställningar bevarades.</p>
+              <p className="text-xs text-gray-400 mt-3">Kontoplan, användare, behörigheter och systeminställningar bevarades.</p>
             </div>
             <div className="px-5 py-4 border-t flex justify-end" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
               <button className="btn btn-primary" onClick={() => setPurgeSummary(null)}>Klart</button>

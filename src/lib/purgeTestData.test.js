@@ -16,22 +16,26 @@ describe('isPurgeConfirmed', () => {
 })
 
 describe('summarizePurge', () => {
-  it('mappar räknare till etiketter, summa och bevarade låsta konton', () => {
+  it('mappar räknare och bevarar kontoplanen (ej i raderingslistan)', () => {
     const result = {
       ok: true,
-      deleted: { invoices: 3, supplier_invoices: 2, verifikationer: 10, bank_transactions: 5, documents: 4, import_batches: 1, products: 0, customers: 2, suppliers: 1, accounts: 1300 },
-      preserved_locked_accounts: 57,
+      deleted: { invoices: 3, supplier_invoices: 2, verifikationer: 10, bank_transactions: 5, documents: 4, import_batches: 1, products: 0, customers: 2, suppliers: 1 },
+      chart_of_accounts_preserved: true,
+      preserved_accounts: 1367,
     }
     const s = summarizePurge(result)
     expect(s.deleted.find(r => r.key === 'invoices').count).toBe(3)
-    expect(s.deleted.find(r => r.key === 'verifikationer').label).toBe('Verifikationer')
-    expect(s.totalDeleted).toBe(3 + 2 + 10 + 5 + 4 + 1 + 0 + 2 + 1 + 1300)
-    expect(s.preservedLockedAccounts).toBe(57)
+    // Kontoplanen ska ALDRIG finnas i raderingslistan
+    expect(s.deleted.find(r => r.key === 'accounts')).toBeUndefined()
+    expect(s.totalDeleted).toBe(3 + 2 + 10 + 5 + 4 + 1 + 0 + 2 + 1)
+    expect(s.preservedAccounts).toBe(1367)
+    expect(s.chartOfAccountsPreserved).toBe(true)
   })
   it('hanterar tomt/saknat resultat', () => {
     const s = summarizePurge({})
     expect(s.totalDeleted).toBe(0)
-    expect(s.preservedLockedAccounts).toBe(0)
-    expect(s.deleted).toHaveLength(10)
+    expect(s.preservedAccounts).toBe(0)
+    expect(s.deleted).toHaveLength(9)
+    expect(s.chartOfAccountsPreserved).toBe(true)
   })
 })
