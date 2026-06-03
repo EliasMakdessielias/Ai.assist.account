@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
 
     const hist = Array.isArray(history) ? history.slice(-6).map((m: { role: string; text: string }) => `${m.role === 'user' ? 'Användare' : 'Assistent'}: ${m.text}`).join('\n') : ''
 
-    const prompt = `Du är en svensk bokföringsassistent i appen Böcker. Svara på användarens fråga ENDAST utifrån JSON-datan nedan (företagets egna bokföringsdata för aktuell period).
+    const prompt = `Du är en svensk bokföringsassistent i appen Redo Flow. Svara på användarens fråga ENDAST utifrån JSON-datan nedan (företagets egna bokföringsdata för aktuell period).
 
 Regler:
 - Svara kortfattat, konkret och vänligt på svenska. Ange belopp i kronor (t.ex. 12 500 kr).

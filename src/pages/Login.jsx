@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { BRAND } from '../lib/brand'
 import toast from 'react-hot-toast'
 
 export default function Login() {
@@ -35,8 +36,8 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-surface-3 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-semibold tracking-tight">Böcker</h1>
-          <p className="text-sm text-gray-400 mt-1">Bokföring &amp; ekonomi</p>
+          <h1 className="text-3xl font-semibold tracking-tight">{BRAND.appName}</h1>
+          <p className="text-sm text-gray-400 mt-1">{BRAND.tagline}</p>
         </div>
 
         <div className="bg-white rounded-xl p-8 shadow-sm" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>

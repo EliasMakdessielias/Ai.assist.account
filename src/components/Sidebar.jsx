@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { BRAND } from '../lib/brand'
 import toast from 'react-hot-toast'
 
 const navItems = [
@@ -63,8 +64,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar w-[230px] bg-white border-r fixed top-0 left-0 h-screen flex flex-col z-50" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
       <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <div className="text-xl font-semibold tracking-tight">Böcker</div>
-        <div className="text-[11px] text-gray-400 mt-0.5">Bokföring &amp; ekonomi</div>
+        <div className="text-xl font-semibold tracking-tight">{BRAND.appName}</div>
+        <div className="text-[11px] text-gray-400 mt-0.5">{BRAND.tagline}</div>
       </div>
 
       <nav className="flex-1 py-2.5 overflow-y-auto">

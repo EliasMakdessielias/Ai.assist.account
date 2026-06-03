@@ -1,4 +1,4 @@
-# Böcker – Bokföring & ekonomi
+# Redo Flow – Bokföring & ekonomi
 
 En modern bokföringsapp byggd med React + Supabase, inspirerad av Fortnox.
 

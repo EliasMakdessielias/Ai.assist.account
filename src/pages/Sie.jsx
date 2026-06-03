@@ -9,7 +9,7 @@ const dnum = s => String(s || '').replace(/-/g, '')
 function buildSie(company, accounts, vers, from, tom) {
   const L = []
   L.push('#FLAGGA 0')
-  L.push('#PROGRAM "Böcker" 1.0')
+  L.push('#PROGRAM "Redo Flow" 1.0')
   L.push('#FORMAT PC8')
   L.push(`#GEN ${dnum(today())}`)
   L.push('#SIETYP 4')
