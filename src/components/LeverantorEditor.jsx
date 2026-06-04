@@ -28,7 +28,14 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
   // Fakturaunderlaget (bilden) som öppnades – visas till höger för avstämning.
-  const PANEL_W = 460
+  const [panelW, setPanelW] = useState(460)
+  function startResize(e) {
+    e.preventDefault()
+    const move = ev => setPanelW(Math.min(window.innerWidth - 420, Math.max(360, window.innerWidth - ev.clientX)))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.userSelect = '' }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
   const [docUrl, setDocUrl] = useState(null)
   const [docMeta, setDocMeta] = useState(null)
   const [docScale, setDocScale] = useState(1)
@@ -131,7 +138,7 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
 
   return (
    <>
-    <div className="fixed top-0 left-0 bottom-0 bg-white z-[60] overflow-y-auto" style={{ right: showPanel ? PANEL_W : 0 }}>
+    <div className="fixed top-0 left-0 bottom-0 bg-white z-[60] overflow-y-auto" style={{ right: showPanel ? panelW : 0 }}>
       {/* Topprad */}
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight">LEVERANTÖR {f.leverantorsnr} – SKAPA NY</span>
@@ -285,14 +292,15 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
       </div>
 
       {/* Knapprad */}
-      <div className="fixed bottom-0 left-0 bg-white border-t px-7 py-3 flex items-center justify-end gap-2.5 z-20" style={{ borderColor: 'rgba(0,0,0,0.10)', right: showPanel ? PANEL_W : 0 }}>
+      <div className="fixed bottom-0 left-0 bg-white border-t px-7 py-3 flex items-center justify-end gap-2.5 z-20" style={{ borderColor: 'rgba(0,0,0,0.10)', right: showPanel ? panelW : 0 }}>
         <button className="btn" onClick={onCancel} disabled={saving}>Avbryt</button>
         <button className="btn btn-green px-6" onClick={spara} disabled={saving}>{saving ? 'Sparar…' : 'Spara'}</button>
       </div>
     </div>
 
     {showPanel && (
-      <div className="fixed top-0 right-0 bottom-0 z-[60] bg-surface-3 flex flex-col" style={{ width: PANEL_W, borderLeft: '1px solid rgba(0,0,0,0.10)' }}>
+      <div className="fixed top-0 right-0 bottom-0 z-[60] bg-surface-3 flex flex-col" style={{ width: panelW, borderLeft: '1px solid rgba(0,0,0,0.10)' }}>
+        <div onMouseDown={startResize} className="absolute top-0 bottom-0 w-1.5 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors z-30" style={{ left: -3 }} title="Dra för att ändra storlek" />
         <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           <span className="text-[15px] font-bold tracking-tight truncate">FAKTURAUNDERLAG</span>
           <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
