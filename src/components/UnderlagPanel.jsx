@@ -211,6 +211,15 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
               onClick={() => setIdx(i => Math.min(docs.length - 1, i + 1))} disabled={idx === docs.length - 1}><i className="ti ti-chevron-right" /></button>
           </>
         )}
+
+        {/* Flytande zoomkontroll – alltid synlig */}
+        {current && url && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 rounded-full shadow-lg px-1.5 py-1" style={{ border: '1px solid rgba(0,0,0,0.12)' }}>
+            <button title="Zooma ut" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-minus" /></button>
+            <button title="Återställ till 100%" className="text-xs tabular-nums w-12 text-center text-gray-700 hover:text-gray-900" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
+            <button title="Zooma in" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setScale(s => Math.min(4, +(s + 0.2).toFixed(2)))}><i className="ti ti-plus" /></button>
+          </div>
+        )}
       </div>
 
       {/* Filnamn + åtgärder */}

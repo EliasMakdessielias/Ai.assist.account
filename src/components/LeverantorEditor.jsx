@@ -302,7 +302,8 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
             <a title="Öppna i ny flik" className="hover:text-gray-900 border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }} href={docUrl} target="_blank" rel="noreferrer"><i className="ti ti-external-link" /></a>
           </div>
         </div>
-        <div ref={previewRef} className="flex-1 overflow-auto p-4">
+        <div className="flex-1 relative overflow-hidden">
+          <div ref={previewRef} className="absolute inset-0 overflow-auto p-4">
           {docMeta?.mime_type?.startsWith('image/') ? (
             <img src={docUrl} alt={docMeta.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
               style={{ width: `${docScale * 100}%`, maxWidth: 'none', height: 'auto', transition: 'width .12s' }} />
@@ -310,8 +311,15 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
             <iframe src={docUrl} title={docMeta.file_name} className="bg-white shadow block mx-auto"
               style={{ width: `${100 * docScale}%`, height: `${Math.max(100, 100 * docScale)}%`, minHeight: '100%', border: 'none' }} />
           ) : (
-            <div className="text-center text-gray-500 mt-8"><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div>
+            <div className="h-full flex items-center justify-center text-center text-gray-500"><div><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div></div>
           )}
+          </div>
+          {/* Flytande zoomkontroll – alltid synlig */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 rounded-full shadow-lg px-1.5 py-1" style={{ border: '1px solid rgba(0,0,0,0.12)' }}>
+            <button title="Zooma ut" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setDocScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-minus" /></button>
+            <button title="Återställ till 100%" className="text-xs tabular-nums w-12 text-center text-gray-700 hover:text-gray-900" onClick={() => setDocScale(1)}>{Math.round(docScale * 100)}%</button>
+            <button title="Zooma in" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setDocScale(s => Math.min(4, +(s + 0.2).toFixed(2)))}><i className="ti ti-plus" /></button>
+          </div>
         </div>
         <div className="bg-white border-t px-5 py-2 text-xs text-gray-500 truncate shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }} title={docMeta?.file_name}>
           <i className="ti ti-paperclip mr-1" />Stäm av leverantörens uppgifter mot underlaget · {docMeta?.file_name}
