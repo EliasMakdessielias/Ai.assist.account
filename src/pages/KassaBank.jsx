@@ -368,6 +368,19 @@ export default function KassaBank() {
 
   const matchFor = tx => (tx.status === 'unmatched' ? (suggestions[tx.id] || null) : null)
 
+  // Förslag: överföring mellan egna bankkonton – unik motpost (motsatt tecken,
+  // samma belopp) på ett ANNAT konfigurerat bankkonto.
+  const transferSuggestionFor = tx => {
+    if (!tx || tx.status === 'booked') return null
+    const cfg = new Set(accounts.map(a => a.account_nr))
+    const cands = banktxAll.filter(t => t.id !== tx.id && t.account_nr !== tx.account_nr
+      && cfg.has(t.account_nr) && t.status !== 'booked'
+      && Math.sign(t.amount) !== Math.sign(tx.amount)
+      && Math.abs(Math.abs(t.amount) - Math.abs(tx.amount)) < 0.01)
+    cands.sort((a, b) => Math.abs(new Date(a.datum) - new Date(tx.datum)) - Math.abs(new Date(b.datum) - new Date(tx.datum)))
+    return cands[0] || null
+  }
+
   const inRange = t => (!from || t.datum >= from) && (!tom || t.datum <= tom)
   const matchSearch = t => !search || `${t.datum} ${t.text || ''} ${fmt(t.amount)}`.toLowerCase().includes(search.toLowerCase())
   const accBtx = accBtxAll.filter(t => inRange(t) && matchSearch(t))
