@@ -520,6 +520,7 @@ export default function KassaBank() {
                   ) : rows.map(t => {
                     const m = matchFor(t)
                     const booked = t.status === 'booked'
+                    const ts = (!booked && !m) ? transferSuggestionFor(t) : null
                     return (
                       <tr key={t.id} className="hover:bg-gray-50">
                         <td className="px-3 py-2.5 border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}><input type="checkbox" checked={sel.has(t.id)} onChange={() => toggleSel(t.id)} /></td>
@@ -532,6 +533,12 @@ export default function KassaBank() {
                               <span className="flex items-center gap-2">
                                 <span className="text-blue-700">{m.summary}</span>
                                 {m.reasons && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${m.reasons.some(r => ['OCR', 'bankgiro', 'fakturanr'].includes(r)) ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>via {m.reasons[0]}</span>}
+                              </span>
+                            )
+                            : ts ? (
+                              <span className="flex items-center gap-2">
+                                <span className="text-purple-800">Överföring mellan egna bankkonton → {ts.account_nr} {accName(ts.account_nr)} ({ts.datum})</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">överföring</span>
                               </span>
                             )
                             : <span className="text-gray-400 italic">Ingen överensstämmande bokföringshändelse hittad</span>}
@@ -547,7 +554,8 @@ export default function KassaBank() {
                             ) : m ? (
                               <button className="text-white text-xs font-medium px-4 py-1.5 rounded-md" style={{ background: '#6d28d9' }} onClick={() => bokforMatch(t, m)} disabled={working}>Bokför</button>
                             ) : (
-                              <div className="relative">
+                              <div className="relative flex items-center gap-1">
+                                {ts && <button className="text-white text-xs font-medium px-3 py-1.5 rounded-md" style={{ background: '#6d28d9' }} onClick={() => bokforOverforing(t, ts)} disabled={working} title={`Bokför som överföring mot ${ts.account_nr} (${ts.datum})`}>Bokför överföring</button>}
                                 <div className="flex items-stretch rounded-md overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.18)' }}>
                                   <button className="text-sm px-3 py-1 hover:bg-gray-50" onClick={() => openMatch(t)}>Matcha</button>
                                   <button className="px-1.5 border-l hover:bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.12)' }} onClick={() => setRowMenu(rowMenu === t.id ? null : t.id)}><i className="ti ti-chevron-down text-xs" /></button>
