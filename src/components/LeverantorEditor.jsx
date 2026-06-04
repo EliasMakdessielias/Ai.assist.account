@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { SUPPORTED_CURRENCIES } from '../lib/currency'
 import toast from 'react-hot-toast'
@@ -32,6 +32,7 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
   const [docUrl, setDocUrl] = useState(null)
   const [docMeta, setDocMeta] = useState(null)
   const [docScale, setDocScale] = useState(1)
+  const previewRef = useRef(null)
   useEffect(() => {
     if (!docId) { setDocUrl(null); setDocMeta(null); return }
     let active = true
@@ -45,6 +46,19 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
     return () => { active = false }
   }, [docId])
   const showPanel = !!(docId && docUrl)
+
+  // Ctrl/Cmd + skrollhjul zoomar bilden (vanlig skroll panorerar).
+  useEffect(() => {
+    const el = previewRef.current
+    if (!el) return
+    const onWheel = e => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      setDocScale(s => Math.min(4, Math.max(0.4, +(s - Math.sign(e.deltaY) * 0.15).toFixed(2))))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [showPanel])
 
   async function hamtaUppgifter() {
     if (!String(f.org_nr || '').replace(/\D/g, '')) return toast.error('Ange organisations-/personnummer först')
@@ -283,18 +297,20 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
           <span className="text-[15px] font-bold tracking-tight truncate">FAKTURAUNDERLAG</span>
           <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
             <button title="Zooma ut" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-zoom-out" /></button>
-            <span className="text-xs w-9 text-center tabular-nums">{Math.round(docScale * 100)}%</span>
-            <button title="Zooma in" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.min(3, +(s + 0.2).toFixed(2)))}><i className="ti ti-zoom-in" /></button>
+            <button title="Återställ till 100%" className="text-xs w-10 text-center tabular-nums hover:text-gray-900" onClick={() => setDocScale(1)}>{Math.round(docScale * 100)}%</button>
+            <button title="Zooma in" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.min(4, +(s + 0.2).toFixed(2)))}><i className="ti ti-zoom-in" /></button>
             <a title="Öppna i ny flik" className="hover:text-gray-900 border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }} href={docUrl} target="_blank" rel="noreferrer"><i className="ti ti-external-link" /></a>
           </div>
         </div>
-        <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+        <div ref={previewRef} className="flex-1 overflow-auto p-4">
           {docMeta?.mime_type?.startsWith('image/') ? (
-            <img src={docUrl} alt={docMeta.file_name} className="max-w-full max-h-full object-contain bg-white shadow" style={{ transform: `scale(${docScale})`, transformOrigin: 'center top', transition: 'transform .12s' }} />
+            <img src={docUrl} alt={docMeta.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
+              style={{ width: `${docScale * 100}%`, maxWidth: 'none', height: 'auto', transition: 'width .12s' }} />
           ) : docMeta?.mime_type === 'application/pdf' ? (
-            <iframe src={docUrl} title={docMeta.file_name} className="bg-white shadow" style={{ width: `${100 * docScale}%`, height: `${100 * docScale}%`, minHeight: '100%' }} />
+            <iframe src={docUrl} title={docMeta.file_name} className="bg-white shadow block mx-auto"
+              style={{ width: `${100 * docScale}%`, height: `${Math.max(100, 100 * docScale)}%`, minHeight: '100%', border: 'none' }} />
           ) : (
-            <div className="text-center text-gray-500"><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div>
+            <div className="text-center text-gray-500 mt-8"><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div>
           )}
         </div>
         <div className="bg-white border-t px-5 py-2 text-xs text-gray-500 truncate shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }} title={docMeta?.file_name}>

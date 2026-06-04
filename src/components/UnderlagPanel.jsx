@@ -14,6 +14,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [interpreting, setInterpreting] = useState(false)
   const [coupling, setCoupling] = useState(false)
   const [scale, setScale] = useState(1)
+  const previewRef = useRef(null)
   const [w, setW] = useState(width)
   const fileRef = useRef()
 
@@ -57,6 +58,19 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
     })
     return () => { active = false }
   }, [current?.id])
+
+  // Ctrl/Cmd + skrollhjul zoomar (vanlig skroll panorerar).
+  useEffect(() => {
+    const el = previewRef.current
+    if (!el) return
+    const onWheel = e => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      setScale(s => Math.min(4, Math.max(0.4, +(s - Math.sign(e.deltaY) * 0.15).toFixed(2))))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   async function handleUpload(e) {
     const files = Array.from(e.target.files || [])
@@ -136,8 +150,8 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         <span className="text-[15px] font-bold tracking-tight truncate">{title}</span>
         <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
           <button title="Zooma ut" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-out" /></button>
-          <span className="text-xs w-9 text-center tabular-nums">{Math.round(scale * 100)}%</span>
-          <button title="Zooma in" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.min(3, +(s + 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-in" /></button>
+          <button title="Återställ till 100%" className="text-xs w-10 text-center tabular-nums hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(1)} disabled={!current}>{Math.round(scale * 100)}%</button>
+          <button title="Zooma in" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.min(4, +(s + 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-in" /></button>
           <span className="text-sm border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>{docs.length ? `${idx + 1} (${docs.length})` : '0 (0)'}</span>
           {onClose && <button title="Stäng" className="hover:text-gray-900 text-lg" onClick={onClose}><i className="ti ti-x" /></button>}
         </div>
@@ -158,34 +172,42 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
       </div>
 
       {/* Förhandsvisning */}
-      <div className="flex-1 relative overflow-auto flex items-center justify-center p-4">
+      <div className="flex-1 relative overflow-hidden">
+        <div ref={previewRef} className="absolute inset-0 overflow-auto p-4">
         {loading ? (
-          <div className="text-gray-400">Laddar…</div>
+          <div className="h-full flex items-center justify-center text-gray-400">Laddar…</div>
         ) : !current ? (
-          <div className="text-center text-gray-400">
-            <i className="ti ti-inbox text-4xl block mb-2 opacity-30" />
-            <div className="font-medium text-gray-500 mb-1">Inkorgen är tom</div>
-            <div className="text-sm">Ladda upp kvitton eller fakturor här.</div>
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center text-gray-400">
+              <i className="ti ti-inbox text-4xl block mb-2 opacity-30" />
+              <div className="font-medium text-gray-500 mb-1">Inkorgen är tom</div>
+              <div className="text-sm">Ladda upp kvitton eller fakturor här.</div>
+            </div>
           </div>
         ) : !url ? (
-          <div className="text-gray-400">Hämtar förhandsvisning…</div>
+          <div className="h-full flex items-center justify-center text-gray-400">Hämtar förhandsvisning…</div>
         ) : isImage ? (
-          <img src={url} alt={current.file_name} className="max-w-full max-h-full object-contain bg-white shadow" style={{ transform: `scale(${scale})`, transformOrigin: 'center top', transition: 'transform .12s' }} />
+          <img src={url} alt={current.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
+            style={{ width: `${scale * 100}%`, maxWidth: 'none', height: 'auto', transition: 'width .12s' }} />
         ) : isPdf ? (
-          <iframe src={url} title={current.file_name} className="bg-white shadow" style={{ width: `${100 * scale}%`, height: `${100 * scale}%`, minHeight: '100%' }} />
+          <iframe src={url} title={current.file_name} className="bg-white shadow block mx-auto"
+            style={{ width: `${100 * scale}%`, height: `${Math.max(100, 100 * scale)}%`, minHeight: '100%', border: 'none' }} />
         ) : (
-          <div className="text-center text-gray-500">
-            <i className="ti ti-file text-4xl block mb-2 opacity-40" />
-            {current.file_name}
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center text-gray-500">
+              <i className="ti ti-file text-4xl block mb-2 opacity-40" />
+              {current.file_name}
+            </div>
           </div>
         )}
+        </div>
 
         {/* Bläddringspilar */}
         {docs.length > 1 && (
           <>
-            <button className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow flex items-center justify-center text-gray-600 hover:text-gray-900 disabled:opacity-30"
+            <button className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow flex items-center justify-center text-gray-600 hover:text-gray-900 disabled:opacity-30 z-10"
               onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0}><i className="ti ti-chevron-left" /></button>
-            <button className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow flex items-center justify-center text-gray-600 hover:text-gray-900 disabled:opacity-30"
+            <button className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow flex items-center justify-center text-gray-600 hover:text-gray-900 disabled:opacity-30 z-10"
               onClick={() => setIdx(i => Math.min(docs.length - 1, i + 1))} disabled={idx === docs.length - 1}><i className="ti ti-chevron-right" /></button>
           </>
         )}
