@@ -136,9 +136,24 @@ export default function Installningar() {
 
   const wide = tab !== 'Grunduppgifter'
 
+  // Enter flyttar fokus till nästa fält (textrutor och kryssrutor undantas).
+  function handleEnterNav(e) {
+    if (e.key !== 'Enter') return
+    const t = e.target
+    if (t.tagName === 'TEXTAREA') return            // Enter = radbrytning i textruta
+    if (t.tagName !== 'INPUT' && t.tagName !== 'SELECT') return
+    if (t.type === 'checkbox' || t.type === 'radio') return
+    e.preventDefault()
+    const fields = [...e.currentTarget.querySelectorAll('input, select, textarea')]
+      .filter(el => !el.disabled && !el.readOnly && el.type !== 'checkbox' && el.type !== 'radio' && el.type !== 'hidden' && el.offsetParent !== null)
+    const i = fields.indexOf(t)
+    if (i > -1 && i + 1 < fields.length) { fields[i + 1].focus(); fields[i + 1].select?.() }
+    else t.blur()
+  }
+
   return (
    <FormCtx.Provider value={{ form, set, s, setS, setSerie }}>
-    <div className="pb-16">
+    <div className="pb-16" onKeyDown={handleEnterNav}>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-base font-medium">Företagsinställningar</span>
         <button className="btn btn-primary" onClick={save} disabled={saving || !form}><i className="ti ti-device-floppy" /> {saving ? 'Sparar…' : 'Spara'}</button>
