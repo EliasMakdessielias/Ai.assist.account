@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { SUPPORTED_CURRENCIES } from '../lib/currency'
 import toast from 'react-hot-toast'
 
 // Startguide som visas första gången ett nytt företag används (companies.onboarded = false).
@@ -149,7 +150,7 @@ export default function StartGuide() {
               </Field>
               <Field label="Internvaluta">
                 <select className="input" value={f.valuta} onChange={e => set('valuta', e.target.value)}>
-                  {['SEK', 'EUR', 'NOK', 'DKK', 'USD'].map(o => <option key={o} value={o}>{o}</option>)}
+                  {SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} – {c.name}</option>)}
                 </select>
               </Field>
             </div>

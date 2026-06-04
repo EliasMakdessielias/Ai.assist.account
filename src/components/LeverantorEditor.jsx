@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { SUPPORTED_CURRENCIES } from '../lib/currency'
 import toast from 'react-hot-toast'
 
 const MOMSTYPER = ['25%', '12%', '6%', '0%', 'Unionsinternt förvärv', 'Omvänd skattskyldighet']
@@ -229,7 +230,7 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
               {F({ label: 'VAT-nummer', k: 'vat_nummer' })}
               <div className="grid grid-cols-2 gap-3 mt-4">
                 <div><label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
-                  <select className="input" value={f.valuta} onChange={e => set('valuta', e.target.value)}><option>SEK</option><option>EUR</option><option>USD</option></select></div>
+                  <select className="input" value={f.valuta} onChange={e => set('valuta', e.target.value)}>{SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}</select></div>
                 <div><label className="block text-xs font-medium text-gray-500 mb-1">Betalningsvillkor</label>
                   <select className="input" value={f.betalningsvillkor || ''} onChange={e => set('betalningsvillkor', e.target.value)}>
                     <option value=""></option>

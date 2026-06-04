@@ -2,6 +2,7 @@ import { useEffect, useState, createContext, useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { CURRENCY_CODES } from '../lib/currency'
 import toast from 'react-hot-toast'
 
 const TABS = ['Grunduppgifter', 'Faktureringsuppgifter', 'Bokföringsuppgifter', 'Övriga uppgifter']
@@ -180,7 +181,7 @@ export default function Installningar() {
                   <F k="website" label="Webbplats" w={2} />
                 </Card>
                 <Card title="Företagsuppgifter">
-                  <F k="org_nr" label="Organisationsnummer" /><F k="valuta" label="Internvaluta" />
+                  <F k="org_nr" label="Organisationsnummer" /><F k="valuta" label="Internvaluta" opts={CURRENCY_CODES} />
                   <F k="vat_nr" label="Momsregistreringsnummer" /><F k="bankgiro" label="Bankgiro" />
                   <F k="plusgiro" label="Plusgiro" /><F k="iban" label="IBAN" />
                   <F k="bic_swift" label="BIC/SWIFT" /><F k="swish" label="Swish" />

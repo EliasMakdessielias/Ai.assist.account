@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { ensureStandardBankAccounts, sortBankAccounts } from '../lib/standardBankAccounts'
+import { SUPPORTED_CURRENCIES } from '../lib/currency'
 import toast from 'react-hot-toast'
 
 // Standard-bokföringskonto per typ
@@ -172,7 +173,7 @@ export default function KassaBankKonton() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
-                <select className="input" value={form.valuta} onChange={e => setForm(f => ({ ...f, valuta: e.target.value }))}><option>SEK</option><option>EUR</option><option>USD</option></select>
+                <select className="input" value={form.valuta} onChange={e => setForm(f => ({ ...f, valuta: e.target.value }))}>{SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}</select>
               </div>
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-500 mb-1">Bokföringskonto *</label>

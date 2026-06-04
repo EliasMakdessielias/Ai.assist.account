@@ -7,6 +7,7 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
+import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -79,7 +80,7 @@ export default function NyLeverantorsfaktura() {
         setMoms(ex.vat_amount ? fmt(ex.vat_amount) : '')
         setOcr(ex.ocr || '')
         setFakturanummer(ex.invoice_nr || '')
-        setValuta(ex.currency || 'SEK')
+        setValuta(normalizeCurrency(ex.currency) || DEFAULT_CURRENCY)
         setNextLopnr(ex.lopnr)
         const amap = Object.fromEntries((acc || []).map(a => [a.account_nr, a.name]))
         const m = ex.vat_amount || 0, net = (ex.total_amount || 0) - m
@@ -190,6 +191,13 @@ export default function NyLeverantorsfaktura() {
     if (result.ocr) setOcr(String(result.ocr))
     const faktnr = result.fakturanummer || result.fakturanr || result.invoice_nr
     if (faktnr) setFakturanummer(String(faktnr))
+    // Valuta från underlaget: acceptera endast SEK/USD/GBP/EUR, annars flagga för manuell hantering.
+    const valutaRaw = result.valuta || result.currency
+    if (valutaRaw) {
+      const norm = normalizeCurrency(valutaRaw)
+      if (norm) setValuta(norm)
+      else toast(`Valutan "${valutaRaw}" stöds inte – kontrollera manuellt (standard ${DEFAULT_CURRENCY} används)`, { icon: '⚠️', duration: 6000 })
+    }
     // Matcha leverantör på namn – annars föreslå att skapa ny
     const levRaw = String(result.leverantor || result.leverantör || result.supplier || result.saljare || '').trim()
     const orgRaw = String(result.org_nr || result.orgnr || result.organisationsnummer || '').trim()
@@ -278,7 +286,7 @@ export default function NyLeverantorsfaktura() {
       const costRow = krows.find(r => r.debet > 0 && r.nr !== '2640')
       const invPayload = {
         company_id: company.id, supplier_id: supplierId, invoice_nr: fakturanummer || null, ocr: ocr || null,
-        invoice_date: fakturadatum, due_date: forfallodatum, currency: valuta,
+        invoice_date: fakturadatum, due_date: forfallodatum, currency: isSupportedCurrency(valuta) ? valuta : DEFAULT_CURRENCY,
         amount_excl_vat: t - num(moms), vat_amount: num(moms), total_amount: t,
         kostnadskonto: costRow?.nr || '4000', status: 'unpaid', lopnr: nextLopnr,
       }
@@ -423,7 +431,7 @@ export default function NyLeverantorsfaktura() {
           </div>
           <div className="col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
-            <select className="input" value={valuta} onChange={e => setValuta(e.target.value)}><option>SEK</option><option>EUR</option><option>USD</option></select>
+            <select className="input" value={valuta} onChange={e => setValuta(e.target.value)}>{SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}</select>
           </div>
           <div className="col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">Kurs</label>
