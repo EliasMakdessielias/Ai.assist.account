@@ -37,7 +37,11 @@ export function parseFile(text) {
 // Tolkar belopp i olika format: "1 234,56", "1234.56", "-500", "500-", "(500)".
 export function parseAmount(s) {
   if (s == null) return null
-  let t = String(s).replace(/\s/g, '').replace(/kr/i, '')
+  const raw = String(s).trim()
+  // Datum (t.ex. 2026-01-21) är inte ett belopp – annars skulle bindestrecken
+  // strippas och ge ett felaktigt tal (20260121).
+  if (/^\d{4}-\d{2}-\d{2}\b/.test(raw) || /^\d{4}\/\d{2}\/\d{2}\b/.test(raw)) return null
+  let t = raw.replace(/\s/g, '').replace(/kr/i, '')
   if (!t) return null
   const neg = /^-/.test(t) || /-$/.test(t) || /^\(.*\)$/.test(t)
   t = t.replace(/[()]/g, '').replace(/-/g, '')
@@ -59,30 +63,64 @@ export function parseDate(s) {
   return null
 }
 
-// Gissar kolumnindex utifrån rubriknamn (och värden som fallback).
-// `rows` kan vara antingen rubrikraden (array av strängar) eller hela tabellen
-// (array av rader) – i det senare fallet används dataraderna för värde-detektering.
+// Gissar kolumnindex för datum/text/belopp. Robust för:
+//  - filer MED rubrikrad (matchar på rubriknamn)
+//  - filer UTAN rubrikrad, t.ex. Skatteverkets skattekonto-export
+//    (företagsnamn på rad 1, saldo-rader, 4 kolumner inkl. löpande saldo)
+// `rows` kan vara rubrikraden (array av strängar) eller hela tabellen (array av rader).
 export function guessColumns(rows) {
   const isTable = Array.isArray(rows?.[0])
   const header = isTable ? rows[0] : rows
-  const samples = isTable ? rows.slice(1, 9) : []
+  const allRows = isTable ? rows : []
   const lower = header.map(h => String(h || '').toLowerCase())
+  const ncols = header.length || 0
+
+  const HEADER_KEYWORDS = ['datum', 'date', 'text', 'beskriv', 'belopp', 'amount', 'saldo', 'referens', 'meddel', 'insättning', 'insattning', 'uttag', 'summa']
+  const hasHeader = lower.some(h => HEADER_KEYWORDS.some(k => h.includes(k)))
 
   const find = (keys, avoid = []) => lower.findIndex(h => keys.some(k => h.includes(k)) && !avoid.some(a => h.includes(a)))
+  let datum = hasHeader ? find(['valutadatum', 'transaktionsdatum', 'bokförd', 'bokford', 'datum', 'date', 'bokf']) : -1
+  let text = hasHeader ? find(['text', 'beskriv', 'meddel', 'narrative', 'referens', 'mottagare', 'avsändare', 'rubrik', 'info']) : -1
+  let belopp = hasHeader ? find(['insättning', 'insattning', 'uttag', 'belopp', 'amount', 'summa', 'transaktionsbelopp', 'rörelse', 'rorelse', 'debet', 'kredit'], ['saldo']) : -1
+  const saldoCol = hasHeader ? lower.findIndex(h => h.includes('saldo')) : -1
 
-  const datum = find(['valutadatum', 'transaktionsdatum', 'bokförd', 'bokford', 'datum', 'date', 'bokf'])
-  const text = find(['text', 'beskriv', 'meddel', 'narrative', 'referens', 'mottagare', 'avsändare', 'rubrik', 'info'])
-  // Beloppskolumn: undvik "saldo" (kontots saldo, inte transaktionsbeloppet).
-  let belopp = find(['insättning', 'insattning', 'uttag', 'belopp', 'amount', 'summa', 'transaktionsbelopp', 'rörelse', 'rorelse', 'debet', 'kredit'], ['saldo'])
-
-  // Värde-baserad fallback om rubriken inte gav träff.
-  if (belopp < 0 && samples.length) {
-    for (let i = 0; i < header.length; i++) {
-      if (i === datum || i === text || lower[i].includes('saldo')) continue
-      const vals = samples.map(r => parseAmount(r[i])).filter(v => v != null)
-      const hasDecimals = samples.some(r => /[.,]\d{1,2}\b/.test(String(r[i] || '')) || /-/.test(String(r[i] || '')))
-      if (vals.length >= Math.max(1, Math.floor(samples.length * 0.6)) && hasDecimals) { belopp = i; break }
+  // Värdebaserad analys per kolumn (på dataraderna).
+  const dataRows = (hasHeader ? allRows.slice(1) : allRows).slice(0, 40)
+  const stats = []
+  for (let i = 0; i < ncols; i++) {
+    let dates = 0, amounts = 0, nonEmpty = 0
+    for (const r of dataRows) {
+      const v = String(r?.[i] ?? '').trim()
+      if (!v) continue
+      nonEmpty++
+      if (parseDate(v)) dates++
+      else if (parseAmount(v) != null) amounts++
     }
+    stats.push({ i, dates, amounts, nonEmpty })
+  }
+
+  // Datum: kolumnen med flest datumträffar.
+  if (datum < 0) {
+    const best = stats.filter(s => s.dates > 0).sort((a, b) => b.dates - a.dates)[0]
+    datum = best ? best.i : 0
+  }
+
+  // Belopp: numerisk kolumn som varken är datum eller (löpande) saldo.
+  if (belopp < 0) {
+    const numCols = stats
+      .filter(s => s.i !== datum && s.i !== saldoCol && s.amounts >= Math.max(1, Math.floor(s.nonEmpty * 0.5)))
+      .map(s => s.i)
+    // Flera numeriska kolumner: den sista är oftast löpande saldo → välj den första.
+    if (numCols.length) belopp = numCols[0]
+    else belopp = (stats.filter(s => s.i !== datum).sort((a, b) => b.amounts - a.amounts)[0]?.i) ?? 0
+  }
+
+  // Text: en icke-datum, icke-belopp kolumn med mest fritext.
+  if (text < 0) {
+    const cand = stats
+      .filter(s => s.i !== datum && s.i !== belopp)
+      .sort((a, b) => (b.nonEmpty - b.dates - b.amounts) - (a.nonEmpty - a.dates - a.amounts))[0]
+    text = cand ? cand.i : Math.min(datum + 1, Math.max(0, ncols - 1))
   }
 
   return { datum: Math.max(0, datum), text: Math.max(0, text), belopp: Math.max(0, belopp) }
