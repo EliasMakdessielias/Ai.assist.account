@@ -550,7 +550,7 @@ export default function NyLeverantorsfaktura() {
       )}
 
       {levEditor && (
-        <LeverantorEditor company={company} prefill={levEditor}
+        <LeverantorEditor company={company} prefill={levEditor} docId={docId || attachIds[0]}
           onCancel={() => setLevEditor(null)}
           onSaved={async (sup) => { setLevEditor(null); setLevForslag(null); await reloadSuppliers(); setSupplierId(sup.id) }} />
       )}

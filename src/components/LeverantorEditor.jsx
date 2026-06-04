@@ -17,7 +17,7 @@ const empty = {
   vat_nummer: '', valuta: 'SEK', betalningsvillkor: '', kundnummer: '', cfar: '', sni: '', referens: '', anteckning: '',
 }
 
-export default function LeverantorEditor({ company, prefill = {}, onSaved, onCancel }) {
+export default function LeverantorEditor({ company, prefill = {}, docId, onSaved, onCancel }) {
   const [tab, setTab] = useState('grund')
   const [f, setF] = useState({ ...empty, ...prefill })
   const [moreAddr, setMoreAddr] = useState(false)
@@ -26,6 +26,25 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
   const [hamtar, setHamtar] = useState(false)
   const [accounts, setAccounts] = useState([])
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+
+  // Fakturaunderlaget (bilden) som öppnades – visas till höger för avstämning.
+  const PANEL_W = 460
+  const [docUrl, setDocUrl] = useState(null)
+  const [docMeta, setDocMeta] = useState(null)
+  const [docScale, setDocScale] = useState(1)
+  useEffect(() => {
+    if (!docId) { setDocUrl(null); setDocMeta(null); return }
+    let active = true
+    ;(async () => {
+      const { data: d } = await supabase.from('documents').select('storage_path, mime_type, file_name').eq('id', docId).maybeSingle()
+      if (!active || !d) return
+      setDocMeta(d)
+      const { data: s } = await supabase.storage.from('underlag').createSignedUrl(d.storage_path, 3600)
+      if (active) setDocUrl(s?.signedUrl || null)
+    })()
+    return () => { active = false }
+  }, [docId])
+  const showPanel = !!(docId && docUrl)
 
   async function hamtaUppgifter() {
     if (!String(f.org_nr || '').replace(/\D/g, '')) return toast.error('Ange organisations-/personnummer först')
@@ -97,7 +116,8 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
   const Section = ({ title }) => <div className="text-sm font-semibold mt-6 mb-3">{title}</div>
 
   return (
-    <div className="fixed inset-0 bg-white z-[60] overflow-y-auto">
+   <>
+    <div className="fixed top-0 left-0 bottom-0 bg-white z-[60] overflow-y-auto" style={{ right: showPanel ? PANEL_W : 0 }}>
       {/* Topprad */}
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight">LEVERANTÖR {f.leverantorsnr} – SKAPA NY</span>
@@ -251,10 +271,37 @@ export default function LeverantorEditor({ company, prefill = {}, onSaved, onCan
       </div>
 
       {/* Knapprad */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t px-7 py-3 flex items-center justify-end gap-2.5 z-20" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+      <div className="fixed bottom-0 left-0 bg-white border-t px-7 py-3 flex items-center justify-end gap-2.5 z-20" style={{ borderColor: 'rgba(0,0,0,0.10)', right: showPanel ? PANEL_W : 0 }}>
         <button className="btn" onClick={onCancel} disabled={saving}>Avbryt</button>
         <button className="btn btn-green px-6" onClick={spara} disabled={saving}>{saving ? 'Sparar…' : 'Spara'}</button>
       </div>
     </div>
+
+    {showPanel && (
+      <div className="fixed top-0 right-0 bottom-0 z-[60] bg-surface-3 flex flex-col" style={{ width: PANEL_W, borderLeft: '1px solid rgba(0,0,0,0.10)' }}>
+        <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          <span className="text-[15px] font-bold tracking-tight truncate">FAKTURAUNDERLAG</span>
+          <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
+            <button title="Zooma ut" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-zoom-out" /></button>
+            <span className="text-xs w-9 text-center tabular-nums">{Math.round(docScale * 100)}%</span>
+            <button title="Zooma in" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.min(3, +(s + 0.2).toFixed(2)))}><i className="ti ti-zoom-in" /></button>
+            <a title="Öppna i ny flik" className="hover:text-gray-900 border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }} href={docUrl} target="_blank" rel="noreferrer"><i className="ti ti-external-link" /></a>
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+          {docMeta?.mime_type?.startsWith('image/') ? (
+            <img src={docUrl} alt={docMeta.file_name} className="max-w-full max-h-full object-contain bg-white shadow" style={{ transform: `scale(${docScale})`, transformOrigin: 'center top', transition: 'transform .12s' }} />
+          ) : docMeta?.mime_type === 'application/pdf' ? (
+            <iframe src={docUrl} title={docMeta.file_name} className="bg-white shadow" style={{ width: `${100 * docScale}%`, height: `${100 * docScale}%`, minHeight: '100%' }} />
+          ) : (
+            <div className="text-center text-gray-500"><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div>
+          )}
+        </div>
+        <div className="bg-white border-t px-5 py-2 text-xs text-gray-500 truncate shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }} title={docMeta?.file_name}>
+          <i className="ti ti-paperclip mr-1" />Stäm av leverantörens uppgifter mot underlaget · {docMeta?.file_name}
+        </div>
+      </div>
+    )}
+   </>
   )
 }
