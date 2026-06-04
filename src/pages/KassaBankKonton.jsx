@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { ensureStandardBankAccounts, sortBankAccounts } from '../lib/standardBankAccounts'
 import toast from 'react-hot-toast'
 
 // Standard-bokföringskonto per typ
@@ -29,12 +30,13 @@ export default function KassaBankKonton() {
 
   async function load() {
     setLoading(true)
+    await ensureStandardBankAccounts(supabase, company.id)
     const [{ data: ba }, { data: acc }, { data: tx }] = await Promise.all([
       supabase.from('bank_accounts').select('*').eq('company_id', company.id).order('namn'),
       supabase.from('accounts').select('account_nr, name').eq('company_id', company.id).or('account_nr.like.19%,account_nr.like.16%').order('account_nr'),
       supabase.from('bank_transactions').select('account_nr, datum, imported_at').eq('company_id', company.id),
     ])
-    setItems(ba || [])
+    setItems(sortBankAccounts(ba || []))
     setAccounts(acc || [])
     setBtx(tx || [])
     setLoading(false)
@@ -52,7 +54,7 @@ export default function KassaBankKonton() {
     setNewMenu(false)
     setForm({ namn: typ, typ, valuta: 'SEK', account_nr: TYP_DEFAULT[typ] || '', bankgiro: '', iban: '', aktiv: true, id: null })
   }
-  function openEdit(b) { setForm({ ...b }) }
+  function openEdit(b) { if (b.locked) { toast('Låst standardkonto – kan inte ändras', { icon: '🔒' }); return } setForm({ ...b }) }
 
   async function save() {
     if (!form.namn?.trim()) return toast.error('Namn krävs')
@@ -126,13 +128,22 @@ export default function KassaBankKonton() {
               ) : visible.map(b => {
                 const k = koppling(b.account_nr)
                 return (
-                  <tr key={b.id} className={`hover:bg-gray-50 cursor-pointer ${!b.aktiv ? 'opacity-50' : ''}`} onClick={() => openEdit(b)}>
-                    <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{b.namn}{!b.aktiv && <span className="text-xs text-gray-400"> · inaktiv</span>}</td>
+                  <tr key={b.id} className={`hover:bg-gray-50 ${b.locked ? '' : 'cursor-pointer'} ${!b.aktiv ? 'opacity-50' : ''}`} onClick={() => openEdit(b)}>
+                    <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                      {b.namn}{!b.aktiv && <span className="text-xs text-gray-400"> · inaktiv</span>}
+                      {b.locked
+                        ? <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 align-middle" title="Låst standardkonto – kan inte ändras eller raderas."><i className="ti ti-lock text-[10px]" /> Låst</span>
+                        : b.is_standard && <span className="ml-2 inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 align-middle" title="Standardkonto">Standard</span>}
+                    </td>
                     <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{b.typ}</td>
                     <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{b.valuta}</td>
                     <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{b.account_nr}{accName(b.account_nr) ? ` – ${accName(b.account_nr)}` : ''}</td>
                     <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{k ? <span className="text-green-700">Aktivt ({k})</span> : <span className="text-gray-400">Ingen bankkoppling</span>}</td>
-                    <td className="px-4 py-2.5 border-b text-right" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}><button className="text-gray-300 hover:text-red-600" title="Ta bort" onClick={() => remove(b)}><i className="ti ti-trash" /></button></td>
+                    <td className="px-4 py-2.5 border-b text-right" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={e => e.stopPropagation()}>
+                      {b.is_standard
+                        ? <i className="ti ti-lock text-gray-300" title="Standardkonto kan inte tas bort" />
+                        : <button className="text-gray-300 hover:text-red-600" title="Ta bort" onClick={() => remove(b)}><i className="ti ti-trash" /></button>}
+                    </td>
                   </tr>
                 )
               })}
@@ -154,7 +165,8 @@ export default function KassaBankKonton() {
               <div className="col-span-2"><label className="block text-xs font-medium text-gray-500 mb-1">Namn *</label><input className="input" value={form.namn} onChange={e => setForm(f => ({ ...f, namn: e.target.value }))} autoFocus /></div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Typ</label>
-                <select className="input" value={form.typ} onChange={e => setForm(f => ({ ...f, typ: e.target.value, account_nr: f.account_nr || TYP_DEFAULT[e.target.value] || '' }))}>
+                <select className="input" value={form.typ} disabled={form.is_standard} style={form.is_standard ? { background: '#f1efe8' } : {}}
+                  onChange={e => setForm(f => ({ ...f, typ: e.target.value, account_nr: f.account_nr || TYP_DEFAULT[e.target.value] || '' }))}>
                   {Object.keys(TYP_DEFAULT).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
@@ -164,9 +176,11 @@ export default function KassaBankKonton() {
               </div>
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-500 mb-1">Bokföringskonto *</label>
-                <input className="input" list="kbk-konton" value={form.account_nr} onChange={e => setForm(f => ({ ...f, account_nr: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) }))} placeholder="t.ex. 1930" />
+                <input className="input" list="kbk-konton" value={form.account_nr} readOnly={form.is_standard}
+                  style={form.is_standard ? { background: '#f1efe8' } : {}}
+                  onChange={e => setForm(f => ({ ...f, account_nr: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) }))} placeholder="t.ex. 1930" />
                 <datalist id="kbk-konton">{accounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}</datalist>
-                {accName(form.account_nr) && <div className="text-xs text-gray-500 mt-1">{form.account_nr} – {accName(form.account_nr)}</div>}
+                {accName(form.account_nr) && <div className="text-xs text-gray-500 mt-1">{form.account_nr} – {accName(form.account_nr)}{form.is_standard ? ' · standardkonto (fast)' : ''}</div>}
               </div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">Bankgiro</label><input className="input" value={form.bankgiro ?? ''} onChange={e => setForm(f => ({ ...f, bankgiro: e.target.value }))} /></div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">IBAN</label><input className="input" value={form.iban ?? ''} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} /></div>

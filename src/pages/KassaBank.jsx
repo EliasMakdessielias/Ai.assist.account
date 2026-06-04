@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { parseFile, parseAmount, parseDate, guessColumns } from '../lib/parseBank'
 import { serie } from '../lib/serier'
 import { foreslaKontoFromText } from '../lib/kontering'
+import { ensureStandardBankAccounts, sortBankAccounts, DEFAULT_BANK_ACCOUNT } from '../lib/standardBankAccounts'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
@@ -56,21 +57,31 @@ export default function KassaBank() {
 
   async function load() {
     setLoading(true)
-    const [{ data: accs }, { data: allAccs }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
-      supabase.from('accounts').select('account_nr, name, opening_balance, is_active').eq('company_id', company.id).like('account_nr', '19%').order('account_nr'),
+    // Säkerställ att standardkontona (1930, 1910, 1630) finns konfigurerade.
+    await ensureStandardBankAccounts(supabase, company.id)
+    const [{ data: ba }, { data: allAccs }, { data: btx }, { data: sup }, { data: cust }] = await Promise.all([
+      supabase.from('bank_accounts').select('account_nr, namn, aktiv').eq('company_id', company.id),
       supabase.from('accounts').select('account_nr, name').eq('company_id', company.id).eq('is_active', true).order('account_nr'),
       supabase.from('bank_transactions').select('*').eq('company_id', company.id).order('datum', { ascending: false }),
       supabase.from('supplier_invoices').select('id, invoice_nr, ocr, due_date, total_amount, status, suppliers(name, bankgiro)').eq('company_id', company.id).eq('status', 'unpaid'),
       supabase.from('invoices').select('id, invoice_nr, total_amount, amount_excl_vat, vat_amount, status, customers(name)').eq('company_id', company.id).eq('status', 'sent'),
     ])
-    const bByAcc = {}; (btx || []).forEach(t => { (bByAcc[t.account_nr] ||= []).push(t) })
-    const visibleAccs = (accs || []).filter(a => a.is_active || bByAcc[a.account_nr])
-    setAccounts(visibleAccs.length ? visibleAccs : (accs || []))
+    // Endast konton som är inlagda under Inställningar → Kassa- och bankkonton.
+    const baNrs = [...new Set((ba || []).filter(b => b.aktiv).map(b => b.account_nr).filter(Boolean))]
+    const baNamn = Object.fromEntries((ba || []).map(b => [b.account_nr, b.namn]))
+    const { data: chartAccs } = baNrs.length
+      ? await supabase.from('accounts').select('account_nr, name, opening_balance').eq('company_id', company.id).in('account_nr', baNrs)
+      : { data: [] }
+    const byNr = Object.fromEntries((chartAccs || []).map(a => [a.account_nr, a]))
+    // 1930 först (förvalt), sedan övriga standardkonton, sedan resten.
+    const visibleAccs = sortBankAccounts(baNrs.map(nr => byNr[nr] || { account_nr: nr, name: baNamn[nr] || '', opening_balance: 0 }))
+    setAccounts(visibleAccs)
     setAllAccounts(allAccs || [])
     setBanktxAll(btx || [])
     setOpenSup(sup || [])
     setOpenCust(cust || [])
-    setSelected(prev => prev || (visibleAccs.find(a => bByAcc[a.account_nr]) || visibleAccs[0] || (accs || [])[0])?.account_nr || null)
+    setSelected(prev => (prev && visibleAccs.some(a => a.account_nr === prev)) ? prev
+      : (visibleAccs.find(a => a.account_nr === DEFAULT_BANK_ACCOUNT) || visibleAccs[0])?.account_nr || null)
     setSel(new Set())
     setLoading(false)
   }
