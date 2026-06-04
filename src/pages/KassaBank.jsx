@@ -50,6 +50,8 @@ export default function KassaBank() {
   const [mForslag, setMForslag] = useState(null)
   const [payTx, setPayTx] = useState(null)        // tx vi väljer leverantörsfaktura för
   const [paySearch, setPaySearch] = useState('')
+  const [transferTx, setTransferTx] = useState(null)  // tx vi matchar som överföring mellan egna konton
+  const [transferSearch, setTransferSearch] = useState('')
   const [batchOpen, setBatchOpen] = useState(false)
   const fileRef = useRef()
 
@@ -132,6 +134,37 @@ export default function KassaBank() {
       await supabase.from('bank_transactions').update({ status: 'booked', verifikation_id: ver.id }).eq('id', tx.id)
       await supabase.from('supplier_invoices').update({ status: 'paid', paid_amount: inv.total_amount, paid_date: tx.datum, betalning_ver_id: ver.id }).eq('id', inv.id)
       toast.success('Utbetalning registrerad – fakturan markerad betald')
+      load()
+    } catch (e) { toast.error('Fel: ' + e.message) }
+    setWorking(false)
+  }
+
+  // Överföring mellan egna bankkonton: matcha den valda bankhändelsen mot
+  // motsvarande händelse på ett annat eget bankkonto och bokför BÅDA som EN
+  // verifikation (D mottagande konto / K avsändande konto).
+  async function bokforOverforing(tx, counter) {
+    setTransferTx(null)
+    if (Math.abs(Math.abs(tx.amount) - Math.abs(counter.amount)) > 0.01) return toast.error('Beloppen måste vara lika för en överföring')
+    const belopp = Math.abs(tx.amount)
+    const sending = tx.amount < 0 ? tx : counter      // pengar lämnar kontot (krediteras)
+    const receiving = tx.amount < 0 ? counter : tx    // pengar in på kontot (debiteras)
+    setWorking(true)
+    try {
+      const ser = serie(company, 'kassabank')
+      const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
+      const besk = `Överföring mellan egna bankkonton ${sending.account_nr} → ${receiving.account_nr}`
+      const { data: ver, error } = await supabase.from('verifikationer').insert({
+        company_id: company.id, ver_nr: nr || 'B' + Date.now(), ver_serie: ser,
+        datum: receiving.datum || tx.datum, beskrivning: besk.slice(0, 200),
+        total_debet: belopp, total_kredit: belopp, created_by: user.id,
+      }).select().single()
+      if (error) throw error
+      await supabase.from('verifikation_rows').insert([
+        { verifikation_id: ver.id, account_nr: receiving.account_nr, account_name: accName(receiving.account_nr), debet: belopp, kredit: 0, sort_order: 0 },
+        { verifikation_id: ver.id, account_nr: sending.account_nr, account_name: accName(sending.account_nr), debet: 0, kredit: belopp, sort_order: 1 },
+      ])
+      await supabase.from('bank_transactions').update({ status: 'booked', verifikation_id: ver.id }).in('id', [tx.id, counter.id])
+      toast.success(`Överföring bokförd (${ver.ver_nr}) – båda bankhändelserna markerade`)
       load()
     } catch (e) { toast.error('Fel: ' + e.message) }
     setWorking(false)
@@ -362,6 +395,16 @@ export default function KassaBank() {
   const payCandidates = openSup.filter(i => !paySearch || `${i.invoice_nr || ''} ${i.suppliers?.name || ''} ${fmt(i.total_amount)}`.toLowerCase().includes(paySearch.toLowerCase()))
     .sort((a, b) => Math.abs((a.total_amount || 0) - Math.abs(payTx?.amount || 0)) - Math.abs((b.total_amount || 0) - Math.abs(payTx?.amount || 0)))
 
+  // Kandidater för överföring mellan egna konton: händelser på ANDRA konfigurerade
+  // bankkonton, med motsatt tecken, ej bokförda. Exakt matchande belopp först.
+  const configuredNrs = accounts.map(a => a.account_nr)
+  const transferCandidates = transferTx ? banktxAll
+    .filter(t => t.id !== transferTx.id && t.account_nr !== transferTx.account_nr && configuredNrs.includes(t.account_nr)
+      && t.status !== 'booked' && Math.sign(t.amount) !== Math.sign(transferTx.amount) && Math.abs(t.amount) > 0.0001)
+    .filter(t => !transferSearch || `${t.datum} ${t.text || ''} ${fmt(t.amount)} ${t.account_nr}`.toLowerCase().includes(transferSearch.toLowerCase()))
+    .sort((a, b) => (Math.abs(Math.abs(a.amount) - Math.abs(transferTx.amount)) - Math.abs(Math.abs(b.amount) - Math.abs(transferTx.amount))) || String(b.datum).localeCompare(String(a.datum)))
+    : []
+
   const allSelected = rows.length > 0 && rows.every(t => sel.has(t.id))
   const toggleSel = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleAll = () => { const ids = rows.map(t => t.id); setSel(s => { const n = new Set(s); ids.forEach(i => allSelected ? n.delete(i) : n.add(i)); return n }) }
@@ -500,6 +543,7 @@ export default function KassaBank() {
                                   <div className="absolute right-0 mt-1 bg-white rounded-lg shadow-xl z-30 w-56 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
                                     <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => openMatch(t)}>Matcha / kontera…</button>
                                     {t.amount < 0 && <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-purple-800" onClick={() => { setRowMenu(null); setPaySearch(''); setPayTx(t) }}><i className="ti ti-cash mr-1.5" />Betala leverantörsfaktura…</button>}
+                                    <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-purple-800" onClick={() => { setRowMenu(null); setTransferSearch(''); setTransferTx(t) }}><i className="ti ti-arrows-exchange mr-1.5" />Överföring mellan egna bankkonton…</button>
                                     <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => matcha(t)}>Öppna i bokföringen</button>
                                     <button className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50" onClick={() => setBtxStatus(t, 'ignored')}>Ignorera</button>
                                     <button className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-50" onClick={() => removeBtx(t)}>Ta bort</button>
@@ -730,6 +774,47 @@ export default function KassaBank() {
               })}
             </div>
             <div className="px-5 py-3 border-t text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Bokför D 2440 / K {selAcc?.account_nr} och markerar fakturan som betald.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Överföring mellan egna bankkonton */}
+      {transferTx && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setTransferTx(null)}>
+          <div className="bg-white rounded-xl w-full max-w-xl max-h-[85vh] flex flex-col shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+              <div className="flex items-center justify-between">
+                <span className="text-base font-medium">Överföring mellan egna bankkonton</span>
+                <button className="text-gray-400 hover:text-gray-700" onClick={() => setTransferTx(null)}><i className="ti ti-x" /></button>
+              </div>
+              <div className="text-sm text-gray-500 mt-1">
+                Den här händelsen ({selAcc?.account_nr}): {transferTx.datum} · <b className="tabular-nums" style={{ color: transferTx.amount < 0 ? '#b91c1c' : '#1a7a2e' }}>{fmt(transferTx.amount)}</b> · {transferTx.text}
+              </div>
+              <div className="text-xs text-gray-400 mt-1">Välj den matchande händelsen på ditt andra bankkonto. Båda bokförs som en överföring.</div>
+            </div>
+            <div className="px-5 py-3 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+              <div className="relative">
+                <input className="input pl-8" placeholder="Sök konto, text eller belopp" value={transferSearch} onChange={e => setTransferSearch(e.target.value)} autoFocus />
+                <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {transferCandidates.length === 0 ? (
+                <div className="text-center py-10 text-gray-400 text-sm">Inga matchande händelser på dina andra bankkonton.<div className="text-xs mt-1">(Motsvarande händelse ska ha motsatt tecken och samma belopp, och vara oboköförd.)</div></div>
+              ) : transferCandidates.map(c => {
+                const match = Math.abs(Math.abs(c.amount) - Math.abs(transferTx.amount)) < 0.01
+                return (
+                  <button key={c.id} className="w-full text-left px-5 py-3 border-b hover:bg-gray-50 flex items-center justify-between gap-3 disabled:opacity-40" style={{ borderColor: 'rgba(0,0,0,0.06)' }} onClick={() => bokforOverforing(transferTx, c)} disabled={working || !match}>
+                    <span className="truncate">
+                      <b>{c.account_nr}</b> {accName(c.account_nr)} <span className="text-gray-400">· {c.datum}</span> {c.text ? <span className="text-gray-500">· {c.text}</span> : ''}
+                      {match ? <span className="text-green-700 text-xs ml-1">✓ samma belopp</span> : <span className="text-amber-600 text-xs ml-1">(annat belopp)</span>}
+                    </span>
+                    <span className="tabular-nums font-medium shrink-0" style={{ color: c.amount < 0 ? '#b91c1c' : '#1a7a2e' }}>{fmt(c.amount)}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-5 py-3 border-t text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Bokför D mottagande konto / K avsändande konto och markerar båda bankhändelserna som bokförda.</div>
           </div>
         </div>
       )}
