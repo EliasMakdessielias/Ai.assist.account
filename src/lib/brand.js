@@ -6,6 +6,9 @@ export const BRAND = {
   companyName: 'REDOFLOW AB',    // juridiskt företagsnamn (bolaget bakom produkten)
   tagline: 'Bokföring & ekonomi',
   description: 'BokPilot automatiserar svensk bokföring med AI, fakturatolkning och smart granskning.',
+  // Publik självregistrering. Avstängt under utvecklingsfasen – endast befintliga
+  // konton kan logga in. Sätt till true när vi öppnar för kunder/andra företag.
+  allowSignup: false,
 }
 
 export const APP_NAME = BRAND.appName

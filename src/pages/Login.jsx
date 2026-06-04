@@ -5,6 +5,7 @@ import { BRAND } from '../lib/brand'
 import toast from 'react-hot-toast'
 
 export default function Login() {
+  const allowSignup = BRAND.allowSignup === true
   const [isSignUp, setIsSignUp] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -18,7 +19,7 @@ export default function Login() {
     e.preventDefault()
     setLoading(true)
     try {
-      if (isSignUp) {
+      if (isSignUp && allowSignup) {
         await signUp(email, password, companyName, orgNr)
         toast.success('Konto skapat! Kontrollera din e-post.')
       } else {
@@ -69,12 +70,14 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-500">
-            {isSignUp ? 'Har du redan ett konto?' : 'Inget konto?'}{' '}
-            <button onClick={() => setIsSignUp(!isSignUp)} className="text-blue-700 font-medium hover:underline">
-              {isSignUp ? 'Logga in' : 'Skapa konto'}
-            </button>
-          </div>
+          {allowSignup && (
+            <div className="mt-6 text-center text-sm text-gray-500">
+              {isSignUp ? 'Har du redan ett konto?' : 'Inget konto?'}{' '}
+              <button onClick={() => setIsSignUp(!isSignUp)} className="text-blue-700 font-medium hover:underline">
+                {isSignUp ? 'Logga in' : 'Skapa konto'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
