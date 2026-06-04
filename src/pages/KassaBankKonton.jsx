@@ -53,7 +53,7 @@ export default function KassaBankKonton() {
 
   function openNew(typ) {
     setNewMenu(false)
-    setForm({ namn: typ, typ, valuta: 'SEK', account_nr: TYP_DEFAULT[typ] || '', bankgiro: '', iban: '', aktiv: true, id: null })
+    setForm({ namn: typ, typ, valuta: 'SEK', account_nr: TYP_DEFAULT[typ] || '', bankgiro: '', iban: '', bankkontonr: '', aktiv: true, id: null })
   }
   function openEdit(b) { if (b.locked) { toast('Låst standardkonto – kan inte ändras', { icon: '🔒' }); return } setForm({ ...b }) }
 
@@ -63,7 +63,8 @@ export default function KassaBankKonton() {
     setSaving(true)
     const payload = {
       company_id: company.id, namn: form.namn.trim(), typ: form.typ, valuta: form.valuta || 'SEK',
-      account_nr: form.account_nr.trim(), bankgiro: form.bankgiro || null, iban: form.iban || null, aktiv: form.aktiv,
+      account_nr: form.account_nr.trim(), bankgiro: form.bankgiro || null, iban: form.iban || null,
+      bankkontonr: form.bankkontonr || null, aktiv: form.aktiv,
     }
     let error
     if (form.id) ({ error } = await supabase.from('bank_accounts').update(payload).eq('id', form.id))
@@ -185,6 +186,7 @@ export default function KassaBankKonton() {
               </div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">Bankgiro</label><input className="input" value={form.bankgiro ?? ''} onChange={e => setForm(f => ({ ...f, bankgiro: e.target.value }))} /></div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">IBAN</label><input className="input" value={form.iban ?? ''} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} /></div>
+              <div className="col-span-2"><label className="block text-xs font-medium text-gray-500 mb-1">Bankkontonummer</label><input className="input" value={form.bankkontonr ?? ''} onChange={e => setForm(f => ({ ...f, bankkontonr: e.target.value }))} placeholder="Clearingnummer + kontonummer, t.ex. 8327-9 123 456 789" /></div>
               <label className="col-span-2 flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={form.aktiv} onChange={e => setForm(f => ({ ...f, aktiv: e.target.checked }))} /> Aktivt konto</label>
             </div>
             <div className="px-5 py-3 border-t flex justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
