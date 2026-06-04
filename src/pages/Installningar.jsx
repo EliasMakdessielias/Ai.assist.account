@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, createContext, useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -24,6 +24,76 @@ const SERIE_TYPER = [
   ['arbgiv', 'Arbetsgivardeklarationer', 'G - Arbetsgivardeklarationer'],
   ['bokslut', 'Bokslutsverifikationer', 'B - Bokslutsverifikationer'],
 ]
+
+// Delad form-kontext så att hjälpkomponenterna kan ligga på MODULNIVÅ
+// (stabil identitet). Annars monteras inputs om vid varje tangenttryck och
+// tappar fokus efter en bokstav.
+const FormCtx = createContext(null)
+
+function Section({ title, children }) {
+  return (
+    <div className="mb-7">
+      <h2 className="text-sm font-semibold mb-3 pb-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{title}</h2>
+      {children}
+    </div>
+  )
+}
+
+function Card({ title, children, cols = 2 }) {
+  return (
+    <div className="bg-white rounded-xl p-6" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+      <h2 className="text-sm font-semibold mb-4">{title}</h2>
+      <div className={`grid ${cols === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>{children}</div>
+    </div>
+  )
+}
+
+function F({ k, label, type = 'text', w, opts, step }) {
+  const { form, set } = useContext(FormCtx)
+  return (
+    <div className={w === 2 ? 'col-span-2' : ''}>
+      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
+      {opts ? (
+        <select className="input" value={form[k] ?? ''} onChange={e => set(k, e.target.value)}>
+          <option value="">Välj…</option>{opts.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : <input className="input" type={type} step={step} value={form[k] ?? ''} onChange={e => set(k, e.target.value)} />}
+    </div>
+  )
+}
+
+function Chk({ k, label }) {
+  const { s, setS } = useContext(FormCtx)
+  return (
+    <label className="flex items-center gap-2.5 py-1.5 text-sm text-gray-700 cursor-pointer">
+      <input type="checkbox" className="w-4 h-4" checked={!!s[k]} onChange={e => setS(k, e.target.checked)} /> {label}
+    </label>
+  )
+}
+
+function RowSel({ k, label, options, info }) {
+  const { s, setS } = useContext(FormCtx)
+  return (
+    <div className="grid grid-cols-[1fr_1.2fr] items-center gap-3 py-1.5">
+      <span className="text-sm text-gray-600 flex items-center gap-1.5">{label}{info && <i className="ti ti-info-circle text-gray-300" title={info} />}</span>
+      <select className="input" value={s[k] ?? ''} onChange={e => setS(k, e.target.value)}>
+        <option value="">Välj…</option>{options.map(o => Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+}
+
+function Txt({ valKey, label, rows = 4, settingKey, ph }) {
+  const { form, set, s, setS } = useContext(FormCtx)
+  return (
+    <div className="mb-4">
+      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
+      <textarea className="input" rows={rows} placeholder={ph}
+        value={settingKey ? (s[settingKey] ?? '') : (form[valKey] ?? '')}
+        onChange={e => settingKey ? setS(settingKey, e.target.value) : set(valKey, e.target.value)} />
+    </div>
+  )
+}
 
 export default function Installningar() {
   const { company, reloadCompany } = useAuth()
@@ -64,54 +134,10 @@ export default function Installningar() {
     reloadCompany()
   }
 
-  // Hjälpkomponenter
-  const F = ({ k, label, type = 'text', w, opts, step }) => (
-    <div className={w === 2 ? 'col-span-2' : ''}>
-      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-      {opts ? (
-        <select className="input" value={form[k] ?? ''} onChange={e => set(k, e.target.value)}>
-          <option value="">Välj…</option>{opts.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
-      ) : <input className="input" type={type} step={step} value={form[k] ?? ''} onChange={e => set(k, e.target.value)} />}
-    </div>
-  )
-  const Chk = ({ k, label }) => (
-    <label className="flex items-center gap-2.5 py-1.5 text-sm text-gray-700 cursor-pointer">
-      <input type="checkbox" className="w-4 h-4" checked={!!s[k]} onChange={e => setS(k, e.target.checked)} /> {label}
-    </label>
-  )
-  const RowSel = ({ k, label, options, info }) => (
-    <div className="grid grid-cols-[1fr_1.2fr] items-center gap-3 py-1.5">
-      <span className="text-sm text-gray-600 flex items-center gap-1.5">{label}{info && <i className="ti ti-info-circle text-gray-300" title={info} />}</span>
-      <select className="input" value={s[k] ?? ''} onChange={e => setS(k, e.target.value)}>
-        <option value="">Välj…</option>{options.map(o => Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
-  )
-  const Section = ({ title, children }) => (
-    <div className="mb-7">
-      <h2 className="text-sm font-semibold mb-3 pb-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{title}</h2>
-      {children}
-    </div>
-  )
-  const Card = ({ title, children, cols = 2 }) => (
-    <div className="bg-white rounded-xl p-6" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-      <h2 className="text-sm font-semibold mb-4">{title}</h2>
-      <div className={`grid ${cols === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}>{children}</div>
-    </div>
-  )
-  const Txt = ({ valKey, label, rows = 4, settingKey, ph }) => (
-    <div className="mb-4">
-      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-      <textarea className="input" rows={rows} placeholder={ph}
-        value={settingKey ? (s[settingKey] ?? '') : (form[valKey] ?? '')}
-        onChange={e => settingKey ? setS(settingKey, e.target.value) : set(valKey, e.target.value)} />
-    </div>
-  )
-
   const wide = tab !== 'Grunduppgifter'
 
   return (
+   <FormCtx.Provider value={{ form, set, s, setS, setSerie }}>
     <div className="pb-16">
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-base font-medium">Företagsinställningar</span>
@@ -339,5 +365,6 @@ export default function Installningar() {
         )}
       </div>
     </div>
+   </FormCtx.Provider>
   )
 }
