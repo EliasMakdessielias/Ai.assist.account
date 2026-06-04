@@ -23,12 +23,18 @@ export default function AccountEditModal({ open, account, companyId, existingNrs
   const klass = basClass(form.account_nr)
 
   async function save() {
-    if (locked) return toast.error('Detta konto är låst och kan inte ändras manuellt.')
-    if (!/^\d{3,4}$/.test(form.account_nr)) return toast.error('Kontonummer måste vara 3–4 siffror')
-    if (!form.name.trim()) return toast.error('Ange en benämning')
-    if (isNew && existingNrs.map(String).includes(form.account_nr)) return toast.error(`Konto ${form.account_nr} finns redan`)
     setBusy(true)
     try {
+      if (locked) {
+        // Låst konto: endast ingående balans får ändras (övrigt är låst).
+        const { error } = await supabase.from('accounts').update({ opening_balance: Number(form.opening_balance) || 0 }).eq('id', account.id)
+        if (error) throw error
+        toast.success('Ingående balans sparad')
+        onSaved?.(); setBusy(false); return
+      }
+      if (!/^\d{3,4}$/.test(form.account_nr)) { setBusy(false); return toast.error('Kontonummer måste vara 3–4 siffror') }
+      if (!form.name.trim()) { setBusy(false); return toast.error('Ange en benämning') }
+      if (isNew && existingNrs.map(String).includes(form.account_nr)) { setBusy(false); return toast.error(`Konto ${form.account_nr} finns redan`) }
       const payload = {
         account_nr: form.account_nr, name: form.name.trim(), vat_code: form.vat_code || null,
         sru: form.sru || null, is_active: form.is_active, opening_balance: Number(form.opening_balance) || 0,
@@ -58,10 +64,10 @@ export default function AccountEditModal({ open, account, companyId, existingNrs
         {locked && (
           <div className="mx-5 mt-4 rounded-lg border p-3 bg-purple-50 text-xs text-purple-800 flex items-start gap-2" style={{ borderColor: 'rgba(126,34,206,0.3)' }}>
             <i className="ti ti-lock mt-0.5" />
-            <span>Det här är ett <b>låst systemkonto</b> (blockerat för manuell bokföring). Det kan inte ändras eller raderas, varken här eller via import.</span>
+            <span>Det här är ett <b>låst systemkonto</b>. Endast <b>ingående balans</b> kan ändras här – övriga uppgifter är låsta och kontot kan inte raderas.</span>
           </div>
         )}
-        <fieldset disabled={locked} className="px-5 py-5 grid grid-cols-2 gap-4">
+        <fieldset className="px-5 py-5 grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Kontonummer</label>
             <input className="input" value={form.account_nr} onChange={e => set('account_nr', e.target.value)}
@@ -71,21 +77,21 @@ export default function AccountEditModal({ open, account, companyId, existingNrs
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Aktivt</label>
             <div className="flex">
-              <button onClick={() => set('is_active', true)} className={`px-4 py-2 text-sm border rounded-l-lg ${form.is_active ? 'bg-gray-100 font-medium' : 'text-gray-400'}`} style={{ borderColor: 'rgba(0,0,0,0.18)' }}>Ja</button>
-              <button onClick={() => set('is_active', false)} className={`px-4 py-2 text-sm border-t border-b border-r rounded-r-lg ${!form.is_active ? 'bg-gray-100 font-medium' : 'text-gray-400'}`} style={{ borderColor: 'rgba(0,0,0,0.18)' }}>Nej</button>
+              <button disabled={locked} onClick={() => set('is_active', true)} className={`px-4 py-2 text-sm border rounded-l-lg disabled:opacity-50 ${form.is_active ? 'bg-gray-100 font-medium' : 'text-gray-400'}`} style={{ borderColor: 'rgba(0,0,0,0.18)' }}>Ja</button>
+              <button disabled={locked} onClick={() => set('is_active', false)} className={`px-4 py-2 text-sm border-t border-b border-r rounded-r-lg disabled:opacity-50 ${!form.is_active ? 'bg-gray-100 font-medium' : 'text-gray-400'}`} style={{ borderColor: 'rgba(0,0,0,0.18)' }}>Nej</button>
             </div>
           </div>
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Benämning</label>
-            <input className="input" value={form.name} onChange={e => set('name', e.target.value)} />
+            <input className="input" value={form.name} disabled={locked} style={locked ? { background: '#f1efe8' } : {}} onChange={e => set('name', e.target.value)} />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Momskod</label>
-            <input className="input" value={form.vat_code} onChange={e => set('vat_code', e.target.value)} />
+            <input className="input" value={form.vat_code} disabled={locked} style={locked ? { background: '#f1efe8' } : {}} onChange={e => set('vat_code', e.target.value)} />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">SRU</label>
-            <input className="input" value={form.sru} onChange={e => set('sru', e.target.value)} />
+            <input className="input" value={form.sru} disabled={locked} style={locked ? { background: '#f1efe8' } : {}} onChange={e => set('sru', e.target.value)} />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Ingående balans</label>
@@ -93,8 +99,8 @@ export default function AccountEditModal({ open, account, companyId, existingNrs
           </div>
         </fieldset>
         <div className="px-5 py-4 border-t flex justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-          <button className="btn" onClick={() => onClose?.()} disabled={busy}>{locked ? 'Stäng' : 'Avbryt'}</button>
-          {!locked && <button className="btn btn-green" onClick={save} disabled={busy}>{busy ? 'Sparar…' : 'Spara'}</button>}
+          <button className="btn" onClick={() => onClose?.()} disabled={busy}>Avbryt</button>
+          <button className="btn btn-green" onClick={save} disabled={busy}>{busy ? 'Sparar…' : locked ? 'Spara ingående balans' : 'Spara'}</button>
         </div>
       </div>
     </div>

@@ -172,8 +172,8 @@ export default function Kontoplan() {
                 <tr><td colSpan="6" className="text-center py-12 text-gray-400">Inga konton matchar. Skapa ett eller ladda upp en kontoplan.</td></tr>
               ) : items.map(a => (
                 <tr key={a.id} className="hover:bg-gray-50">
-                  <td className={`px-4 py-2.5 border-b font-medium ${isAccountLocked(a) ? '' : 'cursor-pointer'}`} style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => !isAccountLocked(a) && setEditAccount(a)}>{a.account_nr}</td>
-                  <td className={`px-4 py-2.5 border-b ${isAccountLocked(a) ? '' : 'cursor-pointer'}`} style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => !isAccountLocked(a) && setEditAccount(a)}>{a.name}</td>
+                  <td className="px-4 py-2.5 border-b font-medium cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.account_nr}</td>
+                  <td className="px-4 py-2.5 border-b cursor-pointer" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={() => setEditAccount(a)}>{a.name}</td>
                   <td className="px-4 py-2.5 border-b text-xs text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{a.account_class ? `${a.account_class} – ${CLASS_NAMES[a.account_class]}` : '—'}</td>
                   <td className="px-4 py-2.5 border-b text-xs text-gray-400" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{a.vat_code || '—'}</td>
                   <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
