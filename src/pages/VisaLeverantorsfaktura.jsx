@@ -194,27 +194,30 @@ export default function VisaLeverantorsfaktura() {
           <div className="w-[44%] border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
             <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
               <span className="text-sm font-semibold">KOPPLADE BILDER {docs.length} ({docs.length})</span>
-              <div className="flex items-center gap-3 text-gray-500">
+              <div className="flex items-center gap-2.5 text-gray-500">
                 <button title="Rotera" onClick={() => setRot(r => (r + 90) % 360)}><i className="ti ti-rotate-clockwise" /></button>
-                <button title="Zooma in" onClick={() => setScale(s => Math.min(3, s + 0.2))}><i className="ti ti-zoom-in" /></button>
-                <button title="Zooma ut" onClick={() => setScale(s => Math.max(0.4, s - 0.2))}><i className="ti ti-zoom-out" /></button>
+                <i className="ti ti-zoom-in text-gray-400" />
+                <input type="range" min="0.5" max="3" step="0.1" value={scale} aria-label="Zoom" title="Justera storlek"
+                  className="w-24 accent-blue-600 cursor-pointer" onChange={e => setScale(parseFloat(e.target.value))} />
+                <button title="Återställ till 100%" className="text-xs tabular-nums w-9 text-right hover:text-gray-900" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
                 {current?.url && <a href={current.url} download title="Ladda ner"><i className="ti ti-download" /></a>}
                 <button title="Dölj panel" onClick={() => setPanelOpen(false)}><i className="ti ti-x" /></button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto bg-gray-100 flex items-center justify-center p-4">
+            <div className="flex-1 overflow-auto bg-gray-100 p-4">
               {docs.length === 0 ? (
-                <div className="text-center text-gray-400">
-                  <i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />
-                  Inga kopplade bilder
+                <div className="h-full flex items-center justify-center text-center text-gray-400">
+                  <div><i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />Inga kopplade bilder</div>
                 </div>
               ) : !current?.url ? (
-                <div className="text-gray-400">Kunde inte ladda bilden</div>
+                <div className="h-full flex items-center justify-center text-gray-400">Kunde inte ladda bilden</div>
               ) : isImg ? (
-                <img src={current.url} alt="" style={{ transform: `scale(${scale}) rotate(${rot}deg)`, transition: 'transform .15s' }} className="max-w-full shadow-lg bg-white" />
+                <img src={current.url} alt="" draggable={false}
+                  className="block mx-auto shadow-lg bg-white select-none"
+                  style={{ width: `${scale * 100}%`, maxWidth: scale <= 1 ? '100%' : 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined, transition: 'width .12s' }} />
               ) : (
-                <iframe src={current.url} title="underlag" className="w-full h-full bg-white" style={{ minHeight: '70vh' }} />
+                <iframe src={current.url} title="underlag" className="bg-white block mx-auto" style={{ width: `${scale * 100}%`, maxWidth: scale <= 1 ? '100%' : 'none', height: `${Math.max(70, 70 * scale)}vh`, border: 'none' }} />
               )}
             </div>
 
