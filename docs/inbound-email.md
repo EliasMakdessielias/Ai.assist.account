@@ -4,7 +4,7 @@ Varje företag får automatiskt **EN endast-inbound** adress (exempel för
 arkivnummer `7564841`):
 
 ```
-7564841.ulag@bokpilot.se
+7564841.ulag@arkiv.bokpilot.se
 ```
 
 Prefixet är företagets **`archive_number`** – ett SLUMPMÄSSIGT, unikt och permanent
@@ -17,7 +17,7 @@ som routing-mål för inkommande e-post. Varje **bilaga klassificeras automatisk
 ## Arkitektur
 
 ```
-Avsändare ──▶ MX (bokpilot.se) ──▶ Cloudflare Email Routing
+Avsändare ──▶ MX (arkiv.bokpilot.se) ──▶ Cloudflare Email Routing
             ──▶ Email Worker (parsar + signerar HMAC)
             ──▶ POST https://<ref>.supabase.co/functions/v1/inbound-email
             ──▶ Edge function: verifierar signatur, slår upp företag via arkivnummer,
@@ -33,20 +33,17 @@ beräkna signaturen.
 
 ## 1. DNS (Cloudflare)
 
-Domänen är `bokpilot.se` (på Cloudflare). Mottagningsadressen är
-`{archiveNumber}.ulag@bokpilot.se`.
+Mottagningsadressen är `{archiveNumber}.ulag@arkiv.bokpilot.se` (subdomän vald för
+att INTE röra apex-MX). Zonen `bokpilot.se` ligger på Cloudflare.
 
-> ⚠️ **VIKTIGT – MX-konflikt på apex.** `bokpilot.se` apex har redan
-> `MX → mx1/mx2.hostinger.com` (er befintliga e-post, t.ex. inloggningen
-> `admin@bokpilot.se`). Cloudflare Email Routing **byter ut apex-MX** mot sina egna
-> MX, vilket skulle **bryta Hostinger-mejlen** på @bokpilot.se. Två säkra vägar:
+> ⚠️ Rör INTE apex-MX. `bokpilot.se` apex har `MX → mx1/mx2.hostinger.com`
+> (befintlig e-post, inkl. inloggningen `admin@bokpilot.se`). Vi lägger MX endast på
+> **subdomänen `arkiv`** så att Hostinger-mejlen på @bokpilot.se inte påverkas.
 >
-> 1. **Subdomän (rekommenderat):** kör Email Routing på t.ex. `arkiv.bokpilot.se`
->    och använd `{archiveNumber}.ulag@arkiv.bokpilot.se`. Apex-MX (Hostinger) rörs ej.
-> 2. **Flytta ALL @bokpilot.se-post till Cloudflare** Email Routing (återskapa varje
->    befintlig mailbox som forwarding-regel). Mer jobb och risk.
->
-> Använd apex `@bokpilot.se` ENDAST om alternativ 2 är medvetet valt.
+> Lägg MX på `arkiv` (Cloudflares email-routing-servrar) + en Email Worker som
+> catch-all för subdomänen. Om Cloudflare Email Routing inte kan binda en Worker på
+> subdomän i din plan: använd en inbound-provider (Mailgun/Postmark) på
+> `arkiv.bokpilot.se` som postar till samma webhook-kontrakt nedan.
 
 Email Routing (på vald zon/subdomän) lägger Cloudflares MX + en **catch-all**-route
 som triggar Email Workern nedan (alla `*.ulag@<domän>` fångas; okända nekas i koden).
@@ -109,7 +106,7 @@ supabase functions deploy inbound-email --no-verify-jwt --project-ref bypebgvxdm
 Funktionen (`supabase/functions/inbound-email/index.ts`):
 
 1. Verifierar `X-Bokpilot-Signature` (HMAC-SHA256, konstant-tids-jämförelse).
-2. Tolkar mottagaradressen → arkivnummer (`{archiveNumber}.ulag@bokpilot.se`).
+2. Tolkar mottagaradressen → arkivnummer (`{archiveNumber}.ulag@arkiv.bokpilot.se`).
    Okänd domän/format → `inbound_email_log.status = 'rejected'`, svarar 200.
 3. Slår upp `inbox_addresses` (måste finnas **och** vara `is_active`). Annars `rejected`.
 4. Per bilaga: validerar (allowlist pdf/jpg/jpeg/png/heic/heif/docx, max 25 MB,

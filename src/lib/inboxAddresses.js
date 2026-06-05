@@ -5,7 +5,7 @@
 // Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 // Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 
-export const INBOX_DOMAIN = 'bokpilot.se'
+export const INBOX_DOMAIN = 'arkiv.bokpilot.se'
 export const INBOX_LOCAL = 'ulag'
 
 // Klassificeringskategorier (detekterad typ) + UI-etikett + ikon (Inkorg-flikar).
