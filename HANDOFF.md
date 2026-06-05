@@ -11,7 +11,8 @@ Tailwind + React Router + react-hot-toast. Backend: Supabase (Postgres, Auth, RL
 Storage, Edge Functions). AI via Google Gemini (2.5-flash-lite) i edge functions.
 
 - Repo: https://github.com/EliasMakdessielias/Ai.assist.account
-- Live: https://bocker-app.vercel.app (auto-deploy från GitHub `main`, ~20 s)
+- Live: https://bokpilot-app.vercel.app (auto-deploy från GitHub `main`, ~20 s)
+  - (Gammal domän `bocker-app.vercel.app` är pensionerad efter att Vercel-projektet döpts om till `bokpilot-app`.)
 - Supabase project ref: `bypebgvxdmbzxqecllao`
 
 ## Arbetssätt / konventioner
