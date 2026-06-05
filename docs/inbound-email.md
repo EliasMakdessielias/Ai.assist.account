@@ -1,10 +1,10 @@
 # Inbound-mottagningsadress (bokpilot.se)
 
-Varje företag får automatiskt **EN endast-inbound** adress (exempel för
-arkivnummer `7564841`):
+Varje företag får automatiskt **EN endast-inbound** adress. Format:
+`{archiveNumber}underlag@bokpilot.se` (exempel):
 
 ```
-7564841.ulag@arkiv.bokpilot.se
+806351underlag@bokpilot.se
 ```
 
 Prefixet är företagets **`archive_number`** – ett SLUMPMÄSSIGT, unikt och permanent
@@ -31,23 +31,28 @@ inbound-provider (Mailgun Routes, SendGrid Inbound Parse, Postmark Inbound) kan
 användas i stället för Cloudflare – relät behöver bara posta samma JSON och
 beräkna signaturen.
 
-## 1. DNS (Cloudflare)
+## 1. DNS / e-postinfrastruktur (KRÄVER BESLUT – krav 12–15)
 
-Mottagningsadressen är `{archiveNumber}.ulag@arkiv.bokpilot.se` (subdomän vald för
-att INTE röra apex-MX). Zonen `bokpilot.se` ligger på Cloudflare.
+Adressen är `{archiveNumber}underlag@bokpilot.se` på **apex** `bokpilot.se`.
 
-> ⚠️ Rör INTE apex-MX. `bokpilot.se` apex har `MX → mx1/mx2.hostinger.com`
-> (befintlig e-post, inkl. inloggningen `admin@bokpilot.se`). Vi lägger MX endast på
-> **subdomänen `arkiv`** så att Hostinger-mejlen på @bokpilot.se inte påverkas.
->
-> Lägg MX på `arkiv` (Cloudflares email-routing-servrar) + en Email Worker som
-> catch-all för subdomänen. Om Cloudflare Email Routing inte kan binda en Worker på
-> subdomän i din plan: använd en inbound-provider (Mailgun/Postmark) på
-> `arkiv.bokpilot.se` som postar till samma webhook-kontrakt nedan.
+> ⚠️ **MX är domänomfattande – det går INTE att routa enbart `…underlag@bokpilot.se`
+> till webhooken och låta övrig @bokpilot.se ligga kvar på Hostinger via MX.** Apexen
+> har `MX → mx1/mx2.hostinger.com` (befintlig e-post, inkl. inloggningen
+> `admin@bokpilot.se`). All apex-post följer samma MX. Per krav 14: **apex-MX rörs inte.**
 
-Email Routing (på vald zon/subdomän) lägger Cloudflares MX + en **catch-all**-route
-som triggar Email Workern nedan (alla `*.ulag@<domän>` fångas; okända nekas i koden).
-DMARC kan sättas med `p=reject` (vi skickar aldrig från domänen).
+Två säkra sätt att ändå få `…underlag@bokpilot.se` att tas emot (välj ett):
+
+1. **Hostinger-forward (apex-MX orört, säkrast).** Hostinger fortsätter vara MX för
+   apex. I Hostingers e-postpanel skapas en forward/catch-all-regel som vidarebefordrar
+   `*underlag@bokpilot.se` till en inbound-parse-adress hos en provider (Mailgun/Postmark)
+   som postar till webhooken nedan. Övriga @bokpilot.se-mailboxar påverkas inte.
+2. **Flytta ALL @bokpilot.se till en provider/Cloudflare** som både levererar/forwardar
+   befintliga adresser OCH catch-all:ar `*underlag@` till webhooken. Då blir Hostinger-
+   mailboxarna forward-only (apex-MX byts) – kräver lista på alla befintliga adresser.
+
+Alternativ fallback (om apex inte kan lösas säkert): kör adressen på en **subdomän**
+(`…underlag@in.bokpilot.se`) med egen MX → provider. Apex orört. (Kräver formatändring
+→ endast efter godkännande, krav 15.)
 
 ## 2. Cloudflare Email Worker
 

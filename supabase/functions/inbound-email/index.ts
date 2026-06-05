@@ -17,7 +17,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const BUCKET = 'underlag'
-const INBOX_DOMAIN = 'in.bokpilot.se'
+const INBOX_DOMAIN = 'bokpilot.se'
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'docx']
 const ALLOWED_MIME = [
@@ -34,14 +34,18 @@ function extractEmail(raw: string): string {
   const m = String(raw).match(/<([^>]+)>/)
   return (m ? m[1] : String(raw)).trim().toLowerCase()
 }
-// {archiveNumber}.underlag@bpilot.se -> archiveNumber, annars null.
+// {archiveNumber}underlag@bokpilot.se -> archiveNumber, annars null.
+// Domän = bokpilot.se, local-part = {siffror}underlag (suffix exakt "underlag").
 function parseRecipient(raw: string): { archiveNumber: string; email: string } | null {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})underlag@(.+)$/)
-  if (!m) return null
-  const [, archiveNumber, domain] = m
+  const at = addr.indexOf('@')
+  if (at < 0) return null
+  const local = addr.slice(0, at)
+  const domain = addr.slice(at + 1)
   if (domain !== INBOX_DOMAIN) return null
-  return { archiveNumber, email: addr }
+  const m = local.match(/^(\d+)underlag$/)
+  if (!m) return null
+  return { archiveNumber: m[1], email: addr }
 }
 function fileExt(name = ''): string {
   const m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/)

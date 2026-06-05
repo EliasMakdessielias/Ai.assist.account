@@ -5,7 +5,7 @@
 // Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 // Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 
-export const INBOX_DOMAIN = 'in.bokpilot.se'
+export const INBOX_DOMAIN = 'bokpilot.se'
 export const INBOX_LOCAL = 'underlag'
 
 // Klassificeringskategorier (detekterad typ) + UI-etikett + ikon (Inkorg-flikar).
@@ -50,15 +50,19 @@ export function extractEmail(raw) {
 }
 
 // Tolka en mottagaradress -> { archiveNumber, email_address } eller null.
-// Verifierar att adressen slutar med "underlag@bokpilot.se" och plockar ut det
-// 7-siffriga arkivnumret (1-9 först). Okänd domän/format nekas (säkerhet).
+// Regler (krav 6/7): domänen måste vara bokpilot.se, local-part måste sluta med
+// "underlag", och arkivnumret (siffror i början) måste vara numeriskt.
+// Giltigheten av numret avgörs sedan av DB-uppslag (okänt -> avvisas).
 export function parseInboxRecipient(raw) {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})underlag@(.+)$/)
+  const at = addr.indexOf('@')
+  if (at < 0) return null
+  const local = addr.slice(0, at)
+  const domain = addr.slice(at + 1)
+  if (domain !== INBOX_DOMAIN) return null            // endast bokpilot.se
+  const m = local.match(/^(\d+)underlag$/)            // {siffror}underlag, suffix exakt "underlag"
   if (!m) return null
-  const [, archiveNumber, domain] = m
-  if (domain !== INBOX_DOMAIN) return null // endast in.bokpilot.se (apex bokpilot.se nekas)
-  return { archiveNumber, email_address: addr }
+  return { archiveNumber: m[1], email_address: addr }
 }
 
 // ---- Bilage-validering (säkerhet) ----
