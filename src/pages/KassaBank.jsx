@@ -221,8 +221,12 @@ export default function KassaBank() {
     }
   }
   function setMRow(idx, patch) {
+    // Uteslut debet/kredit på samma rad (samma regel som verifikationer/lev.fakturor).
+    const p = { ...patch }
+    if ('debet' in p && num(p.debet) > 0) p.kredit = ''
+    if ('kredit' in p && num(p.kredit) > 0) p.debet = ''
     setMRows(rs => {
-      const next = rs.map((r, i) => i === idx ? { ...r, ...patch } : r)
+      const next = rs.map((r, i) => i === idx ? { ...r, ...p } : r)
       if (!next.length || next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit) next.push(emptyKRow())
       return next
     })
