@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAuth } from './hooks/useAuth'
+import { isMarketingHost } from './lib/host'
 import Layout from './components/Layout'
+import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Bokforing from './pages/Bokforing'
@@ -45,6 +47,12 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
+  // Apex-domänen (bokpilot.se) är ett marknadsskal. ?landing tvingar fram det
+  // lokalt för förhandsvisning. Allt annat (app.bokpilot.se, localhost) = appen.
+  const showMarketing = isMarketingHost() ||
+    (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('landing'))
+  if (showMarketing) return <Landing />
+
   return (
     <>
       <Toaster position="bottom-right" toastOptions={{ duration: 3000, style: { background: '#1a1a18', color: '#fff', fontSize: '13px' } }} />
