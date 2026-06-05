@@ -11,11 +11,14 @@ Tailwind + React Router + react-hot-toast. Backend: Supabase (Postgres, Auth, RL
 Storage, Edge Functions). AI via Google Gemini (2.5-flash-lite) i edge functions.
 
 - Repo: https://github.com/EliasMakdessielias/Ai.assist.account
-- Kanonisk publik URL (mål): **https://bokpilot.se**. Auto-deploy från GitHub `main` (~20 s) till Vercel.
-  - Fungerar live nu: **https://bokpilot-app.vercel.app** (Vercel-projektet omdöpt `bocker-app`→`bokpilot-app`).
-  - Gamla **bocker-app.vercel.app** ligger kvar på projektet men **308-redirectar** till `bokpilot-app.vercel.app` (pensionerad).
-  - **bokpilot.se / www.bokpilot.se** är tillagda + ägar-verifierade på Vercel, MEN DNS pekar fortfarande på Cloudflare-parkering (`misconfigured`). KVARSTÅR (kräver Cloudflare-DNS-åtkomst): sätt apex `A @ 216.198.79.1` + `A @ 64.29.17.1` (och `www` likadant), **DNS only / grå moln**. Då blir bokpilot.se live; ev. flytta 308-redirecten dit sen.
-  - Supabase Auth uppdaterad: Site URL `https://bokpilot.se`; redirect-allowlist `https://bokpilot.se/**, https://www.bokpilot.se/**, https://bokpilot-app.vercel.app/**, http://localhost:5173/**`.
+- **Arkitektur: marknadsskal på apex + appen på subdomän.**
+  - **bokpilot.se / www** → marknadsskal (`src/pages/Landing.jsx`) med CTA-knapp som slussar till app.bokpilot.se/login. Värd-logik i `src/lib/host.js` (`isMarketingHost()`); `App.jsx` renderar `<Landing/>` på apex, annars hela appen. Lokalt: lägg `?landing` i URL:en för att tvinga fram skalet.
+  - **app.bokpilot.se** → appen (inloggning + allt). **LIVE** (HTTP 200, SSL ok).
+  - Ett enda Vercel-projekt (`bokpilot-app`, omdöpt från `bocker-app`) servar både apex och subdomän — värd-medveten kod avgör vad som visas. Auto-deploy från GitHub `main` (~20 s).
+  - **bokpilot-app.vercel.app** fungerar också; gamla **bocker-app.vercel.app** 308-redirectar dit.
+  - **DNS (Cloudflare, ALLA grå/DNS only):** apex `A @ 216.198.79.1` + `A @ 64.29.17.1` (gamla Hostinger A- och AAAA-poster borttagna); `CNAME www → 9d82a088ae1ed246.vercel-dns-017.com`; `CNAME app → 9d82a088ae1ed246.vercel-dns-017.com`. Mail-poster (MX/SPF/DMARC/autoconfig/autodiscover/hostingermail/ftp) lämnade orörda (Hostinger e-post).
+  - STATUS (2026-06-05): app.bokpilot.se live. apex bokpilot.se: DNS korrekt, Vercel utfärdar SSL-cert (kan ta några min) → blir live automatiskt.
+  - Supabase Auth: lägg till `https://app.bokpilot.se/**` i redirect-allowlist (inloggning sker nu på subdomänen); Site URL ev. `https://app.bokpilot.se`. Tidigare allowlist: `https://bokpilot.se/**, https://www.bokpilot.se/**, https://bokpilot-app.vercel.app/**, http://localhost:5173/**`.
 - Supabase project ref: `bypebgvxdmbzxqecllao`
 
 ## Arbetssätt / konventioner
