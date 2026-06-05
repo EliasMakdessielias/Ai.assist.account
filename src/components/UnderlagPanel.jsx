@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
-import { useContainerSize, previewWidthPx, previewHeightPx } from '../lib/docPreview'
+import { useContainerSize, previewWidthPx, previewHeightPx, computeAutoScale, clampScale } from '../lib/docPreview'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
@@ -14,7 +14,9 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [uploading, setUploading] = useState(false)
   const [interpreting, setInterpreting] = useState(false)
   const [coupling, setCoupling] = useState(false)
-  const [scale, setScale] = useState(1)
+  const [mode, setMode] = useState('auto')          // 'auto' (fit-to-panel) | 'manual'
+  const [manualScale, setManualScale] = useState(1) // manuell zoom (naturlig-relativ för bild, container-relativ för PDF)
+  const [natural, setNatural] = useState({ w: 0, h: 0 }) // bildens naturliga storlek (för fit-beräkning)
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
   const [w, setW] = useState(width)
@@ -50,10 +52,11 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const current = docs[idx] || null
 
   // Hämta en signerad URL för det aktuella dokumentet (privat bucket).
+  // Återställ till Auto (fit-to-panel) och nollställ naturlig storlek vid byte.
   useEffect(() => {
     let active = true
     setUrl(null)
-    setScale(1)
+    setMode('auto'); setManualScale(1); setNatural({ w: 0, h: 0 })
     if (!current) return
     supabase.storage.from('underlag').createSignedUrl(current.storage_path, 3600).then(({ data }) => {
       if (active) setUrl(data?.signedUrl || null)
@@ -61,14 +64,28 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
     return () => { active = false }
   }, [current?.id])
 
-  // Ctrl/Cmd + skrollhjul zoomar (vanlig skroll panorerar).
+  // Auto-skala (fit-to-panel) för bild – räknas om automatiskt när panelen
+  // ändrar storlek (useContainerSize → ResizeObserver med debounce).
+  const autoScale = computeAutoScale(cw, ch, natural.w, natural.h)
+  const isImage = current?.mime_type?.startsWith('image/')
+  const isPdf = current?.mime_type === 'application/pdf'
+  // Effektiv skala (naturlig-relativ för bild). Auto → fit, Manuell → manualScale.
+  const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
+  const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
+  const zoomLabel = mode === 'auto'
+    ? (isImage && autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
+    : `${Math.round(manualScale * 100)}%`
+  const setManual = v => { setMode('manual'); setManualScale(clampScale(v)) }
+  const bumpManual = delta => { setMode('manual'); setManualScale(s => clampScale(s + delta)) }
+
+  // Ctrl/Cmd + skrollhjul zoomar (vanlig skroll panorerar) → går till manuellt läge.
   useEffect(() => {
     const el = previewRef.current
     if (!el) return
     const onWheel = e => {
       if (!(e.ctrlKey || e.metaKey)) return
       e.preventDefault()
-      setScale(s => Math.min(4, Math.max(0.4, +(s - Math.sign(e.deltaY) * 0.15).toFixed(2))))
+      bumpManual(-Math.sign(e.deltaY) * 0.15)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -139,8 +156,6 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
     setCoupling(false)
   }
 
-  const isImage = current?.mime_type?.startsWith('image/')
-  const isPdf = current?.mime_type === 'application/pdf'
   const isAttached = current && attachIds.includes(current.id)
 
   return (
@@ -170,10 +185,13 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         <input ref={fileRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleUpload} />
         {current && (
           <div className="ml-auto flex items-center gap-2 text-gray-500 shrink-0">
-            <i className="ti ti-zoom-in text-gray-400 text-sm" />
-            <input type="range" min="0.5" max="3" step="0.1" value={scale} aria-label="Zoom" title="Justera storlek på underlaget"
-              className="w-24 accent-blue-600 cursor-pointer" onChange={e => setScale(parseFloat(e.target.value))} />
-            <button className="text-xs tabular-nums w-9 text-right hover:text-gray-900" title="Återställ till 100%" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
+            <button title="Anpassa till panel (Auto)" onClick={() => setMode('auto')}
+              className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${mode === 'auto' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>
+              <i className="ti ti-aspect-ratio" /> Auto
+            </button>
+            <input type="range" min="0.4" max="2.5" step="0.05" value={sliderValue} aria-label="Zoom" title="Justera storlek på underlaget"
+              className="w-24 accent-blue-600 cursor-pointer" onChange={e => setManual(parseFloat(e.target.value))} />
+            <span className="text-xs tabular-nums w-20 text-right" title={mode === 'auto' ? 'Anpassad till panelen' : 'Manuell zoom'}>{zoomLabel}</span>
           </div>
         )}
       </div>
@@ -194,11 +212,16 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         ) : !url ? (
           <div className="h-full flex items-center justify-center text-gray-400">Hämtar förhandsvisning…</div>
         ) : isImage ? (
-          <img src={url} alt={current.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
-            style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${scale * 100}%`, maxWidth: 'none', height: 'auto' }} />
+          <div className="min-h-full flex items-center justify-center">
+            <img src={url} alt={current.file_name} draggable={false} onLoad={e => setNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+              className="block bg-white shadow select-none"
+              style={{ width: natural.w ? `${Math.round(natural.w * effScale)}px` : (previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`), maxWidth: 'none', height: 'auto' }} />
+          </div>
         ) : isPdf ? (
           <iframe src={url} title={current.file_name} className="bg-white shadow block mx-auto"
-            style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${100 * scale}%`, height: previewHeightPx(ch, scale) ? `${previewHeightPx(ch, scale)}px` : `${Math.max(100, 100 * scale)}%`, minHeight: '100%', border: 'none' }} />
+            style={mode === 'auto'
+              ? { width: '100%', height: '100%', minHeight: '100%', border: 'none' }
+              : { width: previewWidthPx(cw, manualScale) ? `${previewWidthPx(cw, manualScale)}px` : `${100 * manualScale}%`, height: previewHeightPx(ch, manualScale) ? `${previewHeightPx(ch, manualScale)}px` : `${Math.max(100, 100 * manualScale)}%`, minHeight: '100%', border: 'none' }} />
         ) : (
           <div className="h-full flex items-center justify-center">
             <div className="text-center text-gray-500">
@@ -222,9 +245,9 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         {/* Flytande zoomkontroll – alltid synlig */}
         {current && url && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 rounded-full shadow-lg px-1.5 py-1" style={{ border: '1px solid rgba(0,0,0,0.12)' }}>
-            <button title="Zooma ut" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-minus" /></button>
-            <button title="Återställ till 100%" className="text-xs tabular-nums w-12 text-center text-gray-700 hover:text-gray-900" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
-            <button title="Zooma in" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setScale(s => Math.min(4, +(s + 0.2).toFixed(2)))}><i className="ti ti-plus" /></button>
+            <button title="Zooma ut" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => bumpManual(-0.2)}><i className="ti ti-minus" /></button>
+            <button title="Anpassa till panel (Auto)" className="text-xs tabular-nums px-2 min-w-[3.5rem] text-center text-gray-700 hover:text-gray-900" onClick={() => setMode('auto')}>{zoomLabel}</button>
+            <button title="Zooma in" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => bumpManual(0.2)}><i className="ti ti-plus" /></button>
           </div>
         )}
       </div>

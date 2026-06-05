@@ -33,6 +33,27 @@ export function previewHeightPx(containerHeight, scale) {
   return Math.max(1, Math.round(containerHeight * Math.max(1, s)))
 }
 
+// "Fit-to-panel"-zoom (Auto-läge): beräknar den skala som gör att hela
+// dokumentet (naturlig storlek naturalW×naturalH) ryms i containern, begränsad
+// till [min, max]. Skalan är NATURLIG-relativ (1 = dokumentets pixlar i 1:1).
+// Returnerar null innan container/dokument har mätts (då används fallback i UI:t).
+//   - Bredare panel  => större skala (växer)
+//   - Smalare panel  => mindre skala (krymper)
+export function computeAutoScale(containerW, containerH, naturalW, naturalH, opts = {}) {
+  const { min = 0.4, max = 2.5, padding = 24 } = opts
+  if (!containerW || !containerH || !naturalW || !naturalH) return null
+  const s = Math.min((containerW - padding) / naturalW, (containerH - padding) / naturalH)
+  if (!Number.isFinite(s) || s <= 0) return null
+  return Math.max(min, Math.min(max, Math.round(s * 1000) / 1000))
+}
+
+// Klampar en manuell zoomnivå till tillåtet intervall.
+export function clampScale(scale, min = 0.4, max = 2.5) {
+  const s = Number(scale)
+  if (!Number.isFinite(s)) return 1
+  return Math.max(min, Math.min(max, s))
+}
+
 // Mäter ett element med ResizeObserver och returnerar { width, height } i px
 // (content-box). Debounce:at så att täta resize-events (t.ex. under en
 // splitter-dragning) inte gör UI:t segt. Faller tillbaka till {0,0} i miljöer

@@ -2,7 +2,38 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useRef } from 'react'
 import { render, act, cleanup } from '@testing-library/react'
-import { previewWidthPx, previewHeightPx, useContainerSize } from './docPreview'
+import { previewWidthPx, previewHeightPx, useContainerSize, computeAutoScale, clampScale } from './docPreview'
+
+describe('computeAutoScale – fit-to-panel (Auto)', () => {
+  it('returnerar null innan container/dokument mätts', () => {
+    expect(computeAutoScale(0, 800, 1000, 1400)).toBeNull()
+    expect(computeAutoScale(600, 800, 0, 0)).toBeNull()
+  })
+  it('passar in hela dokumentet (min av bredd-/höjdkvot)', () => {
+    // bredd-bunden: (1000-0)/2000=0.5, (800-0)/1000=0.8 -> 0.5
+    expect(computeAutoScale(1000, 800, 2000, 1000, { padding: 0 })).toBe(0.5)
+    // höjd-bunden (min:0 för att se den rena kvoten): min(1, 0.25) = 0.25
+    expect(computeAutoScale(1000, 500, 1000, 2000, { padding: 0, min: 0 })).toBe(0.25)
+  })
+  it('växer när panelen blir bredare, krymper när den blir smalare', () => {
+    const narrow = computeAutoScale(600, 800, 1200, 800, { padding: 0 })
+    const wide = computeAutoScale(1000, 800, 1200, 800, { padding: 0 })
+    expect(wide).toBeGreaterThan(narrow)
+  })
+  it('respekterar min/max', () => {
+    expect(computeAutoScale(100, 100, 5000, 5000, { padding: 0, min: 0.4, max: 2.5 })).toBe(0.4) // klampas upp
+    expect(computeAutoScale(5000, 5000, 100, 100, { padding: 0, min: 0.4, max: 2.5 })).toBe(2.5) // klampas ner
+  })
+})
+
+describe('clampScale', () => {
+  it('klampar till [min,max]', () => {
+    expect(clampScale(0.1)).toBe(0.4)
+    expect(clampScale(9)).toBe(2.5)
+    expect(clampScale(1.2)).toBe(1.2)
+    expect(clampScale('x')).toBe(1)
+  })
+})
 
 describe('previewWidthPx – bredd i px utifrån container + zoom', () => {
   it('returnerar null innan containern mätts', () => {
