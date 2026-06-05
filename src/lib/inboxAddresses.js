@@ -5,7 +5,7 @@
 // Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 // Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 
-export const INBOX_DOMAIN = 'bokpilot.se'
+export const INBOX_DOMAIN = 'in.bokpilot.se'
 export const INBOX_LOCAL = 'underlag'
 
 // Klassificeringskategorier (detekterad typ) + UI-etikett + ikon (Inkorg-flikar).
@@ -57,7 +57,7 @@ export function parseInboxRecipient(raw) {
   const m = addr.match(/^([1-9]\d{6})underlag@(.+)$/)
   if (!m) return null
   const [, archiveNumber, domain] = m
-  if (domain !== INBOX_DOMAIN) return null
+  if (domain !== INBOX_DOMAIN) return null // endast in.bokpilot.se (apex bokpilot.se nekas)
   return { archiveNumber, email_address: addr }
 }
 
