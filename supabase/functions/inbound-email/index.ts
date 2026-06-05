@@ -17,7 +17,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const BUCKET = 'underlag'
-const INBOX_DOMAIN = 'bpilot.se'
+const INBOX_DOMAIN = 'bokpilot.se'
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'docx']
 const ALLOWED_MIME = [
@@ -37,7 +37,7 @@ function extractEmail(raw: string): string {
 // {archiveNumber}.underlag@bpilot.se -> archiveNumber, annars null.
 function parseRecipient(raw: string): { archiveNumber: string; email: string } | null {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.underlag@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.ulag@(.+)$/)
   if (!m) return null
   const [, archiveNumber, domain] = m
   if (domain !== INBOX_DOMAIN) return null

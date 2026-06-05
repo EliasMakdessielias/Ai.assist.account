@@ -5,8 +5,8 @@
 // Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 // Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 
-export const INBOX_DOMAIN = 'bpilot.se'
-export const INBOX_LOCAL = 'underlag'
+export const INBOX_DOMAIN = 'bokpilot.se'
+export const INBOX_LOCAL = 'ulag'
 
 // Klassificeringskategorier (detekterad typ) + UI-etikett + ikon (Inkorg-flikar).
 export const INBOX_CATEGORIES = [
@@ -53,7 +53,7 @@ export function extractEmail(raw) {
 // Okänd domän/format nekas (säkerhet).
 export function parseInboxRecipient(raw) {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.underlag@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.ulag@(.+)$/)
   if (!m) return null
   const [, archiveNumber, domain] = m
   if (domain !== INBOX_DOMAIN) return null
