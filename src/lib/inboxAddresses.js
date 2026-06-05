@@ -1,24 +1,25 @@
-// Delad logik för företagets inbound-mottagningsadresser (arkiv.bokpilot.se).
+// Delad logik för företagets EN inbound-mottagningsadress (bpilot.se).
 // Används av UI, tester och – i en egen kopia – av edge-funktionen inbound-email.
 //
-// Format: {0000001}.{typ}@arkiv.bokpilot.se   (typ = kvitto | leverantorsfaktura | dokument | avtal)
-// Adresserna är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
+// Format: {archiveNumber}.underlag@bpilot.se   (t.ex. 8063151.underlag@bpilot.se)
+// Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
+// Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 
-export const INBOX_DOMAIN = 'ark.bpilot.se'
+export const INBOX_DOMAIN = 'bpilot.se'
+export const INBOX_LOCAL = 'underlag'
 
-// Typ -> kort suffix i adressen + etikett (UI) + kategori i documents-tabellen.
-// Suffixen är medvetet korta (kv/lf/do/av) och prefixet är företagets
-// SLUMPMÄSSIGA arkivnummer (avslöjar inte antal kunder).
-export const INBOX_TYPES = [
-  { type: 'kvitto', suffix: 'kv', label: 'Kvitton', kategori: 'kvitto' },
-  { type: 'leverantorsfaktura', suffix: 'lf', label: 'Leverantörsfakturor', kategori: 'leverantorsfaktura' },
-  { type: 'dokument', suffix: 'do', label: 'Dokument', kategori: 'dokument' },
-  { type: 'avtal', suffix: 'av', label: 'Avtal', kategori: 'avtal' },
+// Klassificeringskategorier (detekterad typ) + UI-etikett + ikon (Inkorg-flikar).
+export const INBOX_CATEGORIES = [
+  { key: 'kvitto', label: 'Kvitton', icon: 'ti-receipt', tolka: true, create: 'verifikation' },
+  { key: 'leverantorsfaktura', label: 'Leverantörsfakturor', icon: 'ti-file-invoice', tolka: true, create: 'lev' },
+  { key: 'kundfaktura', label: 'Kundfakturor', icon: 'ti-file-dollar', tolka: false },
+  { key: 'dokument', label: 'Dokument', icon: 'ti-file-text', tolka: false },
+  { key: 'avtal', label: 'Avtal', icon: 'ti-file-certificate', tolka: false },
+  { key: 'okand', label: 'Behöver granskas', icon: 'ti-help-circle', tolka: false },
 ]
-export const INBOX_TYPE_KEYS = INBOX_TYPES.map(t => t.type)
-export const INBOX_SUFFIXES = INBOX_TYPES.map(t => t.suffix)
-const TYPE_BY_SUFFIX = Object.fromEntries(INBOX_TYPES.map(t => [t.suffix, t]))
-const SUFFIX_BY_TYPE = Object.fromEntries(INBOX_TYPES.map(t => [t.type, t.suffix]))
+export function inboxCategoryLabel(key) {
+  return INBOX_CATEGORIES.find(c => c.key === key)?.label || 'Dokument'
+}
 
 // Arkivnummer: 7 siffror, 1000000-9999999 (börjar aldrig med 0).
 export const ARCHIVE_MIN = 1000000
@@ -34,18 +35,10 @@ export function generateArchiveNumber(rand = Math.random) {
   return ARCHIVE_MIN + Math.floor(rand() * (ARCHIVE_MAX - ARCHIVE_MIN + 1))
 }
 
-// Bygg en adress av arkivnummer + typ.
-export function buildInboxAddress(archiveNumber, type) {
+// Bygg företagets enda mottagningsadress av arkivnummer.
+export function buildInboxAddress(archiveNumber) {
   if (!isValidArchiveNumber(archiveNumber)) return null
-  const sfx = SUFFIX_BY_TYPE[type]
-  if (!sfx) return null
-  return `${archiveNumber}.${sfx}@${INBOX_DOMAIN}`
-}
-
-// De fyra adresserna för ett arkivnummer.
-export function buildInboxAddresses(archiveNumber) {
-  if (!isValidArchiveNumber(archiveNumber)) return []
-  return INBOX_TYPES.map(t => ({ ...t, email_address: `${archiveNumber}.${t.suffix}@${INBOX_DOMAIN}` }))
+  return `${archiveNumber}.${INBOX_LOCAL}@${INBOX_DOMAIN}`
 }
 
 // Plocka ut ren e-postadress ur t.ex. `"Namn" <a@b.se>` eller `<a@b.se>`.
@@ -55,18 +48,16 @@ export function extractEmail(raw) {
   return (m ? m[1] : String(raw)).trim().toLowerCase()
 }
 
-// Tolka en mottagaradress -> { archiveNumber, suffix, type, kategori } eller null.
-// Validerar domän, 7-siffrigt arkivnummer (1-9 först) OCH giltigt suffix
-// (kvi/lev/dok/avt). Okänd domän/suffix nekas (säkerhet).
+// Tolka en mottagaradress -> { archiveNumber, email_address } eller null.
+// Validerar domän, 7-siffrigt arkivnummer (1-9 först) och local-part "underlag".
+// Okänd domän/format nekas (säkerhet).
 export function parseInboxRecipient(raw) {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.([a-z]{2})@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.underlag@(.+)$/)
   if (!m) return null
-  const [, archiveNumber, suffix, domain] = m
+  const [, archiveNumber, domain] = m
   if (domain !== INBOX_DOMAIN) return null
-  const def = TYPE_BY_SUFFIX[suffix]
-  if (!def) return null
-  return { archiveNumber, suffix, type: def.type, kategori: def.kategori, email_address: addr }
+  return { archiveNumber, email_address: addr }
 }
 
 // ---- Bilage-validering (säkerhet) ----

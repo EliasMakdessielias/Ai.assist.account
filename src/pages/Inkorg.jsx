@@ -4,15 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
+import { INBOX_CATEGORIES as KATS } from '../lib/inboxAddresses'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-const KATS = [
-  { key: 'kvitto', label: 'Kvitton', icon: 'ti-receipt', tolka: true, create: 'verifikation' },
-  { key: 'leverantorsfaktura', label: 'Leverantörsfakturor', icon: 'ti-file-invoice', tolka: true, create: 'lev' },
-  { key: 'dokument', label: 'Dokument', icon: 'ti-file-text', tolka: false },
-  { key: 'avtal', label: 'Avtal', icon: 'ti-file-certificate', tolka: false },
-]
 
 export default function Inkorg() {
   const { company } = useAuth()
@@ -29,7 +23,7 @@ export default function Inkorg() {
   const fileRef = useRef()
 
   const cur = KATS.find(k => k.key === kat)
-  const mailAddr = k => addrs[k] || ''
+  const inboxAddr = addrs.underlag || ''
 
   useEffect(() => { if (company) load() }, [company?.id])
 
@@ -122,6 +116,13 @@ export default function Inkorg() {
   const visible = docs.filter(d => (d.kategori || 'dokument') === kat && !d.verifikation_id)
   const counts = Object.fromEntries(KATS.map(k => [k.key, docs.filter(d => (d.kategori || 'dokument') === k.key && !d.verifikation_id).length]))
   const fileIcon = m => m === 'application/pdf' ? 'ti-file-type-pdf' : m?.startsWith('image/') ? 'ti-photo' : 'ti-file'
+  // Klassificeringsbadge (detekterad typ-confidence/status) för e-postunderlag.
+  function classBadge(d) {
+    const conf = d.confidence != null ? Math.round(Number(d.confidence) * 100) : null
+    if (d.status === 'unsupported') return <span className="text-[11px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded">Filtyp stöds ej</span>
+    if (d.status === 'needs_review') return <span className="text-[11px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">Behöver granskas{conf != null ? ` · ${conf}%` : ''}</span>
+    return <span className="text-[11px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded">Klassificerad{conf != null ? ` · ${conf}%` : ''}</span>
+  }
 
   const selVisible = visible.filter(d => sel.has(d.id))
   const toggleSel = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -173,10 +174,10 @@ export default function Inkorg() {
           {/* Mejla in-adress */}
           <div className="flex items-center gap-3 bg-gray-50 border rounded-lg px-4 py-2.5 mb-4 text-sm" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
             <i className="ti ti-mail text-gray-500" />
-            <span className="text-gray-500">Mejla in {cur.label.toLowerCase()} till:</span>
-            <span className="font-medium text-gray-800">{mailAddr(kat)}</span>
-            <button className="btn text-xs py-1 px-2 ml-1" onClick={() => { navigator.clipboard?.writeText(mailAddr(kat)); toast.success('E-postadress kopierad') }}><i className="ti ti-copy" /> Kopiera</button>
-            {cur.tolka && <span className="text-xs text-green-700 ml-auto flex items-center gap-1"><i className="ti ti-sparkles" /> Tolkas automatiskt</span>}
+            <span className="text-gray-500">Mejla in underlag till:</span>
+            <span className="font-medium text-gray-800 font-mono">{inboxAddr}</span>
+            <button className="btn text-xs py-1 px-2 ml-1" disabled={!inboxAddr} onClick={() => { navigator.clipboard?.writeText(inboxAddr); toast.success('E-postadress kopierad') }}><i className="ti ti-copy" /> Kopiera</button>
+            <span className="text-xs text-green-700 ml-auto flex items-center gap-1"><i className="ti ti-sparkles" /> Klassificeras automatiskt</span>
           </div>
 
           {loading ? (
@@ -223,6 +224,7 @@ export default function Inkorg() {
                       </td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                         <span className="flex items-center gap-2"><i className={`ti ${fileIcon(d.mime_type)} text-gray-400`} /> {d.file_name}</span>
+                        {d.source === 'email' && <div className="mt-1">{classBadge(d)}</div>}
                       </td>
                       {cur.tolka && (
                         <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
@@ -232,6 +234,9 @@ export default function Inkorg() {
                       <td className="px-4 py-2.5 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{d.created_at?.slice(0, 10)}</td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }} onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
+                          <select className="input text-xs py-1 w-auto" title="Ändra kategori" value={d.kategori || 'dokument'} onChange={e => flytta(d, e.target.value)}>
+                            {KATS.map(k => <option key={k.key} value={k.key}>{k.label}</option>)}
+                          </select>
                           {cur.tolka && <button className="btn text-xs py-1 px-2.5" onClick={() => tolkaDoc(d)} disabled={busyId === d.id}>{busyId === d.id ? '…' : (d.tolkad ? 'Tolka om' : 'Tolka')}</button>}
                           {cur.create && (
                             <button className="btn btn-green text-xs py-1 px-2.5 whitespace-nowrap" onClick={() => skapa(d)}>

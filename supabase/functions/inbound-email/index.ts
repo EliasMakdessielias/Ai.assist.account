@@ -1,28 +1,23 @@
-// Inbound-email webhook för BokPilot (arkiv.bokpilot.se).
+// Inbound-email webhook för BokPilot (bpilot.se).
 //
-// Tar emot inkommande e-post från en mail-provider/relay (rekommenderat:
-// Cloudflare Email Worker, se docs/inbound-email.md), identifierar företag +
-// typ via mottagaradressen, lagrar bilagor i Storage och skapar inkorgsposter
-// i `documents`. ENDAST inbound – inga utgående funktioner.
+// Tar emot inkommande e-post (rekommenderat relä: Cloudflare Email Worker, se
+// docs/inbound-email.md), identifierar företaget via arkivnumret i mottagar-
+// adressen ({archiveNumber}.underlag@bpilot.se), lagrar varje bilaga och skapar
+// EN inkorgspost per bilaga i `documents` med automatisk klassificering. ENDAST
+// inbound – inga utgående funktioner.
 //
-// Deploy (utan JWT-verifiering, webhooken autentiseras via HMAC-signatur):
+// Deploy (HMAC-autentisering, ej JWT):
 //   supabase functions deploy inbound-email --no-verify-jwt --project-ref bypebgvxdmbzxqecllao
-// Secrets som måste sättas:
-//   INBOUND_WEBHOOK_SECRET   (delad hemlighet för HMAC-signatur)
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (sätts automatiskt av plattformen)
+// Secrets: INBOUND_WEBHOOK_SECRET (+ SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY auto).
 //
-// Webhook-kontrakt (JSON, POST):
+// Webhook-kontrakt (POST JSON):
 //   Header  X-Bokpilot-Signature: sha256=<hex(hmacSHA256(rawBody, secret))>
 //   Body    { to, from, subject, text, attachments:[{filename, contentType, contentBase64, size}] }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const BUCKET = 'underlag'
-const INBOX_DOMAIN = 'ark.bpilot.se'
-// Kort suffix i adressen -> kategori i documents.
-const SUFFIX_TO_KATEGORI: Record<string, string> = {
-  kv: 'kvitto', lf: 'leverantorsfaktura', do: 'dokument', av: 'avtal',
-}
+const INBOX_DOMAIN = 'bpilot.se'
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'docx']
 const ALLOWED_MIME = [
@@ -34,28 +29,25 @@ const BLOCKED_EXTENSIONS = ['exe', 'bat', 'cmd', 'com', 'scr', 'js', 'jar', 'msi
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
-
 function extractEmail(raw: string): string {
   if (!raw) return ''
   const m = String(raw).match(/<([^>]+)>/)
   return (m ? m[1] : String(raw)).trim().toLowerCase()
 }
-
-function parseRecipient(raw: string): { archiveNumber: string; suffix: string; kategori: string; email: string } | null {
+// {archiveNumber}.underlag@bpilot.se -> archiveNumber, annars null.
+function parseRecipient(raw: string): { archiveNumber: string; email: string } | null {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.([a-z]{2})@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.underlag@(.+)$/)
   if (!m) return null
-  const [, archiveNumber, suffix, domain] = m
+  const [, archiveNumber, domain] = m
   if (domain !== INBOX_DOMAIN) return null
-  const kategori = SUFFIX_TO_KATEGORI[suffix]
-  if (!kategori) return null
-  return { archiveNumber, suffix, kategori, email: addr }
+  return { archiveNumber, email: addr }
 }
-
 function fileExt(name = ''): string {
   const m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/)
   return m ? m[1] : ''
 }
+// null = ok, annars orsak.
 function attachmentReject(a: { filename?: string; contentType?: string; size?: number }): string | null {
   const ext = fileExt(a.filename || '')
   if (BLOCKED_EXTENSIONS.includes(ext)) return 'blockerad_filtyp'
@@ -65,21 +57,51 @@ function attachmentReject(a: { filename?: string; contentType?: string; size?: n
   return 'ej_tillaten_filtyp'
 }
 
-// Konstant-tids-jämförelse av hex-strängar.
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let r = 0
-  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  return r === 0
+// ---- Regelbaserad klassificering (spegel av src/lib/classifyDocument.js) ----
+const STRONG: Record<string, string[]> = {
+  kvitto: ['kvitto', 'receipt', 'kassakvitto', 'kortköp'],
+  leverantorsfaktura: ['leverantörsfaktura', 'faktura', 'invoice'],
+  kundfaktura: ['kundfaktura', 'utgående faktura'],
+  avtal: ['avtal', 'kontrakt', 'agreement', 'contract'],
+}
+const SUPPORT: Record<string, string[]> = {
+  kvitto: ['butik', 'betaldatum', 'kvittonr', 'kortbetalning', 'swish', 'summa'],
+  leverantorsfaktura: ['ocr', 'bankgiro', 'plusgiro', 'förfallodatum', 'fakturanummer', 'fakturanr', 'att betala', 'momsreg', 'org.nr'],
+  kundfaktura: ['kund', 'vår referens', 'er referens'],
+  avtal: ['signerat', 'signerad', 'parterna', 'parter', 'villkor', 'undertecknat', 'giltighetstid'],
+}
+const PRIORITY = ['leverantorsfaktura', 'kvitto', 'kundfaktura', 'avtal', 'dokument']
+function classify(input: { filename?: string; mimeType?: string; subject?: string; bodyText?: string }, supported: boolean) {
+  if (!supported) return { type: 'okand', confidence: 0, status: 'unsupported' }
+  const hay = `${input.filename || ''} ${input.subject || ''} ${input.bodyText || ''}`.toLowerCase()
+  const hits = (ws: string[]) => ws.reduce((n, w) => n + (hay.includes(w) ? 1 : 0), 0)
+  const scores: Record<string, number> = {}
+  for (const c of ['kvitto', 'leverantorsfaktura', 'kundfaktura', 'avtal']) {
+    const strong = hits(STRONG[c]) > 0 ? 0.6 : 0
+    const support = hits(SUPPORT[c]) * 0.12
+    scores[c] = strong > 0 ? strong + support : support * 0.5
+  }
+  if (/\.docx?$/i.test(input.filename || '') || /word|officedocument/.test(input.mimeType || '')) {
+    scores.avtal = (scores.avtal || 0) + 0.1
+    scores.dokument = 0.25
+  }
+  let best: string | null = null, bestScore = 0
+  for (const c of PRIORITY) { const s = scores[c] || 0; if (s > bestScore) { bestScore = s; best = c } }
+  if (!best || bestScore <= 0) return { type: 'okand', confidence: 0, status: 'needs_review' }
+  const confidence = Math.min(0.97, Math.round(bestScore * 100) / 100)
+  return { type: best, confidence, status: confidence >= 0.6 ? 'classified' : 'needs_review' }
 }
 
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return r === 0
+}
 async function hmacSha256Hex(secret: string, body: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))
   return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
-
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64.replace(/\s/g, ''))
   const out = new Uint8Array(bin.length)
@@ -95,13 +117,11 @@ Deno.serve(async (req) => {
   const SECRET = Deno.env.get('INBOUND_WEBHOOK_SECRET') || ''
   const admin = createClient(SUPABASE_URL, SERVICE_KEY)
 
-  // 1) Läs rå body + verifiera HMAC-signatur (skydd mot förfalskade anrop).
+  // 1) Verifiera HMAC-signatur över rå body.
   const raw = await req.text()
-  const header = req.headers.get('X-Bokpilot-Signature') || ''
-  const provided = header.replace(/^sha256=/, '').trim().toLowerCase()
+  const provided = (req.headers.get('X-Bokpilot-Signature') || '').replace(/^sha256=/, '').trim().toLowerCase()
   if (!SECRET || !provided) return json({ error: 'missing_signature' }, 401)
-  const expected = await hmacSha256Hex(SECRET, raw)
-  if (!timingSafeEqual(provided, expected)) return json({ error: 'invalid_signature' }, 401)
+  if (!timingSafeEqual(provided, await hmacSha256Hex(SECRET, raw))) return json({ error: 'invalid_signature' }, 401)
 
   let payload: any
   try { payload = JSON.parse(raw) } catch { return json({ error: 'invalid_json' }, 400) }
@@ -113,59 +133,57 @@ Deno.serve(async (req) => {
   const attachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : []
   const now = new Date().toISOString()
 
-  const log = (company_id: string | null, status: string, detail: string, attachment_count = 0) =>
-    admin.from('inbound_email_log').insert({ company_id, recipient: extractEmail(recipient), sender, subject, status, detail, attachment_count })
+  const log = (company_id: string | null, status: string, detail: string, n = 0) =>
+    admin.from('inbound_email_log').insert({ company_id, recipient: extractEmail(recipient), sender, subject, status, detail, attachment_count: n })
 
-  // 2) Validera mottagaradress + slå upp aktivt företag (okänd adress nekas).
+  // 2) Tolka mottagaradress + slå upp aktivt företag (okänt arkivnummer nekas).
   const parsed = parseRecipient(recipient)
   if (!parsed) { await log(null, 'rejected', 'okand_eller_ogiltig_mottagaradress'); return json({ status: 'rejected', reason: 'unknown_recipient' }) }
-
   const { data: inbox } = await admin.from('inbox_addresses')
-    .select('company_id, inbox_type, is_active').eq('email_address', parsed.email).maybeSingle()
-  if (!inbox) { await log(null, 'rejected', 'mottagaradress_finns_ej'); return json({ status: 'rejected', reason: 'unknown_recipient' }) }
-  if (!inbox.is_active) { await log(inbox.company_id, 'rejected', 'mottagaradress_inaktiverad'); return json({ status: 'rejected', reason: 'inactive_recipient' }) }
+    .select('company_id, is_active').eq('email_address', parsed.email).maybeSingle()
+  if (!inbox) { await log(null, 'rejected', 'okant_arkivnummer'); return json({ status: 'rejected', reason: 'unknown_archive_number' }) }
+  if (!inbox.is_active) { await log(inbox.company_id, 'rejected', 'adress_inaktiverad'); return json({ status: 'rejected', reason: 'inactive' }) }
 
   const companyId = inbox.company_id
-  const kategori = parsed.kategori
-  const warnings: string[] = []
-  let stored = 0
+  const base = {
+    company_id: companyId, source: 'email', email_from: sender, email_to: parsed.email,
+    email_subject: subject, email_body: bodyText, received_at: now,
+  }
+  const results: any[] = []
 
-  // 3) Lagra bilagor (validera typ/storlek; blockera riskabla filer).
+  // 3) En inkorgspost per bilaga (klassificeras separat).
   for (const a of attachments) {
     const filename = (a.filename || 'bilaga').toString()
     const size = Number(a.size) || (a.contentBase64 ? Math.floor(a.contentBase64.length * 0.75) : 0)
-    const reason = attachmentReject({ filename, contentType: a.contentType, size })
-    if (reason) { warnings.push(`${filename}: ${reason}`); continue }
-    if (!a.contentBase64) { warnings.push(`${filename}: saknar_innehall`); continue }
-    try {
-      const bytes = base64ToBytes(a.contentBase64)
+    const reject = attachmentReject({ filename, contentType: a.contentType, size })
+
+    if (reject === 'blockerad_filtyp' || reject === 'for_stor') { results.push({ filename, skipped: reject }); continue }
+
+    if (reject === 'ej_tillaten_filtyp') {
+      await admin.from('documents').insert({ ...base, storage_path: null, file_name: filename, mime_type: a.contentType || null, file_size: size, kategori: 'okand', confidence: 0, status: 'unsupported' })
+      results.push({ filename, status: 'unsupported' }); continue
+    }
+
+    const cls = classify({ filename, mimeType: a.contentType, subject, bodyText }, true)
+    let storage_path: string | null = null
+    if (a.contentBase64) {
       const safe = filename.replace(/[^\w.\-]+/g, '_')
       const path = `${companyId}/${crypto.randomUUID()}-${safe}`
-      const up = await admin.storage.from(BUCKET).upload(path, bytes, { contentType: a.contentType || 'application/octet-stream', upsert: false })
-      if (up.error) { warnings.push(`${filename}: uppladdning_misslyckades`); continue }
-      const ins = await admin.from('documents').insert({
-        company_id: companyId, storage_path: path, file_name: filename,
-        mime_type: a.contentType || null, file_size: size, kategori,
-        source: 'email', status: 'new', email_from: sender, email_to: parsed.email,
-        email_subject: subject, email_body: bodyText, received_at: now,
-      })
-      if (ins.error) { warnings.push(`${filename}: db_fel`); continue }
-      stored++
-    } catch (_e) { warnings.push(`${filename}: fel_vid_lagring`) }
+      const up = await admin.storage.from(BUCKET).upload(path, base64ToBytes(a.contentBase64), { contentType: a.contentType || 'application/octet-stream', upsert: false })
+      if (!up.error) storage_path = path
+    }
+    await admin.from('documents').insert({ ...base, storage_path, file_name: filename, mime_type: a.contentType || null, file_size: size, kategori: cls.type, confidence: cls.confidence, status: cls.status })
+    results.push({ filename, type: cls.type, confidence: cls.confidence, status: cls.status })
   }
 
-  // 4) Inga giltiga bilagor -> skapa inkorgspost med status needs_review (kropp sparas).
-  if (stored === 0) {
-    await admin.from('documents').insert({
-      company_id: companyId, storage_path: null, file_name: subject || '(utan ämne)',
-      mime_type: null, file_size: null, kategori,
-      source: 'email', status: 'needs_review', email_from: sender, email_to: parsed.email,
-      email_subject: subject, email_body: bodyText, received_at: now,
-    })
-    await log(companyId, 'needs_review', warnings.length ? warnings.join('; ') : 'inga_bilagor', attachments.length)
-    return json({ status: 'needs_review', stored: 0, warnings })
+  // 4) Inga bilagor -> en post som behöver granskas (kroppen sparas).
+  if (attachments.length === 0) {
+    await admin.from('documents').insert({ ...base, storage_path: null, file_name: subject || '(utan ämne)', mime_type: null, file_size: null, kategori: 'okand', confidence: 0, status: 'needs_review' })
+    await log(companyId, 'needs_review', 'inga_bilagor', 0)
+    return json({ status: 'needs_review', created: 1 })
   }
 
-  await log(companyId, warnings.length ? 'received_with_warnings' : 'received', warnings.join('; '), stored)
-  return json({ status: 'received', stored, warnings, inboxType: inbox.inbox_type })
+  const created = results.filter(r => r.status).length
+  await log(companyId, 'received', JSON.stringify(results).slice(0, 1000), created)
+  return json({ status: 'received', created, results })
 })

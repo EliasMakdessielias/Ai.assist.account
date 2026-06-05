@@ -210,7 +210,7 @@ export default function Leverantorsfakturor() {
 
   const Th = ({ children, r }) => <th className={`${r ? 'text-right' : 'text-left'} px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b whitespace-nowrap`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>{children}</th>
   const Td = ({ children, r, cls = '' }) => <td className={`px-3 py-2.5 border-b ${r ? 'text-right tabular-nums' : ''} ${cls}`} style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{children}</td>
-  const inboxAddr = buildInboxAddress(company?.archive_number, 'leverantorsfaktura') || ''
+  const inboxAddr = buildInboxAddress(company?.archive_number) || ''
 
   return (
     <div className="pb-20">

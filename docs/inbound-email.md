@@ -1,30 +1,29 @@
-# Inbound-mottagningsadresser (ark.bpilot.se)
+# Inbound-mottagningsadress (bpilot.se)
 
-Varje företag får automatiskt fyra **endast-inbound** adresser (exempel för
+Varje företag får automatiskt **EN endast-inbound** adress (exempel för
 arkivnummer `7564841`):
 
 ```
-7564841.kv@ark.bpilot.se   (kvitto)
-7564841.lf@ark.bpilot.se   (leverantörsfaktura)
-7564841.do@ark.bpilot.se   (dokument)
-7564841.av@ark.bpilot.se   (avtal)
+7564841.underlag@bpilot.se
 ```
 
 Prefixet är företagets **`archive_number`** – ett SLUMPMÄSSIGT, unikt och permanent
 7-siffrigt nummer (1000000–9999999) som sätts när företaget skapas och aldrig
-ändras (avslöjar inte antal kunder, till skillnad från ett löpnummer). Adresserna
-har **ingen brevlåda, inget lösenord och ingen utgående post** – de finns bara
-som routing-mål för inkommande e-post.
+ändras (avslöjar inte antal kunder, till skillnad från ett löpnummer). Adressen
+har **ingen brevlåda, inget lösenord och ingen utgående post** – den finns bara
+som routing-mål för inkommande e-post. Varje **bilaga klassificeras automatiskt**
+(kvitto / leverantörsfaktura / kundfaktura / dokument / avtal / okänd) vid mottagning.
 
 ## Arkitektur
 
 ```
-Avsändare ──▶ MX (ark.bpilot.se) ──▶ Cloudflare Email Routing
+Avsändare ──▶ MX (bpilot.se) ──▶ Cloudflare Email Routing
             ──▶ Email Worker (parsar + signerar HMAC)
             ──▶ POST https://<ref>.supabase.co/functions/v1/inbound-email
-            ──▶ Edge function: verifierar signatur, slår upp företag/typ,
-                lagrar bilagor i Storage (bucket `underlag`), skapar poster i
-                `documents` (Inkorgen) + loggar i `inbound_email_log`.
+            ──▶ Edge function: verifierar signatur, slår upp företag via arkivnummer,
+                validerar + lagrar varje bilaga i Storage (bucket `underlag`),
+                KLASSIFICERAR per bilaga, skapar EN post per bilaga i `documents`
+                (Inkorgen) med detectedType/confidence/status + loggar i `inbound_email_log`.
 ```
 
 Det interna webhook-kontraktet är **provider-agnostiskt** (JSON + HMAC), så valfri
@@ -34,28 +33,26 @@ beräkna signaturen.
 
 ## 1. DNS (Cloudflare)
 
-Domänen är `ark.bpilot.se`. Lägg zonen `bpilot.se` i Cloudflare (eller använd
-subdomänen `ark` om `bpilot.se` redan ligger där). Aktivera **Email Routing**
-och lägg MX för `ark`:
+Domänen är `bpilot.se`. Lägg zonen `bpilot.se` i Cloudflare och aktivera
+**Email Routing**. MX läggs på apex (`@`):
 
 ```
-MX   ark   route1.mx.cloudflare.net   (prio 13)
-MX   ark   route2.mx.cloudflare.net   (prio 86)
-MX   ark   route3.mx.cloudflare.net   (prio 24)
-TXT  ark   "v=spf1 include:_spf.mx.cloudflare.net ~all"
+MX   @   route1.mx.cloudflare.net   (prio 13)
+MX   @   route2.mx.cloudflare.net   (prio 86)
+MX   @   route3.mx.cloudflare.net   (prio 24)
+TXT  @   "v=spf1 include:_spf.mx.cloudflare.net ~all"
 ```
 
-> Cloudflare ger de exakta MX-värdena när du aktiverar Email Routing. SPF/DKIM/DMARC
-> för **utgående** post påverkas inte – `ark` används bara för mottagning.
-> DMARC kan sättas på `_dmarc.ark` med `p=reject` (vi skickar aldrig från subdomänen).
+> Cloudflare ger de exakta MX-värdena när du aktiverar Email Routing.
+> DMARC kan sättas på `_dmarc.bpilot.se` med `p=reject` (vi skickar aldrig från domänen).
 
 Sätt en **catch-all**-route i Email Routing som triggar Email Workern nedan
-(så att alla `*.{typ}@ark.bpilot.se` fångas; okända adresser nekas i koden).
+(så att alla `*.{typ}@bpilot.se` fångas; okända adresser nekas i koden).
 
 ## 2. Cloudflare Email Worker
 
 ```js
-// wrangler: [[email]] -> denna worker som catch-all för ark.bpilot.se
+// wrangler: [[email]] -> denna worker som catch-all för bpilot.se
 import PostalMime from 'postal-mime'
 
 export default {
@@ -109,32 +106,38 @@ supabase functions deploy inbound-email --no-verify-jwt --project-ref bypebgvxdm
 Funktionen (`supabase/functions/inbound-email/index.ts`):
 
 1. Verifierar `X-Bokpilot-Signature` (HMAC-SHA256, konstant-tids-jämförelse).
-2. Tolkar mottagaradressen → typ (`kvitto`/`leverantorsfaktura`/`dokument`/`avtal`).
-   Okänd domän/typ → `inbound_email_log.status = 'rejected'`, svarar 200.
+2. Tolkar mottagaradressen → arkivnummer (`{archiveNumber}.underlag@bpilot.se`).
+   Okänd domän/format → `inbound_email_log.status = 'rejected'`, svarar 200.
 3. Slår upp `inbox_addresses` (måste finnas **och** vara `is_active`). Annars `rejected`.
-4. Validerar varje bilaga (allowlist: pdf/jpg/jpeg/png/heic/heif/docx, max 25 MB,
-   blockerar exe/zip/html/svg m.fl.). Giltiga laddas upp till `underlag` och får en
-   `documents`-rad med `kategori` enligt typ, `source='email'`, `status='new'` samt
+4. Per bilaga: validerar (allowlist pdf/jpg/jpeg/png/heic/heif/docx, max 25 MB,
+   blockerar exe/zip/html/svg m.fl.), laddar upp till `underlag`, **klassificerar**
+   (filnamn/MIME/ämne/text) och skapar EN `documents`-rad med `kategori`=detekterad
+   typ, `confidence`, `status` (classified/needs_review), `source='email'` +
    `email_from/email_to/email_subject/email_body/received_at`.
-5. Saknas giltiga bilagor → en `documents`-rad med `status='needs_review'` (kroppen sparas).
+5. Filtyp som ej stöds → rad med `status='unsupported'`. Farlig/för stor → hoppas
+   över (loggas). Inga bilagor → en rad med `status='needs_review'` (kroppen sparas).
 6. Allt loggas i `inbound_email_log`.
 
-## 4. Inkorgs-flöde per typ
+## 4. Klassificering (per bilaga)
 
-| Suffix | `documents.kategori` | Flöde i appen |
+| Detekterad `kategori` | Signaler (filnamn/ämne/text/OCR) | Flöde i appen |
 |---|---|---|
-| `.kv` | `kvitto` | Inkorg → Kvitton, kan AI-tolkas |
-| `.lf` | `leverantorsfaktura` | Inkorg → Leverantörsfakturor, kan skickas till OCR/AI-tolkning |
-| `.do` | `dokument` | Inkorg → Dokument (sparas som dokumentunderlag, ej faktura) |
-| `.av` | `avtal` | Inkorg → Avtal (dokumentunderlag) |
+| `kvitto` | kvitto, receipt, butik, kortköp, betaldatum, moms | Inkorg → Kvitton, kan AI-tolkas |
+| `leverantorsfaktura` | faktura, invoice, OCR, bankgiro, plusgiro, förfallodatum, fakturanr | Inkorg → Leverantörsfakturor, kan OCR/AI-tolkas |
+| `kundfaktura` | kundfaktura, utgående faktura | Inkorg → Kundfakturor |
+| `avtal` | avtal, kontrakt, agreement, signerat, parter | Inkorg → Avtal |
+| `dokument` | övriga administrativa filer | Inkorg → Dokument |
+| `okand` | osäkert / inga signaler | Inkorg → **Behöver granskas** (`needs_review`) |
 
-Okänt arkivnummer eller suffix som inte är `kv/lf/do/av` → loggas som
-`rejected`, ingen inkorgspost skapas.
+`confidence ≥ 0.6` → `status='classified'`, annars `needs_review`. Användaren kan
+ändra kategori manuellt i Inkorgen (kategori-väljaren per rad). Okänt arkivnummer →
+`rejected`, ingen inkorgspost. Logiken finns i `src/lib/classifyDocument.js` (testad)
+och en spegel i edge-funktionen.
 
 ## 5. Säkerhet
 
 - **Signaturverifiering** på webhooken (HMAC, delad hemlighet) – förfalskade anrop nekas.
-- **Allowlist för mottagaradresser** – okända adresser/typer loggas som `rejected`.
+- **Allowlist för arkivnummer** – okända nummer/format loggas som `rejected`.
 - **Filtypsallowlist + storleksgräns** + blocklist för farliga ändelser.
 - **Endast service-role** (edge function) får skriva `inbox_addresses`/`inbound_email_log`;
   vanliga användare kan bara läsa sina egna och toggla `is_active` (adressformatet är

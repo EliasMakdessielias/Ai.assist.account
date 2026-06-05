@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { CURRENCY_CODES } from '../lib/currency'
-import { INBOX_TYPES, INBOX_TYPE_KEYS } from '../lib/inboxAddresses'
+// (Mottagningsadressen läses direkt från inbox_addresses-tabellen)
 import toast from 'react-hot-toast'
 
 const TABS = ['Grunduppgifter', 'Faktureringsuppgifter', 'Bokföringsuppgifter', 'Övriga uppgifter', 'Mottagningsadresser']
@@ -97,55 +97,51 @@ function Txt({ valKey, label, rows = 4, settingKey, ph }) {
   )
 }
 
-// Företagets fyra inbound-mottagningsadresser (endast mottagning – ingen inloggning,
+// Företagets EN inbound-mottagningsadress (endast mottagning – ingen inloggning,
 // inget lösenord, ingen utgående post). Adressformatet är låst; admin kan endast
-// aktivera/inaktivera en adress.
+// aktivera/inaktivera adressen. Varje bilaga klassificeras automatiskt vid mottagning.
 function MottagningsAdresser({ company }) {
-  const [rows, setRows] = useState(null)
-  const [busy, setBusy] = useState(null)
+  const [row, setRow] = useState(undefined) // undefined=laddar, null=saknas
+  const [busy, setBusy] = useState(false)
   useEffect(() => { if (company) load() }, [company?.id])
   async function load() {
-    const { data } = await supabase.from('inbox_addresses').select('*').eq('company_id', company.id)
-    setRows((data || []).sort((a, b) => INBOX_TYPE_KEYS.indexOf(a.inbox_type) - INBOX_TYPE_KEYS.indexOf(b.inbox_type)))
+    const { data } = await supabase.from('inbox_addresses').select('*').eq('company_id', company.id).eq('inbox_type', 'underlag').maybeSingle()
+    setRow(data || null)
   }
-  async function toggle(r) {
-    setBusy(r.id)
-    const { error } = await supabase.from('inbox_addresses').update({ is_active: !r.is_active }).eq('id', r.id)
-    setBusy(null)
+  async function toggle() {
+    setBusy(true)
+    const { error } = await supabase.from('inbox_addresses').update({ is_active: !row.is_active }).eq('id', row.id)
+    setBusy(false)
     if (error) return toast.error('Kunde inte uppdatera: ' + error.message)
-    toast.success(r.is_active ? 'Adress inaktiverad' : 'Adress aktiverad'); load()
+    toast.success(row.is_active ? 'Adress inaktiverad' : 'Adress aktiverad'); load()
   }
   async function copy(addr) {
     try { await navigator.clipboard.writeText(addr); toast.success('Adress kopierad') }
     catch { toast.error('Kunde inte kopiera') }
   }
-  const label = t => INBOX_TYPES.find(x => x.type === t)?.label || t
 
   return (
     <div className="max-w-3xl">
       <p className="text-sm text-gray-600 mb-5">
-        Vidarebefordra eller mejla underlag direkt till adresserna nedan så hamnar de automatiskt i <Link to="/inkorg" className="text-blue-700">Inkorgen</Link>.
-        Adresserna tar <strong>endast emot</strong> e-post – det går inte att logga in eller skicka från dem, och formatet kan inte ändras.
+        Vidarebefordra eller mejla underlag (kvitton, fakturor, dokument, avtal) till adressen nedan så hamnar de automatiskt i <Link to="/inkorg" className="text-blue-700">Inkorgen</Link> och <strong>klassificeras automatiskt</strong> per bilaga.
+        Adressen tar <strong>endast emot</strong> e-post – det går inte att logga in eller skicka från den, och formatet kan inte ändras.
       </p>
-      {rows === null ? <div className="text-gray-400 py-8 text-center">Laddar…</div>
-        : rows.length === 0 ? <div className="text-gray-400 py-8 text-center">Inga mottagningsadresser hittades.</div>
+      {row === undefined ? <div className="text-gray-400 py-8 text-center">Laddar…</div>
+        : row === null ? <div className="text-gray-400 py-8 text-center">Ingen mottagningsadress hittades.</div>
         : (
-          <div className="space-y-3">
-            {rows.map(r => (
-              <div key={r.id} className="bg-white rounded-xl p-4 flex items-center gap-4" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label(r.inbox_type)}</div>
-                  <div className={`font-mono text-sm truncate ${r.is_active ? 'text-gray-900' : 'text-gray-400 line-through'}`} title={r.email_address}>{r.email_address}</div>
-                </div>
-                {!r.is_active && <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded shrink-0">Inaktiv</span>}
-                <button className="btn px-3 shrink-0" title="Kopiera adress" onClick={() => copy(r.email_address)} disabled={!r.is_active}>
-                  <i className="ti ti-copy" /> Kopiera
-                </button>
-                <button className="btn px-3 shrink-0" onClick={() => toggle(r)} disabled={busy === r.id}>
-                  {r.is_active ? 'Inaktivera' : 'Aktivera'}
-                </button>
-              </div>
-            ))}
+          <div className="bg-white rounded-xl p-4 flex items-center gap-4" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+            <i className="ti ti-mail text-gray-400 text-xl shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Mottagningsadress för underlag</div>
+              <div className={`font-mono text-sm truncate ${row.is_active ? 'text-gray-900' : 'text-gray-400 line-through'}`} title={row.email_address}>{row.email_address}</div>
+            </div>
+            {!row.is_active && <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded shrink-0">Inaktiv</span>}
+            <button className="btn px-3 shrink-0" title="Kopiera adress" onClick={() => copy(row.email_address)} disabled={!row.is_active}>
+              <i className="ti ti-copy" /> Kopiera
+            </button>
+            <button className="btn px-3 shrink-0" onClick={toggle} disabled={busy}>
+              {row.is_active ? 'Inaktivera' : 'Aktivera'}
+            </button>
           </div>
         )}
     </div>
