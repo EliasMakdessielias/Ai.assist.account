@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { BRAND } from '../lib/brand'
+import { SETTINGS_ITEMS, isSettingsItemActive, isSettingsSection } from '../lib/settingsNav'
 import toast from 'react-hot-toast'
 
 const navItems = [
@@ -26,22 +27,10 @@ const navItems = [
   { label: 'Produkter', icon: 'ti-package', to: '/produkter' },
 ]
 
-const settingsItems = [
-  { label: 'Företagsinställningar', to: '/installningar' },
-  { label: 'Användare & behörighet', to: '/installningar/team' },
-  { label: 'Kassa- och bankkonton', to: '/installningar/kassa-bankkonton' },
-  { label: 'Löneinställningar', to: '/installningar' },
-  { label: 'Räkenskapsår och IB', to: '/installningar/rakenskapsar' },
-  { label: 'Kontoplan', to: '/installningar/kontoplan' },
-  { label: 'Artikelkontering', to: '/installningar' },
-  { label: 'Bokföringsmallar', to: '/installningar' },
-  { label: 'Import och export', to: '/installningar/import-export' },
-]
-
 export default function Sidebar() {
   const { company, companies, switchCompany, createCompany, signOut, isAdmin } = useAuth()
   const location = useLocation()
-  const [settingsOpen, setSettingsOpen] = useState(location.pathname.startsWith('/installningar'))
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
   const [menuOpen, setMenuOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -103,7 +92,7 @@ export default function Sidebar() {
         <button
           onClick={() => setSettingsOpen(!settingsOpen)}
           className={`flex items-center gap-2.5 px-5 py-2 text-[13.5px] w-full transition-colors ${
-            settingsOpen ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+            settingsOpen ? 'text-gray-900 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
           }`}
         >
           <i className="ti ti-settings text-[17px] w-5 text-center" />
@@ -111,19 +100,21 @@ export default function Sidebar() {
           <i className={`ti ti-chevron-down text-sm ml-auto transition-transform ${settingsOpen ? 'rotate-180' : ''}`} />
         </button>
         <div className={`nav-submenu ${settingsOpen ? 'open' : ''}`}>
-          {settingsItems.map((item, i) => (
-            <NavLink
-              key={i}
-              to={item.to}
-              className={({ isActive }) =>
-                `block px-5 pl-12 py-1.5 text-[13px] transition-colors ${
-                  isActive ? 'text-blue-700 font-medium bg-blue-50' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          {SETTINGS_ITEMS.map((item, i) => {
+            const active = isSettingsItemActive(item, location.pathname)
+            return (
+              <Link
+                key={i}
+                to={item.to}
+                aria-current={active ? 'page' : undefined}
+                className={`block px-5 pl-12 py-1.5 text-[13px] transition-colors ${
+                  active ? 'text-blue-700 font-medium bg-blue-50' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
         </div>
       </nav>
 
