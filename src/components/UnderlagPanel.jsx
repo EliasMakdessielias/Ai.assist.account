@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
+import { useContainerSize, previewWidthPx, previewHeightPx } from '../lib/docPreview'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
@@ -15,6 +16,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [coupling, setCoupling] = useState(false)
   const [scale, setScale] = useState(1)
   const previewRef = useRef(null)
+  const { width: cw, height: ch } = useContainerSize(previewRef)
   const [w, setW] = useState(width)
   const fileRef = useRef()
 
@@ -193,10 +195,10 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
           <div className="h-full flex items-center justify-center text-gray-400">Hämtar förhandsvisning…</div>
         ) : isImage ? (
           <img src={url} alt={current.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
-            style={{ width: `${scale * 100}%`, maxWidth: 'none', height: 'auto', transition: 'width .12s' }} />
+            style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${scale * 100}%`, maxWidth: 'none', height: 'auto' }} />
         ) : isPdf ? (
           <iframe src={url} title={current.file_name} className="bg-white shadow block mx-auto"
-            style={{ width: `${100 * scale}%`, height: `${Math.max(100, 100 * scale)}%`, minHeight: '100%', border: 'none' }} />
+            style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${100 * scale}%`, height: previewHeightPx(ch, scale) ? `${previewHeightPx(ch, scale)}px` : `${Math.max(100, 100 * scale)}%`, minHeight: '100%', border: 'none' }} />
         ) : (
           <div className="h-full flex items-center justify-center">
             <div className="text-center text-gray-500">

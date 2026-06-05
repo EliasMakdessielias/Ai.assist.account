@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import { useContainerSize, previewWidthPx, previewHeightPx } from '../lib/docPreview'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -31,6 +32,8 @@ export default function VisaLeverantorsfaktura() {
   const [scale, setScale] = useState(1)
   const [rot, setRot] = useState(0)
   const [loading, setLoading] = useState(true)
+  const previewRef = useRef(null)
+  const { width: cw, height: ch } = useContainerSize(previewRef)
 
   useEffect(() => { load() }, [id])
 
@@ -205,7 +208,7 @@ export default function VisaLeverantorsfaktura() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto bg-gray-100 p-4">
+            <div ref={previewRef} className="flex-1 overflow-auto bg-gray-100 p-4">
               {docs.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center text-gray-400">
                   <div><i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />Inga kopplade bilder</div>
@@ -215,9 +218,9 @@ export default function VisaLeverantorsfaktura() {
               ) : isImg ? (
                 <img src={current.url} alt="" draggable={false}
                   className="block mx-auto shadow-lg bg-white select-none"
-                  style={{ width: `${scale * 100}%`, maxWidth: scale <= 1 ? '100%' : 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined, transition: 'width .12s' }} />
+                  style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${scale * 100}%`, maxWidth: 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined }} />
               ) : (
-                <iframe src={current.url} title="underlag" className="bg-white block mx-auto" style={{ width: `${scale * 100}%`, maxWidth: scale <= 1 ? '100%' : 'none', height: `${Math.max(70, 70 * scale)}vh`, border: 'none' }} />
+                <iframe src={current.url} title="underlag" className="bg-white block mx-auto" style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${scale * 100}%`, maxWidth: 'none', height: previewHeightPx(ch, scale) ? `${previewHeightPx(ch, scale)}px` : `${Math.max(70, 70 * scale)}vh`, border: 'none' }} />
               )}
             </div>
 

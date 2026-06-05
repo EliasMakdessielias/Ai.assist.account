@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { SUPPORTED_CURRENCIES } from '../lib/currency'
+import { useContainerSize, previewWidthPx, previewHeightPx } from '../lib/docPreview'
 import toast from 'react-hot-toast'
 
 const MOMSTYPER = ['25%', '12%', '6%', '0%', 'Unionsinternt förvärv', 'Omvänd skattskyldighet']
@@ -40,6 +41,7 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
   const [docMeta, setDocMeta] = useState(null)
   const [docScale, setDocScale] = useState(1)
   const previewRef = useRef(null)
+  const { width: cw, height: ch } = useContainerSize(previewRef)
   useEffect(() => {
     if (!docId) { setDocUrl(null); setDocMeta(null); return }
     let active = true
@@ -315,10 +317,10 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
           <div ref={previewRef} className="absolute inset-0 overflow-auto p-4">
           {docMeta?.mime_type?.startsWith('image/') ? (
             <img src={docUrl} alt={docMeta.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
-              style={{ width: `${docScale * 100}%`, maxWidth: 'none', height: 'auto', transition: 'width .12s' }} />
+              style={{ width: previewWidthPx(cw, docScale) ? `${previewWidthPx(cw, docScale)}px` : `${docScale * 100}%`, maxWidth: 'none', height: 'auto' }} />
           ) : docMeta?.mime_type === 'application/pdf' ? (
             <iframe src={docUrl} title={docMeta.file_name} className="bg-white shadow block mx-auto"
-              style={{ width: `${100 * docScale}%`, height: `${Math.max(100, 100 * docScale)}%`, minHeight: '100%', border: 'none' }} />
+              style={{ width: previewWidthPx(cw, docScale) ? `${previewWidthPx(cw, docScale)}px` : `${100 * docScale}%`, height: previewHeightPx(ch, docScale) ? `${previewHeightPx(ch, docScale)}px` : `${Math.max(100, 100 * docScale)}%`, minHeight: '100%', border: 'none' }} />
           ) : (
             <div className="h-full flex items-center justify-center text-center text-gray-500"><div><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div></div>
           )}
