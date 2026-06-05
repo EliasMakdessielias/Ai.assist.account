@@ -11,9 +11,9 @@ describe('brand-konfiguration', () => {
     // inte "Bok Pilot" med mellanslag eller "Bokpilot" med litet p
     expect(BRAND.appName).not.toMatch(/Bok Pilot|Bokpilot/)
   })
-  it('företagsnamnet (bolaget) är "REDOFLOW AB"', () => {
-    expect(BRAND.companyName).toBe('REDOFLOW AB')
-    expect(COMPANY_NAME).toBe('REDOFLOW AB')
+  it('företagsnamnet (bolaget) är "BokPilot AB"', () => {
+    expect(BRAND.companyName).toBe('BokPilot AB')
+    expect(COMPANY_NAME).toBe('BokPilot AB')
   })
   it('underrubriken är "Bokföring & ekonomi"', () => {
     expect(BRAND.tagline).toBe('Bokföring & ekonomi')
@@ -25,7 +25,7 @@ describe('brand-konfiguration', () => {
 })
 
 // Regressionsskydd: gamla produktnamn får inte finnas kvar i UI/exporter.
-// (Företagsnamnet "REDOFLOW AB" är tillåtet – men det förekommer inte i dessa filer.)
+// (Företagsnamnet "BokPilot AB" är tillåtet – men det förekommer inte i dessa filer.)
 describe('inga gamla produktnamn kvar', () => {
   const files = ['index.html', 'src/components/Sidebar.jsx', 'src/pages/Login.jsx', 'src/pages/Sie.jsx']
   for (const f of files) {
