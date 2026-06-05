@@ -1,18 +1,18 @@
-// Inbound-email webhook för BokPilot (bpilot.se).
+// Inbound-email webhook för BokPilot (bokpilot.se).
 //
-// Tar emot inkommande e-post (rekommenderat relä: Cloudflare Email Worker, se
-// docs/inbound-email.md), identifierar företaget via arkivnumret i mottagar-
-// adressen ({archiveNumber}.underlag@bpilot.se), lagrar varje bilaga och skapar
-// EN inkorgspost per bilaga i `documents` med automatisk klassificering. ENDAST
-// inbound – inga utgående funktioner.
+// Tar emot inkommande e-post och identifierar företaget via arkivnumret i
+// mottagaradressen ({archiveNumber}underlag@bokpilot.se), lagrar varje bilaga och
+// skapar EN inkorgspost per bilaga i `documents` med automatisk klassificering.
+// ENDAST inbound – inga utgående funktioner.
 //
-// Deploy (HMAC-autentisering, ej JWT):
-//   supabase functions deploy inbound-email --no-verify-jwt --project-ref bypebgvxdmbzxqecllao
-// Secrets: INBOUND_WEBHOOK_SECRET (+ SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY auto).
+// Autentisering (en av):
+//   1) ?token=<secret>  – inbound-provider (Postmark Inbound) som postar JSON.
+//   2) X-Bokpilot-Signature: sha256=<hmac(rawBody, secret)> – egen Cloudflare-worker.
+// Secret: INBOUND_EMAIL_WEBHOOK_SECRET (+ SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY auto).
+// Deploy: verify_jwt=false (webhooken autentiseras ovan, inte via JWT).
 //
-// Webhook-kontrakt (POST JSON):
-//   Header  X-Bokpilot-Signature: sha256=<hex(hmacSHA256(rawBody, secret))>
-//   Body    { to, from, subject, text, attachments:[{filename, contentType, contentBase64, size}] }
+// Stödjer Postmark Inbound-payload (From/To/Subject/TextBody/Attachments) och ett
+// eget JSON-format { to, from, subject, text, attachments:[{filename,contentType,contentBase64,size}] }.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -118,30 +118,55 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
   const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const SECRET = Deno.env.get('INBOUND_WEBHOOK_SECRET') || ''
+  const SECRET = Deno.env.get('INBOUND_EMAIL_WEBHOOK_SECRET') || Deno.env.get('INBOUND_WEBHOOK_SECRET') || ''
   const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+  if (!SECRET) return json({ error: 'server_misconfigured' }, 500)
 
-  // 1) Verifiera HMAC-signatur över rå body.
+  // 1) Autentisering: HMAC-signatur (egen Cloudflare-worker) ELLER ?token=<secret>
+  //    (inbound-provider, t.ex. Postmark, som inte HMAC-signerar).
   const raw = await req.text()
-  const provided = (req.headers.get('X-Bokpilot-Signature') || '').replace(/^sha256=/, '').trim().toLowerCase()
-  if (!SECRET || !provided) return json({ error: 'missing_signature' }, 401)
-  if (!timingSafeEqual(provided, await hmacSha256Hex(SECRET, raw))) return json({ error: 'invalid_signature' }, 401)
+  const url = new URL(req.url)
+  const token = (url.searchParams.get('token') || req.headers.get('X-Webhook-Token') || '').trim()
+  const sig = (req.headers.get('X-Bokpilot-Signature') || '').replace(/^sha256=/, '').trim().toLowerCase()
+  let authed = false
+  if (sig) authed = timingSafeEqual(sig, await hmacSha256Hex(SECRET, raw))
+  else if (token) authed = timingSafeEqual(token, SECRET)
+  if (!authed) return json({ error: 'unauthorized' }, 401)
 
   let payload: any
   try { payload = JSON.parse(raw) } catch { return json({ error: 'invalid_json' }, 400) }
 
-  const recipient = String(payload.to || '')
-  const sender = extractEmail(String(payload.from || ''))
-  const subject = (payload.subject || '').toString().slice(0, 500)
-  const bodyText = (payload.text || '').toString().slice(0, 100000)
-  const attachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : []
+  // 2) Normalisera payload – stöd både eget JSON-format och Postmark Inbound.
+  const isPostmark = Array.isArray(payload.Attachments) || payload.FromFull || payload.ToFull
+  let sender: string, subject: string, bodyText: string, attachments: any[], recipientCandidates: string[]
+  if (isPostmark) {
+    sender = extractEmail(payload.From || payload.FromFull?.Email || '')
+    subject = (payload.Subject || '').toString().slice(0, 500)
+    bodyText = (payload.TextBody || '').toString().slice(0, 100000)
+    attachments = (payload.Attachments || []).map((a: any) => ({ filename: a.Name, contentType: a.ContentType, contentBase64: a.Content, size: a.ContentLength }))
+    // Vid Hostinger-forward ligger originaladressen kvar i To/headers.
+    recipientCandidates = [
+      ...(Array.isArray(payload.ToFull) ? payload.ToFull.map((t: any) => t.Email) : []),
+      payload.To, payload.OriginalRecipient,
+      ...(Array.isArray(payload.CcFull) ? payload.CcFull.map((t: any) => t.Email) : []),
+    ].filter(Boolean).map(String)
+  } else {
+    sender = extractEmail(String(payload.from || ''))
+    subject = (payload.subject || '').toString().slice(0, 500)
+    bodyText = (payload.text || '').toString().slice(0, 100000)
+    attachments = Array.isArray(payload.attachments) ? payload.attachments : []
+    recipientCandidates = [payload.to].filter(Boolean).map(String)
+  }
   const now = new Date().toISOString()
+
+  // 3) Hitta den mottagaradress som matchar {nr}underlag@bokpilot.se.
+  let parsed: { archiveNumber: string; email: string } | null = null
+  let recipient = recipientCandidates[0] || ''
+  for (const cand of recipientCandidates) { const p = parseRecipient(cand); if (p) { parsed = p; recipient = cand; break } }
 
   const log = (company_id: string | null, status: string, detail: string, n = 0) =>
     admin.from('inbound_email_log').insert({ company_id, recipient: extractEmail(recipient), sender, subject, status, detail, attachment_count: n })
 
-  // 2) Tolka mottagaradress + slå upp aktivt företag (okänt arkivnummer nekas).
-  const parsed = parseRecipient(recipient)
   if (!parsed) { await log(null, 'rejected', 'okand_eller_ogiltig_mottagaradress'); return json({ status: 'rejected', reason: 'unknown_recipient' }) }
   const { data: inbox } = await admin.from('inbox_addresses')
     .select('company_id, is_active').eq('email_address', parsed.email).maybeSingle()
