@@ -12,8 +12,10 @@ Storage, Edge Functions). AI via Google Gemini (2.5-flash-lite) i edge functions
 
 - Repo: https://github.com/EliasMakdessielias/Ai.assist.account
 - Kanonisk publik URL (mål): **https://bokpilot.se**. Auto-deploy från GitHub `main` (~20 s) till Vercel.
-  - OBS (2026-06-05): `bokpilot.se` pekar ännu INTE på Vercel — roten visar en "Default page" via Cloudflare och `/login` ger 404. Domänen måste läggas till på Vercel-projektet + DNS (A/CNAME) ställas om innan appen svarar där.
-  - Vercel-projektets interna domän är `*.vercel.app` (deploy-plattform). Gamla `bocker-app.vercel.app` används inte längre.
+  - Fungerar live nu: **https://bokpilot-app.vercel.app** (Vercel-projektet omdöpt `bocker-app`→`bokpilot-app`).
+  - Gamla **bocker-app.vercel.app** ligger kvar på projektet men **308-redirectar** till `bokpilot-app.vercel.app` (pensionerad).
+  - **bokpilot.se / www.bokpilot.se** är tillagda + ägar-verifierade på Vercel, MEN DNS pekar fortfarande på Cloudflare-parkering (`misconfigured`). KVARSTÅR (kräver Cloudflare-DNS-åtkomst): sätt apex `A @ 216.198.79.1` + `A @ 64.29.17.1` (och `www` likadant), **DNS only / grå moln**. Då blir bokpilot.se live; ev. flytta 308-redirecten dit sen.
+  - Supabase Auth uppdaterad: Site URL `https://bokpilot.se`; redirect-allowlist `https://bokpilot.se/**, https://www.bokpilot.se/**, https://bokpilot-app.vercel.app/**, http://localhost:5173/**`.
 - Supabase project ref: `bypebgvxdmbzxqecllao`
 
 ## Arbetssätt / konventioner
