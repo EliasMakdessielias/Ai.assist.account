@@ -20,6 +20,9 @@ describe('Inställningar – aktiv undermeny', () => {
   it('på /installningar/artikelkontering är ENDAST Artikelkontering aktiv', () => {
     expect(activeSettingsLabels('/installningar/artikelkontering')).toEqual(['Artikelkontering'])
   })
+  it('på /installningar/bokforingsmallar är ENDAST Bokföringsmallar aktiv', () => {
+    expect(activeSettingsLabels('/installningar/bokforingsmallar')).toEqual(['Bokföringsmallar'])
+  })
   it('aldrig flera aktiva samtidigt på en inställningssida', () => {
     for (const p of ['/installningar', '/installningar/kontoplan', '/installningar/kontoplan/9999', '/installningar/team', '/installningar/kassa-bankkonton', '/installningar/rakenskapsar', '/installningar/import-export']) {
       expect(activeSettingsLabels(p).length).toBeLessThanOrEqual(1)
