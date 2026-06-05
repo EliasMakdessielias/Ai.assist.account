@@ -29,10 +29,10 @@ describe('arkivnummer', () => {
 })
 
 describe('en enda mottagningsadress', () => {
-  it('bygger {archiveNumber}.ulag@arkiv.bokpilot.se', () => {
-    expect(buildInboxAddress(8063151)).toBe('8063151.ulag@arkiv.bokpilot.se')
-    expect(INBOX_DOMAIN).toBe('arkiv.bokpilot.se')
-    expect(INBOX_LOCAL).toBe('ulag')
+  it('bygger {archiveNumber}underlag@bokpilot.se', () => {
+    expect(buildInboxAddress(8063151)).toBe('8063151underlag@bokpilot.se')
+    expect(INBOX_DOMAIN).toBe('bokpilot.se')
+    expect(INBOX_LOCAL).toBe('underlag')
   })
   it('ogiltigt arkivnummer -> null', () => {
     expect(buildInboxAddress(123)).toBeNull()
@@ -42,28 +42,28 @@ describe('en enda mottagningsadress', () => {
 
 describe('extractEmail', () => {
   it('plockar adress ur namn+vinkelparenteser, normaliserar gemener', () => {
-    expect(extractEmail('"BokPilot" <8063151.ULAG@Arkiv.BokPilot.se>')).toBe('8063151.ulag@arkiv.bokpilot.se')
+    expect(extractEmail('"BokPilot" <8063151UNDERLAG@BokPilot.se>')).toBe('8063151underlag@bokpilot.se')
   })
 })
 
 describe('parseInboxRecipient', () => {
   it('tolkar giltig adress -> archiveNumber', () => {
-    expect(parseInboxRecipient('8063151.ulag@arkiv.bokpilot.se')).toEqual({
-      archiveNumber: '8063151', email_address: '8063151.ulag@arkiv.bokpilot.se',
+    expect(parseInboxRecipient('8063151underlag@bokpilot.se')).toEqual({
+      archiveNumber: '8063151', email_address: '8063151underlag@bokpilot.se',
     })
-    expect(parseInboxRecipient('<7564841.ulag@arkiv.bokpilot.se>')?.archiveNumber).toBe('7564841')
+    expect(parseInboxRecipient('<7564841underlag@bokpilot.se>')?.archiveNumber).toBe('7564841')
   })
   it('okänd domän -> null', () => {
-    expect(parseInboxRecipient('8063151.ulag@example.com')).toBeNull()
-    expect(parseInboxRecipient('8063151.ulag@bokpilot.se')).toBeNull()   // apex (Hostinger), ej giltig
-    expect(parseInboxRecipient('8063151.ulag@ark.bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('8063151underlag@example.com')).toBeNull()
+    expect(parseInboxRecipient('8063151underlag@arkiv.bokpilot.se')).toBeNull()
   })
   it('fel local-part eller arkivnummer -> null (säkerhet: nekas)', () => {
-    expect(parseInboxRecipient('8063151.underlag@arkiv.bokpilot.se')).toBeNull()
-    expect(parseInboxRecipient('8063151.kv@arkiv.bokpilot.se')).toBeNull()
-    expect(parseInboxRecipient('ulag@arkiv.bokpilot.se')).toBeNull()
-    expect(parseInboxRecipient('0063151.ulag@arkiv.bokpilot.se')).toBeNull() // börjar med 0
-    expect(parseInboxRecipient('123.ulag@arkiv.bokpilot.se')).toBeNull()     // för kort
+    expect(parseInboxRecipient('8063151.underlag@bokpilot.se')).toBeNull()   // punkt finns ej i formatet
+    expect(parseInboxRecipient('8063151kvitto@bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('underlag@bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('admin@bokpilot.se')).toBeNull()              // befintlig Hostinger-adress nekas
+    expect(parseInboxRecipient('0063151underlag@bokpilot.se')).toBeNull()    // börjar med 0
+    expect(parseInboxRecipient('123underlag@bokpilot.se')).toBeNull()        // för kort
   })
 })
 

@@ -5,8 +5,8 @@
 // Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 // Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 
-export const INBOX_DOMAIN = 'arkiv.bokpilot.se'
-export const INBOX_LOCAL = 'ulag'
+export const INBOX_DOMAIN = 'bokpilot.se'
+export const INBOX_LOCAL = 'underlag'
 
 // Klassificeringskategorier (detekterad typ) + UI-etikett + ikon (Inkorg-flikar).
 export const INBOX_CATEGORIES = [
@@ -36,9 +36,10 @@ export function generateArchiveNumber(rand = Math.random) {
 }
 
 // Bygg företagets enda mottagningsadress av arkivnummer.
+// Format: {archiveNumber}underlag@bokpilot.se  (kort, utan punkt).
 export function buildInboxAddress(archiveNumber) {
   if (!isValidArchiveNumber(archiveNumber)) return null
-  return `${archiveNumber}.${INBOX_LOCAL}@${INBOX_DOMAIN}`
+  return `${archiveNumber}${INBOX_LOCAL}@${INBOX_DOMAIN}`
 }
 
 // Plocka ut ren e-postadress ur t.ex. `"Namn" <a@b.se>` eller `<a@b.se>`.
@@ -49,11 +50,11 @@ export function extractEmail(raw) {
 }
 
 // Tolka en mottagaradress -> { archiveNumber, email_address } eller null.
-// Validerar domän, 7-siffrigt arkivnummer (1-9 först) och local-part "underlag".
-// Okänd domän/format nekas (säkerhet).
+// Verifierar att adressen slutar med "underlag@bokpilot.se" och plockar ut det
+// 7-siffriga arkivnumret (1-9 först). Okänd domän/format nekas (säkerhet).
 export function parseInboxRecipient(raw) {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.ulag@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})underlag@(.+)$/)
   if (!m) return null
   const [, archiveNumber, domain] = m
   if (domain !== INBOX_DOMAIN) return null
