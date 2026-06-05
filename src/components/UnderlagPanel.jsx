@@ -149,10 +149,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
       <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0 gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight truncate">{title}</span>
         <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
-          <button title="Zooma ut" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-out" /></button>
-          <button title="Återställ till 100%" className="text-xs w-10 text-center tabular-nums hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(1)} disabled={!current}>{Math.round(scale * 100)}%</button>
-          <button title="Zooma in" className="hover:text-gray-900 disabled:opacity-30" onClick={() => setScale(s => Math.min(4, +(s + 0.2).toFixed(2)))} disabled={!current}><i className="ti ti-zoom-in" /></button>
-          <span className="text-sm border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>{docs.length ? `${idx + 1} (${docs.length})` : '0 (0)'}</span>
+          <span className="text-sm">{docs.length ? `${idx + 1} (${docs.length})` : '0 (0)'}</span>
           {onClose && <button title="Stäng" className="hover:text-gray-900 text-lg" onClick={onClose}><i className="ti ti-x" /></button>}
         </div>
       </div>
@@ -169,6 +166,14 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
           </a>
         )}
         <input ref={fileRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleUpload} />
+        {current && (
+          <div className="ml-auto flex items-center gap-2 text-gray-500 shrink-0">
+            <i className="ti ti-zoom-in text-gray-400 text-sm" />
+            <input type="range" min="0.5" max="3" step="0.1" value={scale} aria-label="Zoom" title="Justera storlek på underlaget"
+              className="w-24 accent-blue-600 cursor-pointer" onChange={e => setScale(parseFloat(e.target.value))} />
+            <button className="text-xs tabular-nums w-9 text-right hover:text-gray-900" title="Återställ till 100%" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
+          </div>
+        )}
       </div>
 
       {/* Förhandsvisning */}

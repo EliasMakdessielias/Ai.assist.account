@@ -304,9 +304,10 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
         <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           <span className="text-[15px] font-bold tracking-tight truncate">FAKTURAUNDERLAG</span>
           <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
-            <button title="Zooma ut" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-zoom-out" /></button>
-            <button title="Återställ till 100%" className="text-xs w-10 text-center tabular-nums hover:text-gray-900" onClick={() => setDocScale(1)}>{Math.round(docScale * 100)}%</button>
-            <button title="Zooma in" className="hover:text-gray-900" onClick={() => setDocScale(s => Math.min(4, +(s + 0.2).toFixed(2)))}><i className="ti ti-zoom-in" /></button>
+            <i className="ti ti-zoom-in text-gray-400 text-sm" />
+            <input type="range" min="0.5" max="3" step="0.1" value={docScale} aria-label="Zoom" title="Justera storlek på underlaget"
+              className="w-24 accent-blue-600 cursor-pointer" onChange={e => setDocScale(parseFloat(e.target.value))} />
+            <button title="Återställ till 100%" className="text-xs tabular-nums w-9 text-right hover:text-gray-900" onClick={() => setDocScale(1)}>{Math.round(docScale * 100)}%</button>
             <a title="Öppna i ny flik" className="hover:text-gray-900 border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }} href={docUrl} target="_blank" rel="noreferrer"><i className="ti ti-external-link" /></a>
           </div>
         </div>
