@@ -6,37 +6,46 @@
 
 export const INBOX_DOMAIN = 'arkiv.bokpilot.se'
 
-// Typ -> etikett (UI) + kategori i documents-tabellen (inkorgsflödet).
+// Typ -> kort suffix i adressen + etikett (UI) + kategori i documents-tabellen.
+// Suffixen är medvetet korta (kvi/lev/dok/avt) och prefixet är företagets
+// SLUMPMÄSSIGA arkivnummer (avslöjar inte antal kunder).
 export const INBOX_TYPES = [
-  { type: 'kvitto', label: 'Kvitton', kategori: 'kvitto' },
-  { type: 'leverantorsfaktura', label: 'Leverantörsfakturor', kategori: 'leverantorsfaktura' },
-  { type: 'dokument', label: 'Dokument', kategori: 'dokument' },
-  { type: 'avtal', label: 'Avtal', kategori: 'avtal' },
+  { type: 'kvitto', suffix: 'kvi', label: 'Kvitton', kategori: 'kvitto' },
+  { type: 'leverantorsfaktura', suffix: 'lev', label: 'Leverantörsfakturor', kategori: 'leverantorsfaktura' },
+  { type: 'dokument', suffix: 'dok', label: 'Dokument', kategori: 'dokument' },
+  { type: 'avtal', suffix: 'avt', label: 'Avtal', kategori: 'avtal' },
 ]
 export const INBOX_TYPE_KEYS = INBOX_TYPES.map(t => t.type)
+export const INBOX_SUFFIXES = INBOX_TYPES.map(t => t.suffix)
+const TYPE_BY_SUFFIX = Object.fromEntries(INBOX_TYPES.map(t => [t.suffix, t]))
+const SUFFIX_BY_TYPE = Object.fromEntries(INBOX_TYPES.map(t => [t.type, t.suffix]))
 
-// Nollutfyllt företagsnummer, t.ex. 1 -> "0000001".
-export function companyNumberToPrefix(n, width = 7) {
-  if (n === null || n === undefined || n === '') return null
+// Arkivnummer: 7 siffror, 1000000-9999999 (börjar aldrig med 0).
+export const ARCHIVE_MIN = 1000000
+export const ARCHIVE_MAX = 9999999
+
+export function isValidArchiveNumber(n) {
   const num = Number(n)
-  if (!Number.isFinite(num) || num < 1) return null
-  return String(Math.floor(num)).padStart(width, '0')
+  return Number.isInteger(num) && num >= ARCHIVE_MIN && num <= ARCHIVE_MAX
 }
 
-// Bygg en adress av prefix (eller nummer) + typ.
-export function buildInboxAddress(prefixOrNumber, type) {
-  const prefix = /^\d+$/.test(String(prefixOrNumber))
-    ? companyNumberToPrefix(prefixOrNumber)
-    : String(prefixOrNumber)
-  if (!prefix || !INBOX_TYPE_KEYS.includes(type)) return null
-  return `${prefix}.${type}@${INBOX_DOMAIN}`
+// Klientsidig generator (databasen är auktoritativ + gör unik-kontroll).
+export function generateArchiveNumber(rand = Math.random) {
+  return ARCHIVE_MIN + Math.floor(rand() * (ARCHIVE_MAX - ARCHIVE_MIN + 1))
 }
 
-// De fyra adresserna för ett företagsnummer.
-export function buildInboxAddresses(companyNumber) {
-  const prefix = companyNumberToPrefix(companyNumber)
-  if (!prefix) return []
-  return INBOX_TYPES.map(t => ({ ...t, email_address: `${prefix}.${t.type}@${INBOX_DOMAIN}` }))
+// Bygg en adress av arkivnummer + typ.
+export function buildInboxAddress(archiveNumber, type) {
+  if (!isValidArchiveNumber(archiveNumber)) return null
+  const sfx = SUFFIX_BY_TYPE[type]
+  if (!sfx) return null
+  return `${archiveNumber}.${sfx}@${INBOX_DOMAIN}`
+}
+
+// De fyra adresserna för ett arkivnummer.
+export function buildInboxAddresses(archiveNumber) {
+  if (!isValidArchiveNumber(archiveNumber)) return []
+  return INBOX_TYPES.map(t => ({ ...t, email_address: `${archiveNumber}.${t.suffix}@${INBOX_DOMAIN}` }))
 }
 
 // Plocka ut ren e-postadress ur t.ex. `"Namn" <a@b.se>` eller `<a@b.se>`.
@@ -46,17 +55,18 @@ export function extractEmail(raw) {
   return (m ? m[1] : String(raw)).trim().toLowerCase()
 }
 
-// Tolka en mottagaradress -> { prefix, type, kategori } eller null om okänd/ogiltig.
-// Validerar domän OCH att typen är en av de tillåtna (säkerhet: okända nekas).
+// Tolka en mottagaradress -> { archiveNumber, suffix, type, kategori } eller null.
+// Validerar domän, 7-siffrigt arkivnummer (1-9 först) OCH giltigt suffix
+// (kvi/lev/dok/avt). Okänd domän/suffix nekas (säkerhet).
 export function parseInboxRecipient(raw) {
   const addr = extractEmail(raw)
-  const m = addr.match(/^(\d{1,12})\.([a-z]+)@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.([a-z]{3})@(.+)$/)
   if (!m) return null
-  const [, prefix, type, domain] = m
+  const [, archiveNumber, suffix, domain] = m
   if (domain !== INBOX_DOMAIN) return null
-  if (!INBOX_TYPE_KEYS.includes(type)) return null
-  const def = INBOX_TYPES.find(t => t.type === type)
-  return { prefix, type, kategori: def.kategori, email_address: addr }
+  const def = TYPE_BY_SUFFIX[suffix]
+  if (!def) return null
+  return { archiveNumber, suffix, type: def.type, kategori: def.kategori, email_address: addr }
 }
 
 // ---- Bilage-validering (säkerhet) ----

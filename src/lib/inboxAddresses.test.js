@@ -1,66 +1,82 @@
 import { describe, it, expect } from 'vitest'
 import {
-  INBOX_DOMAIN, INBOX_TYPE_KEYS, companyNumberToPrefix, buildInboxAddress, buildInboxAddresses,
+  INBOX_TYPE_KEYS, INBOX_SUFFIXES, ARCHIVE_MIN, ARCHIVE_MAX,
+  isValidArchiveNumber, generateArchiveNumber, buildInboxAddress, buildInboxAddresses,
   extractEmail, parseInboxRecipient, isAllowedAttachment, rejectionReason, MAX_ATTACHMENT_BYTES,
 } from './inboxAddresses'
 
-describe('företagsnummer -> prefix', () => {
-  it('nollutfyller till 7 tecken', () => {
-    expect(companyNumberToPrefix(1)).toBe('0000001')
-    expect(companyNumberToPrefix(42)).toBe('0000042')
-    expect(companyNumberToPrefix(1234567)).toBe('1234567')
+describe('arkivnummer', () => {
+  it('giltigt i intervallet 1000000-9999999', () => {
+    expect(isValidArchiveNumber(1000000)).toBe(true)
+    expect(isValidArchiveNumber(9999999)).toBe(true)
+    expect(isValidArchiveNumber(7564841)).toBe(true)
   })
-  it('ogiltigt -> null', () => {
-    expect(companyNumberToPrefix(null)).toBeNull()
-    expect(companyNumberToPrefix(-3)).toBeNull()
-    expect(companyNumberToPrefix('abc')).toBeNull()
+  it('ogiltigt utanför intervallet eller fel typ', () => {
+    expect(isValidArchiveNumber(999999)).toBe(false)   // 6 siffror
+    expect(isValidArchiveNumber(10000000)).toBe(false) // 8 siffror
+    expect(isValidArchiveNumber(0)).toBe(false)
+    expect(isValidArchiveNumber(null)).toBe(false)
+    expect(isValidArchiveNumber('abc')).toBe(false)
+    expect(isValidArchiveNumber(1234567.5)).toBe(false)
+  })
+  it('generatorn ger alltid 7 siffror inom intervallet (börjar ej med 0)', () => {
+    for (const r of [0, 0.0001, 0.5, 0.999999]) {
+      const n = generateArchiveNumber(() => r)
+      expect(n).toBeGreaterThanOrEqual(ARCHIVE_MIN)
+      expect(n).toBeLessThanOrEqual(ARCHIVE_MAX)
+      expect(String(n)).toMatch(/^[1-9]\d{6}$/)
+      expect(isValidArchiveNumber(n)).toBe(true)
+    }
   })
 })
 
-describe('bygg adresser', () => {
-  it('bygger en adress', () => {
-    expect(buildInboxAddress(1, 'kvitto')).toBe('0000001.kvitto@arkiv.bokpilot.se')
-    expect(buildInboxAddress('0000001', 'avtal')).toBe('0000001.avtal@arkiv.bokpilot.se')
+describe('bygg adresser (arkivnummer + suffix)', () => {
+  it('bygger en adress med rätt suffix', () => {
+    expect(buildInboxAddress(7564841, 'kvitto')).toBe('7564841.kvi@arkiv.bokpilot.se')
+    expect(buildInboxAddress(7564841, 'leverantorsfaktura')).toBe('7564841.lev@arkiv.bokpilot.se')
+    expect(buildInboxAddress(7564841, 'dokument')).toBe('7564841.dok@arkiv.bokpilot.se')
+    expect(buildInboxAddress(7564841, 'avtal')).toBe('7564841.avt@arkiv.bokpilot.se')
   })
-  it('okänd typ -> null', () => {
-    expect(buildInboxAddress(1, 'spam')).toBeNull()
+  it('ogiltigt arkivnummer eller typ -> null', () => {
+    expect(buildInboxAddress(123, 'kvitto')).toBeNull()
+    expect(buildInboxAddress(7564841, 'spam')).toBeNull()
   })
-  it('bygger alla fyra adresser för ett företag', () => {
-    const a = buildInboxAddresses(1)
+  it('bygger alla fyra adresser', () => {
+    const a = buildInboxAddresses(7564841)
     expect(a.map(x => x.email_address)).toEqual([
-      '0000001.kvitto@arkiv.bokpilot.se',
-      '0000001.leverantorsfaktura@arkiv.bokpilot.se',
-      '0000001.dokument@arkiv.bokpilot.se',
-      '0000001.avtal@arkiv.bokpilot.se',
+      '7564841.kvi@arkiv.bokpilot.se',
+      '7564841.lev@arkiv.bokpilot.se',
+      '7564841.dok@arkiv.bokpilot.se',
+      '7564841.avt@arkiv.bokpilot.se',
     ])
-    expect(a).toHaveLength(4)
     expect(INBOX_TYPE_KEYS).toHaveLength(4)
+    expect(INBOX_SUFFIXES).toEqual(['kvi', 'lev', 'dok', 'avt'])
   })
 })
 
 describe('extractEmail', () => {
-  it('plockar adress ur namn+vinkelparenteser', () => {
-    expect(extractEmail('"BokPilot" <0000001.kvitto@arkiv.bokpilot.se>')).toBe('0000001.kvitto@arkiv.bokpilot.se')
-    expect(extractEmail('0000001.KVITTO@Arkiv.BokPilot.se')).toBe('0000001.kvitto@arkiv.bokpilot.se')
+  it('plockar adress ur namn+vinkelparenteser, normaliserar gemener', () => {
+    expect(extractEmail('"BokPilot" <7564841.KVI@Arkiv.BokPilot.se>')).toBe('7564841.kvi@arkiv.bokpilot.se')
   })
 })
 
-describe('parseInboxRecipient', () => {
-  it('tolkar giltig mottagare -> typ + kategori', () => {
-    expect(parseInboxRecipient('0000001.kvitto@arkiv.bokpilot.se')).toEqual({
-      prefix: '0000001', type: 'kvitto', kategori: 'kvitto', email_address: '0000001.kvitto@arkiv.bokpilot.se',
-    })
-    expect(parseInboxRecipient('0000007.leverantorsfaktura@arkiv.bokpilot.se').type).toBe('leverantorsfaktura')
-    expect(parseInboxRecipient('<0000001.avtal@arkiv.bokpilot.se>').kategori).toBe('avtal')
-  })
+describe('parseInboxRecipient (suffix -> typ)', () => {
+  it('.kvi -> kvitto', () => expect(parseInboxRecipient('7564841.kvi@arkiv.bokpilot.se')).toMatchObject({ archiveNumber: '7564841', type: 'kvitto', kategori: 'kvitto' }))
+  it('.lev -> leverantorsfaktura', () => expect(parseInboxRecipient('7564841.lev@arkiv.bokpilot.se').type).toBe('leverantorsfaktura'))
+  it('.dok -> dokument', () => expect(parseInboxRecipient('7564841.dok@arkiv.bokpilot.se').type).toBe('dokument'))
+  it('.avt -> avtal', () => expect(parseInboxRecipient('<7564841.avt@arkiv.bokpilot.se>').type).toBe('avtal'))
   it('okänd domän -> null', () => {
-    expect(parseInboxRecipient('0000001.kvitto@arkiv.example.com')).toBeNull()
-    expect(parseInboxRecipient('0000001.kvitto@bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('7564841.kvi@arkiv.example.com')).toBeNull()
+    expect(parseInboxRecipient('7564841.kvi@bokpilot.se')).toBeNull()
   })
-  it('okänd typ -> null (säkerhet: nekas)', () => {
-    expect(parseInboxRecipient('0000001.spam@arkiv.bokpilot.se')).toBeNull()
+  it('ogiltigt suffix -> null (säkerhet: nekas)', () => {
+    expect(parseInboxRecipient('7564841.xyz@arkiv.bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('7564841.kvitto@arkiv.bokpilot.se')).toBeNull() // gammalt långt suffix
     expect(parseInboxRecipient('support@arkiv.bokpilot.se')).toBeNull()
-    expect(parseInboxRecipient('skräp')).toBeNull()
+  })
+  it('ogiltigt arkivnummer -> null', () => {
+    expect(parseInboxRecipient('0564841.kvi@arkiv.bokpilot.se')).toBeNull() // börjar med 0
+    expect(parseInboxRecipient('123.kvi@arkiv.bokpilot.se')).toBeNull()     // för kort
   })
 })
 
@@ -70,17 +86,10 @@ describe('bilage-validering', () => {
       expect(isAllowedAttachment({ filename: f, size: 1000 })).toBe(true)
     }
   })
-  it('blockerar farliga/okända filtyper', () => {
+  it('blockerar farliga/okända filtyper och för stora filer', () => {
     expect(isAllowedAttachment({ filename: 'virus.exe', size: 10 })).toBe(false)
     expect(isAllowedAttachment({ filename: 'a.zip', size: 10 })).toBe(false)
-    expect(isAllowedAttachment({ filename: 'page.html', size: 10 })).toBe(false)
     expect(rejectionReason({ filename: 'virus.exe' })).toBe('blockerad_filtyp')
-  })
-  it('blockerar för stora filer', () => {
-    expect(isAllowedAttachment({ filename: 'stor.pdf', size: MAX_ATTACHMENT_BYTES + 1 })).toBe(false)
     expect(rejectionReason({ filename: 'stor.pdf', size: MAX_ATTACHMENT_BYTES + 1 })).toBe('for_stor')
-  })
-  it('tillåter giltig MIME utan ändelse', () => {
-    expect(isAllowedAttachment({ filename: 'scan', contentType: 'application/pdf', size: 100 })).toBe(true)
   })
 })

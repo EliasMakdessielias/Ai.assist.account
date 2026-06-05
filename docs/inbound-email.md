@@ -1,15 +1,18 @@
 # Inbound-mottagningsadresser (arkiv.bokpilot.se)
 
-Varje företag får automatiskt fyra **endast-inbound** adresser:
+Varje företag får automatiskt fyra **endast-inbound** adresser (exempel för
+arkivnummer `7564841`):
 
 ```
-{0000001}.kvitto@arkiv.bokpilot.se
-{0000001}.leverantorsfaktura@arkiv.bokpilot.se
-{0000001}.dokument@arkiv.bokpilot.se
-{0000001}.avtal@arkiv.bokpilot.se
+7564841.kvi@arkiv.bokpilot.se   (kvitto)
+7564841.lev@arkiv.bokpilot.se   (leverantörsfaktura)
+7564841.dok@arkiv.bokpilot.se   (dokument)
+7564841.avt@arkiv.bokpilot.se   (avtal)
 ```
 
-Prefixet är företagets `company_number` (nollutfyllt till 7 siffror). Adresserna
+Prefixet är företagets **`archive_number`** – ett SLUMPMÄSSIGT, unikt och permanent
+7-siffrigt nummer (1000000–9999999) som sätts när företaget skapas och aldrig
+ändras (avslöjar inte antal kunder, till skillnad från ett löpnummer). Adresserna
 har **ingen brevlåda, inget lösenord och ingen utgående post** – de finns bara
 som routing-mål för inkommande e-post.
 
@@ -117,12 +120,15 @@ Funktionen (`supabase/functions/inbound-email/index.ts`):
 
 ## 4. Inkorgs-flöde per typ
 
-| Adress-typ | `documents.kategori` | Flöde i appen |
+| Suffix | `documents.kategori` | Flöde i appen |
 |---|---|---|
-| kvitto | `kvitto` | Inkorg → Kvitton, kan AI-tolkas |
-| leverantorsfaktura | `leverantorsfaktura` | Inkorg → Leverantörsfakturor, kan skickas till OCR/AI-tolkning |
-| dokument | `dokument` | Inkorg → Dokument (sparas som dokumentunderlag, ej faktura) |
-| avtal | `avtal` | Inkorg → Avtal (dokumentunderlag) |
+| `.kvi` | `kvitto` | Inkorg → Kvitton, kan AI-tolkas |
+| `.lev` | `leverantorsfaktura` | Inkorg → Leverantörsfakturor, kan skickas till OCR/AI-tolkning |
+| `.dok` | `dokument` | Inkorg → Dokument (sparas som dokumentunderlag, ej faktura) |
+| `.avt` | `avtal` | Inkorg → Avtal (dokumentunderlag) |
+
+Okänt arkivnummer eller suffix som inte är `kvi/lev/dok/avt` → loggas som
+`rejected`, ingen inkorgspost skapas.
 
 ## 5. Säkerhet
 
