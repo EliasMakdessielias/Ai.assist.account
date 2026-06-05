@@ -35,6 +35,7 @@ import Rakenskapsar from './pages/Rakenskapsar'
 import Team from './pages/Team'
 import Admin from './pages/Admin'
 import Aterstall from './pages/Aterstall'
+import Artikelkontering from './pages/Artikelkontering'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="installningar/kontoplan" element={<Kontoplan />} />
           <Route path="installningar/kontoplan/:nr" element={<KontoDetalj />} />
           <Route path="installningar/aterstall" element={<Aterstall />} />
+          <Route path="installningar/artikelkontering" element={<Artikelkontering />} />
         </Route>
       </Routes>
     </>

@@ -2,9 +2,10 @@
 // bara en post är aktiv åt gången. Kontoplan får även matcha sin dynamiska
 // under-route (/installningar/kontoplan/[id]).
 //
-// Löneinställningar, Artikelkontering och Bokföringsmallar har ännu inga egna
-// sidor – de navigerar till företagsinställningarna och markeras aldrig aktiva
-// (de stjäl alltså inte aktiv-styling). Ge dem en egen `match` när sidorna byggs.
+// Löneinställningar och Bokföringsmallar har ännu inga egna sidor – de navigerar
+// till företagsinställningarna och markeras aldrig aktiva (de stjäl alltså inte
+// aktiv-styling). Ge dem en egen `match` när sidorna byggs. Artikelkontering har
+// en egen sida (/installningar/artikelkontering).
 export const SETTINGS_ITEMS = [
   { label: 'Företagsinställningar', to: '/installningar', match: p => p === '/installningar' },
   { label: 'Användare & behörighet', to: '/installningar/team', match: p => p === '/installningar/team' },
@@ -12,7 +13,7 @@ export const SETTINGS_ITEMS = [
   { label: 'Löneinställningar', to: '/installningar', match: () => false },
   { label: 'Räkenskapsår och IB', to: '/installningar/rakenskapsar', match: p => p === '/installningar/rakenskapsar' },
   { label: 'Kontoplan', to: '/installningar/kontoplan', match: p => p === '/installningar/kontoplan' || p.startsWith('/installningar/kontoplan/') },
-  { label: 'Artikelkontering', to: '/installningar', match: () => false },
+  { label: 'Artikelkontering', to: '/installningar/artikelkontering', match: p => p === '/installningar/artikelkontering' },
   { label: 'Bokföringsmallar', to: '/installningar', match: () => false },
   { label: 'Import och export', to: '/installningar/import-export', match: p => p === '/installningar/import-export' },
 ]

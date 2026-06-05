@@ -17,6 +17,9 @@ describe('Inställningar – aktiv undermeny', () => {
   it('på /installningar/rakenskapsar är ENDAST Räkenskapsår och IB aktiv', () => {
     expect(activeSettingsLabels('/installningar/rakenskapsar')).toEqual(['Räkenskapsår och IB'])
   })
+  it('på /installningar/artikelkontering är ENDAST Artikelkontering aktiv', () => {
+    expect(activeSettingsLabels('/installningar/artikelkontering')).toEqual(['Artikelkontering'])
+  })
   it('aldrig flera aktiva samtidigt på en inställningssida', () => {
     for (const p of ['/installningar', '/installningar/kontoplan', '/installningar/kontoplan/9999', '/installningar/team', '/installningar/kassa-bankkonton', '/installningar/rakenskapsar', '/installningar/import-export']) {
       expect(activeSettingsLabels(p).length).toBeLessThanOrEqual(1)
