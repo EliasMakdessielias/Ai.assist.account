@@ -4,6 +4,7 @@ import { useAuth } from './hooks/useAuth'
 import { isMarketingHost } from './lib/host'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
+import ComingSoon from './pages/ComingSoon'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Bokforing from './pages/Bokforing'
@@ -47,11 +48,15 @@ function ProtectedRoute({ children }) {
 }
 
 export default function App() {
-  // Apex-domänen (bokpilot.se) är ett marknadsskal. ?landing tvingar fram det
-  // lokalt för förhandsvisning. Allt annat (app.bokpilot.se, localhost) = appen.
-  const showMarketing = isMarketingHost() ||
-    (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('landing'))
-  if (showMarketing) return <Landing />
+  // Värd-/lägeslogik:
+  // - bokpilot.se / www (apex) → "Kommer snart" (publikt gated under utveckling)
+  // - ?landing (valfri värd) → förhandsvisa riktiga landningssidan (för oss som bygger)
+  // - ?soon (valfri värd) → förhandsvisa Kommer snart lokalt
+  // - allt annat (app.bokpilot.se, localhost, *.vercel.app) → appen
+  const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
+  if (params.has('landing')) return <Landing />
+  if (params.has('soon')) return <ComingSoon />
+  if (isMarketingHost()) return <ComingSoon />
 
   return (
     <>
