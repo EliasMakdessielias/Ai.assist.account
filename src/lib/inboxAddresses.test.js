@@ -32,10 +32,10 @@ describe('arkivnummer', () => {
 
 describe('bygg adresser (arkivnummer + suffix)', () => {
   it('bygger en adress med rätt suffix', () => {
-    expect(buildInboxAddress(7564841, 'kvitto')).toBe('7564841.kvi@arkiv.bokpilot.se')
-    expect(buildInboxAddress(7564841, 'leverantorsfaktura')).toBe('7564841.lev@arkiv.bokpilot.se')
-    expect(buildInboxAddress(7564841, 'dokument')).toBe('7564841.dok@arkiv.bokpilot.se')
-    expect(buildInboxAddress(7564841, 'avtal')).toBe('7564841.avt@arkiv.bokpilot.se')
+    expect(buildInboxAddress(7564841, 'kvitto')).toBe('7564841.kv@ark.bpilot.se')
+    expect(buildInboxAddress(7564841, 'leverantorsfaktura')).toBe('7564841.lf@ark.bpilot.se')
+    expect(buildInboxAddress(7564841, 'dokument')).toBe('7564841.do@ark.bpilot.se')
+    expect(buildInboxAddress(7564841, 'avtal')).toBe('7564841.av@ark.bpilot.se')
   })
   it('ogiltigt arkivnummer eller typ -> null', () => {
     expect(buildInboxAddress(123, 'kvitto')).toBeNull()
@@ -44,39 +44,39 @@ describe('bygg adresser (arkivnummer + suffix)', () => {
   it('bygger alla fyra adresser', () => {
     const a = buildInboxAddresses(7564841)
     expect(a.map(x => x.email_address)).toEqual([
-      '7564841.kvi@arkiv.bokpilot.se',
-      '7564841.lev@arkiv.bokpilot.se',
-      '7564841.dok@arkiv.bokpilot.se',
-      '7564841.avt@arkiv.bokpilot.se',
+      '7564841.kv@ark.bpilot.se',
+      '7564841.lf@ark.bpilot.se',
+      '7564841.do@ark.bpilot.se',
+      '7564841.av@ark.bpilot.se',
     ])
     expect(INBOX_TYPE_KEYS).toHaveLength(4)
-    expect(INBOX_SUFFIXES).toEqual(['kvi', 'lev', 'dok', 'avt'])
+    expect(INBOX_SUFFIXES).toEqual(['kv', 'lf', 'do', 'av'])
   })
 })
 
 describe('extractEmail', () => {
   it('plockar adress ur namn+vinkelparenteser, normaliserar gemener', () => {
-    expect(extractEmail('"BokPilot" <7564841.KVI@Arkiv.BokPilot.se>')).toBe('7564841.kvi@arkiv.bokpilot.se')
+    expect(extractEmail('"BokPilot" <7564841.KV@Ark.BPilot.se>')).toBe('7564841.kv@ark.bpilot.se')
   })
 })
 
 describe('parseInboxRecipient (suffix -> typ)', () => {
-  it('.kvi -> kvitto', () => expect(parseInboxRecipient('7564841.kvi@arkiv.bokpilot.se')).toMatchObject({ archiveNumber: '7564841', type: 'kvitto', kategori: 'kvitto' }))
-  it('.lev -> leverantorsfaktura', () => expect(parseInboxRecipient('7564841.lev@arkiv.bokpilot.se').type).toBe('leverantorsfaktura'))
-  it('.dok -> dokument', () => expect(parseInboxRecipient('7564841.dok@arkiv.bokpilot.se').type).toBe('dokument'))
-  it('.avt -> avtal', () => expect(parseInboxRecipient('<7564841.avt@arkiv.bokpilot.se>').type).toBe('avtal'))
+  it('.kv -> kvitto', () => expect(parseInboxRecipient('7564841.kv@ark.bpilot.se')).toMatchObject({ archiveNumber: '7564841', type: 'kvitto', kategori: 'kvitto' }))
+  it('.lf -> leverantorsfaktura', () => expect(parseInboxRecipient('7564841.lf@ark.bpilot.se').type).toBe('leverantorsfaktura'))
+  it('.do -> dokument', () => expect(parseInboxRecipient('7564841.do@ark.bpilot.se').type).toBe('dokument'))
+  it('.av -> avtal', () => expect(parseInboxRecipient('<7564841.av@ark.bpilot.se>').type).toBe('avtal'))
   it('okänd domän -> null', () => {
-    expect(parseInboxRecipient('7564841.kvi@arkiv.example.com')).toBeNull()
-    expect(parseInboxRecipient('7564841.kvi@bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('7564841.kv@ark.example.com')).toBeNull()
+    expect(parseInboxRecipient('7564841.kv@bpilot.se')).toBeNull()
   })
   it('ogiltigt suffix -> null (säkerhet: nekas)', () => {
-    expect(parseInboxRecipient('7564841.xyz@arkiv.bokpilot.se')).toBeNull()
-    expect(parseInboxRecipient('7564841.kvitto@arkiv.bokpilot.se')).toBeNull() // gammalt långt suffix
-    expect(parseInboxRecipient('support@arkiv.bokpilot.se')).toBeNull()
+    expect(parseInboxRecipient('7564841.zz@ark.bpilot.se')).toBeNull()
+    expect(parseInboxRecipient('7564841.kvi@ark.bpilot.se')).toBeNull() // gammalt 3-teckens suffix
+    expect(parseInboxRecipient('support@ark.bpilot.se')).toBeNull()
   })
   it('ogiltigt arkivnummer -> null', () => {
-    expect(parseInboxRecipient('0564841.kvi@arkiv.bokpilot.se')).toBeNull() // börjar med 0
-    expect(parseInboxRecipient('123.kvi@arkiv.bokpilot.se')).toBeNull()     // för kort
+    expect(parseInboxRecipient('0564841.kv@ark.bpilot.se')).toBeNull() // börjar med 0
+    expect(parseInboxRecipient('123.kv@ark.bpilot.se')).toBeNull()     // för kort
   })
 })
 

@@ -1,13 +1,13 @@
-# Inbound-mottagningsadresser (arkiv.bokpilot.se)
+# Inbound-mottagningsadresser (ark.bpilot.se)
 
 Varje företag får automatiskt fyra **endast-inbound** adresser (exempel för
 arkivnummer `7564841`):
 
 ```
-7564841.kvi@arkiv.bokpilot.se   (kvitto)
-7564841.lev@arkiv.bokpilot.se   (leverantörsfaktura)
-7564841.dok@arkiv.bokpilot.se   (dokument)
-7564841.avt@arkiv.bokpilot.se   (avtal)
+7564841.kv@ark.bpilot.se   (kvitto)
+7564841.lf@ark.bpilot.se   (leverantörsfaktura)
+7564841.do@ark.bpilot.se   (dokument)
+7564841.av@ark.bpilot.se   (avtal)
 ```
 
 Prefixet är företagets **`archive_number`** – ett SLUMPMÄSSIGT, unikt och permanent
@@ -19,7 +19,7 @@ som routing-mål för inkommande e-post.
 ## Arkitektur
 
 ```
-Avsändare ──▶ MX (arkiv.bokpilot.se) ──▶ Cloudflare Email Routing
+Avsändare ──▶ MX (ark.bpilot.se) ──▶ Cloudflare Email Routing
             ──▶ Email Worker (parsar + signerar HMAC)
             ──▶ POST https://<ref>.supabase.co/functions/v1/inbound-email
             ──▶ Edge function: verifierar signatur, slår upp företag/typ,
@@ -34,27 +34,28 @@ beräkna signaturen.
 
 ## 1. DNS (Cloudflare)
 
-Vi använder redan Cloudflare för zonen `bokpilot.se`. Aktivera **Email Routing**
-och lägg MX för subdomänen `arkiv`:
+Domänen är `ark.bpilot.se`. Lägg zonen `bpilot.se` i Cloudflare (eller använd
+subdomänen `ark` om `bpilot.se` redan ligger där). Aktivera **Email Routing**
+och lägg MX för `ark`:
 
 ```
-MX   arkiv   route1.mx.cloudflare.net   (prio 13)
-MX   arkiv   route2.mx.cloudflare.net   (prio 86)
-MX   arkiv   route3.mx.cloudflare.net   (prio 24)
-TXT  arkiv   "v=spf1 include:_spf.mx.cloudflare.net ~all"
+MX   ark   route1.mx.cloudflare.net   (prio 13)
+MX   ark   route2.mx.cloudflare.net   (prio 86)
+MX   ark   route3.mx.cloudflare.net   (prio 24)
+TXT  ark   "v=spf1 include:_spf.mx.cloudflare.net ~all"
 ```
 
 > Cloudflare ger de exakta MX-värdena när du aktiverar Email Routing. SPF/DKIM/DMARC
-> för **utgående** post på huvuddomänen påverkas inte – `arkiv` används bara för mottagning.
-> DMARC kan sättas på `_dmarc.arkiv` med `p=reject` (vi skickar aldrig från subdomänen).
+> för **utgående** post påverkas inte – `ark` används bara för mottagning.
+> DMARC kan sättas på `_dmarc.ark` med `p=reject` (vi skickar aldrig från subdomänen).
 
 Sätt en **catch-all**-route i Email Routing som triggar Email Workern nedan
-(så att alla `*.{typ}@arkiv.bokpilot.se` fångas; okända adresser nekas i koden).
+(så att alla `*.{typ}@ark.bpilot.se` fångas; okända adresser nekas i koden).
 
 ## 2. Cloudflare Email Worker
 
 ```js
-// wrangler: [[email]] -> denna worker som catch-all för arkiv.bokpilot.se
+// wrangler: [[email]] -> denna worker som catch-all för ark.bpilot.se
 import PostalMime from 'postal-mime'
 
 export default {
@@ -122,12 +123,12 @@ Funktionen (`supabase/functions/inbound-email/index.ts`):
 
 | Suffix | `documents.kategori` | Flöde i appen |
 |---|---|---|
-| `.kvi` | `kvitto` | Inkorg → Kvitton, kan AI-tolkas |
-| `.lev` | `leverantorsfaktura` | Inkorg → Leverantörsfakturor, kan skickas till OCR/AI-tolkning |
-| `.dok` | `dokument` | Inkorg → Dokument (sparas som dokumentunderlag, ej faktura) |
-| `.avt` | `avtal` | Inkorg → Avtal (dokumentunderlag) |
+| `.kv` | `kvitto` | Inkorg → Kvitton, kan AI-tolkas |
+| `.lf` | `leverantorsfaktura` | Inkorg → Leverantörsfakturor, kan skickas till OCR/AI-tolkning |
+| `.do` | `dokument` | Inkorg → Dokument (sparas som dokumentunderlag, ej faktura) |
+| `.av` | `avtal` | Inkorg → Avtal (dokumentunderlag) |
 
-Okänt arkivnummer eller suffix som inte är `kvi/lev/dok/avt` → loggas som
+Okänt arkivnummer eller suffix som inte är `kv/lf/do/av` → loggas som
 `rejected`, ingen inkorgspost skapas.
 
 ## 5. Säkerhet

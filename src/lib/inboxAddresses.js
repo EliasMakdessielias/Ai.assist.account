@@ -4,16 +4,16 @@
 // Format: {0000001}.{typ}@arkiv.bokpilot.se   (typ = kvitto | leverantorsfaktura | dokument | avtal)
 // Adresserna är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 
-export const INBOX_DOMAIN = 'arkiv.bokpilot.se'
+export const INBOX_DOMAIN = 'ark.bpilot.se'
 
 // Typ -> kort suffix i adressen + etikett (UI) + kategori i documents-tabellen.
-// Suffixen är medvetet korta (kvi/lev/dok/avt) och prefixet är företagets
+// Suffixen är medvetet korta (kv/lf/do/av) och prefixet är företagets
 // SLUMPMÄSSIGA arkivnummer (avslöjar inte antal kunder).
 export const INBOX_TYPES = [
-  { type: 'kvitto', suffix: 'kvi', label: 'Kvitton', kategori: 'kvitto' },
-  { type: 'leverantorsfaktura', suffix: 'lev', label: 'Leverantörsfakturor', kategori: 'leverantorsfaktura' },
-  { type: 'dokument', suffix: 'dok', label: 'Dokument', kategori: 'dokument' },
-  { type: 'avtal', suffix: 'avt', label: 'Avtal', kategori: 'avtal' },
+  { type: 'kvitto', suffix: 'kv', label: 'Kvitton', kategori: 'kvitto' },
+  { type: 'leverantorsfaktura', suffix: 'lf', label: 'Leverantörsfakturor', kategori: 'leverantorsfaktura' },
+  { type: 'dokument', suffix: 'do', label: 'Dokument', kategori: 'dokument' },
+  { type: 'avtal', suffix: 'av', label: 'Avtal', kategori: 'avtal' },
 ]
 export const INBOX_TYPE_KEYS = INBOX_TYPES.map(t => t.type)
 export const INBOX_SUFFIXES = INBOX_TYPES.map(t => t.suffix)
@@ -60,7 +60,7 @@ export function extractEmail(raw) {
 // (kvi/lev/dok/avt). Okänd domän/suffix nekas (säkerhet).
 export function parseInboxRecipient(raw) {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.([a-z]{3})@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.([a-z]{2})@(.+)$/)
   if (!m) return null
   const [, archiveNumber, suffix, domain] = m
   if (domain !== INBOX_DOMAIN) return null

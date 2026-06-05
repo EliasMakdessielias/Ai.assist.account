@@ -18,10 +18,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const BUCKET = 'underlag'
-const INBOX_DOMAIN = 'arkiv.bokpilot.se'
+const INBOX_DOMAIN = 'ark.bpilot.se'
 // Kort suffix i adressen -> kategori i documents.
 const SUFFIX_TO_KATEGORI: Record<string, string> = {
-  kvi: 'kvitto', lev: 'leverantorsfaktura', dok: 'dokument', avt: 'avtal',
+  kv: 'kvitto', lf: 'leverantorsfaktura', do: 'dokument', av: 'avtal',
 }
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'docx']
@@ -43,7 +43,7 @@ function extractEmail(raw: string): string {
 
 function parseRecipient(raw: string): { archiveNumber: string; suffix: string; kategori: string; email: string } | null {
   const addr = extractEmail(raw)
-  const m = addr.match(/^([1-9]\d{6})\.([a-z]{3})@(.+)$/)
+  const m = addr.match(/^([1-9]\d{6})\.([a-z]{2})@(.+)$/)
   if (!m) return null
   const [, archiveNumber, suffix, domain] = m
   if (domain !== INBOX_DOMAIN) return null
