@@ -25,25 +25,29 @@ export default function Inkorg() {
   const [uploading, setUploading] = useState(false)
   const [busyId, setBusyId] = useState(null)
   const [sel, setSel] = useState(new Set())
+  const [addrs, setAddrs] = useState({})
   const fileRef = useRef()
 
   const cur = KATS.find(k => k.key === kat)
-  const slug = (company?.org_nr || '').replace(/\D/g, '') || (company?.id || '').slice(0, 8)
-  const mailAddr = k => `inbox.${slug}.${k}@bocker-arkiv.se`
+  const mailAddr = k => addrs[k] || ''
 
   useEffect(() => { if (company) load() }, [company?.id])
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('documents').select('*, verifikationer(ver_nr)').eq('company_id', company.id).order('created_at', { ascending: false })
+    const [{ data }, { data: ia }] = await Promise.all([
+      supabase.from('documents').select('*, verifikationer(ver_nr)').eq('company_id', company.id).order('created_at', { ascending: false }),
+      supabase.from('inbox_addresses').select('inbox_type, email_address, is_active').eq('company_id', company.id),
+    ])
     setDocs(data || [])
+    setAddrs(Object.fromEntries((ia || []).filter(a => a.is_active).map(a => [a.inbox_type, a.email_address])))
     setSelected(prev => (data || []).find(d => d.id === prev?.id) || null)
     setLoading(false)
   }
 
   useEffect(() => {
     let active = true; setUrl(null)
-    if (!selected) return
+    if (!selected || !selected.storage_path) return
     supabase.storage.from('underlag').createSignedUrl(selected.storage_path, 3600).then(({ data }) => { if (active) setUrl(data?.signedUrl || null) })
     return () => { active = false }
   }, [selected?.id])

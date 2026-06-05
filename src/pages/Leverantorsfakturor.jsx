@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import Utbetalningar from '../components/Utbetalningar'
 import InkomnaFakturor from '../components/InkomnaFakturor'
 import { serie } from '../lib/serier'
+import { buildInboxAddress } from '../lib/inboxAddresses'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -209,7 +210,7 @@ export default function Leverantorsfakturor() {
 
   const Th = ({ children, r }) => <th className={`${r ? 'text-right' : 'text-left'} px-3 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b whitespace-nowrap`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>{children}</th>
   const Td = ({ children, r, cls = '' }) => <td className={`px-3 py-2.5 border-b ${r ? 'text-right tabular-nums' : ''} ${cls}`} style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{children}</td>
-  const inboxAddr = `inbox.lev.${(company?.id || '').slice(0, 7)}@bocker-arkiv.se`
+  const inboxAddr = buildInboxAddress(company?.company_number, 'leverantorsfaktura') || ''
 
   return (
     <div className="pb-20">
