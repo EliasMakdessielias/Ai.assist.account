@@ -136,8 +136,13 @@ export default function NyLeverantorsfaktura() {
   const balanced = Math.abs(differens) < 0.005 && sumDebet > 0
 
   function setRow(idx, patch) {
+    // Uteslut debet/kredit på samma rad: sätts ett belopp > 0 på ena sidan töms
+    // den andra automatiskt (samma regel som i verifikationer).
+    const p = { ...patch }
+    if ('debet' in p && num(p.debet) > 0) p.kredit = ''
+    if ('kredit' in p && num(p.kredit) > 0) p.debet = ''
     setRows(rs => {
-      const next = rs.map((r, i) => i === idx ? { ...r, ...patch } : r)
+      const next = rs.map((r, i) => i === idx ? { ...r, ...p } : r)
       // håll en tom rad sist
       if (next.length === 0 || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
       return next
@@ -495,7 +500,7 @@ export default function NyLeverantorsfaktura() {
                     <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                       <input id={`lev-debet-${idx}`} className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.debet}
                         onChange={e => setRow(idx, { debet: e.target.value })} onBlur={e => { const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }) }}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }); focusId(`lev-kredit-${idx}`) } }} />
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const n = num(e.target.value); setRow(idx, { debet: n ? fmt(n) : '' }); n ? (balanced ? focusId('lev-bokfor') : focusId(`lev-konto-${idx + 1}`)) : focusId(`lev-kredit-${idx}`) } }} />
                     </td>
                     <td className="border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                       <input id={`lev-kredit-${idx}`} className="w-full px-3 py-2 outline-none bg-transparent text-right tabular-nums" inputMode="decimal" value={r.kredit}
