@@ -11,8 +11,9 @@ Tailwind + React Router + react-hot-toast. Backend: Supabase (Postgres, Auth, RL
 Storage, Edge Functions). AI via Google Gemini (2.5-flash-lite) i edge functions.
 
 - Repo: https://github.com/EliasMakdessielias/Ai.assist.account
-- Live: https://bokpilot-app.vercel.app (auto-deploy från GitHub `main`, ~20 s)
-  - (Gammal domän `bocker-app.vercel.app` är pensionerad efter att Vercel-projektet döpts om till `bokpilot-app`.)
+- Kanonisk publik URL (mål): **https://bokpilot.se**. Auto-deploy från GitHub `main` (~20 s) till Vercel.
+  - OBS (2026-06-05): `bokpilot.se` pekar ännu INTE på Vercel — roten visar en "Default page" via Cloudflare och `/login` ger 404. Domänen måste läggas till på Vercel-projektet + DNS (A/CNAME) ställas om innan appen svarar där.
+  - Vercel-projektets interna domän är `*.vercel.app` (deploy-plattform). Gamla `bocker-app.vercel.app` används inte längre.
 - Supabase project ref: `bypebgvxdmbzxqecllao`
 
 ## Arbetssätt / konventioner
