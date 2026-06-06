@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
-import { useContainerSize, previewWidthPx, previewHeightPx, computeAutoScale, clampScale } from '../lib/docPreview'
+import PdfCanvas from '../components/PdfCanvas'
+import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
 
 const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW'
 const PANEL_VISIBLE_KEY = 'bokpilot.visaLevfaktura.panelVisible'
@@ -128,8 +129,8 @@ export default function VisaLeverantorsfaktura() {
   const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
   const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
   const zoomLabel = mode === 'auto'
-    ? (isImg && autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
-    : `${Math.round(manualScale * 100)}%`
+    ? (autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
+    : `Manual · ${Math.round(manualScale * 100)}%`
   const setManual = v => { setMode('manual'); setManualScale(clampScale(v)) }
 
   const F = ({ label, value, w = '' }) => (
@@ -258,7 +259,9 @@ export default function VisaLeverantorsfaktura() {
                       style={{ width: natural.w ? `${Math.round(natural.w * effScale)}px` : (previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`), maxWidth: 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined }} />
                   </div>
                 ) : (
-                  <iframe src={current.url} title="underlag" className="bg-white block mx-auto" style={{ width: previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`, maxWidth: 'none', height: previewHeightPx(ch, effScale) ? `${previewHeightPx(ch, effScale)}px` : `${Math.max(70, 70 * effScale)}vh`, border: 'none' }} />
+                  <div className="min-h-full flex items-start justify-center">
+                    <PdfCanvas url={current.url} scale={effScale} onNaturalSize={setNatural} />
+                  </div>
                 )}
               </div>
 

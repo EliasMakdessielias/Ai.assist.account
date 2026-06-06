@@ -61,22 +61,25 @@ export function clampScale(scale, min = 0.4, max = 2.5) {
 export function useContainerSize(ref, debounceMs = 80) {
   const [size, setSize] = useState({ width: 0, height: 0 })
   useEffect(() => {
-    const el = ref?.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    let timer
-    const ro = new ResizeObserver(entries => {
-      const entry = entries[0]
-      if (!entry) return
-      const rect = entry.contentRect
+    if (typeof ResizeObserver === 'undefined') return
+    let timer, raf, ro
+    const apply = rect => {
       clearTimeout(timer)
       timer = setTimeout(() => {
-        const w = Math.round(rect.width)
-        const h = Math.round(rect.height)
+        const w = Math.round(rect.width), h = Math.round(rect.height)
         setSize(prev => (prev.width === w && prev.height === h ? prev : { width: w, height: h }))
       }, debounceMs)
-    })
-    ro.observe(el)
-    return () => { clearTimeout(timer); ro.disconnect() }
+    }
+    // Vänta tills elementet faktiskt är monterat (kan ske efter async-laddning),
+    // koppla sedan på ResizeObservern. Annars missas containern helt (cw=0).
+    const attach = () => {
+      const el = ref?.current
+      if (!el) { raf = requestAnimationFrame(attach); return }
+      ro = new ResizeObserver(entries => { const e = entries[0]; if (e) apply(e.contentRect) })
+      ro.observe(el)
+    }
+    attach()
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); ro?.disconnect() }
   }, [ref, debounceMs])
   return size
 }

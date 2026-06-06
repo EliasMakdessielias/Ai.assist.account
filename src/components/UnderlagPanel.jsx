@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
-import { useContainerSize, previewWidthPx, previewHeightPx, computeAutoScale, clampScale } from '../lib/docPreview'
+import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
+import PdfCanvas from './PdfCanvas'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
@@ -73,8 +74,8 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
   const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
   const zoomLabel = mode === 'auto'
-    ? (isImage && autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
-    : `${Math.round(manualScale * 100)}%`
+    ? (autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
+    : `Manual · ${Math.round(manualScale * 100)}%`
   const setManual = v => { setMode('manual'); setManualScale(clampScale(v)) }
   const bumpManual = delta => { setMode('manual'); setManualScale(s => clampScale(s + delta)) }
 
@@ -218,10 +219,9 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
               style={{ width: natural.w ? `${Math.round(natural.w * effScale)}px` : (previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`), maxWidth: 'none', height: 'auto' }} />
           </div>
         ) : isPdf ? (
-          <iframe src={url} title={current.file_name} className="bg-white shadow block mx-auto"
-            style={mode === 'auto'
-              ? { width: '100%', height: '100%', minHeight: '100%', border: 'none' }
-              : { width: previewWidthPx(cw, manualScale) ? `${previewWidthPx(cw, manualScale)}px` : `${100 * manualScale}%`, height: previewHeightPx(ch, manualScale) ? `${previewHeightPx(ch, manualScale)}px` : `${Math.max(100, 100 * manualScale)}%`, minHeight: '100%', border: 'none' }} />
+          <div className="min-h-full flex items-start justify-center">
+            <PdfCanvas url={url} scale={effScale} onNaturalSize={setNatural} />
+          </div>
         ) : (
           <div className="h-full flex items-center justify-center">
             <div className="text-center text-gray-500">
