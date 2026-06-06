@@ -40,6 +40,7 @@ export default function NyLeverantorsfaktura() {
   const [avgift, setAvgift] = useState('')
   const [frakt, setFrakt] = useState('')
   const [ores, setOres] = useState('')
+  const [kreditfaktura, setKreditfaktura] = useState(false)
   const [saving, setSaving] = useState(false)
   const [attachIds, setAttachIds] = useState(docId ? [docId] : [])
   const [panelOpen, setPanelOpen] = useState(true)
@@ -73,20 +74,26 @@ export default function NyLeverantorsfaktura() {
     if (editId) {
       const { data: ex } = await supabase.from('supplier_invoices').select('*').eq('id', editId).single()
       if (ex) {
+        const kredit = !!ex.kreditfaktura
+        setKreditfaktura(kredit)
+        const absTotal = Math.abs(ex.total_amount || 0), absMoms = Math.abs(ex.vat_amount || 0)
         setSupplierId(ex.supplier_id || '')
         setFakturadatum(ex.invoice_date || today())
         setForfallodatum(ex.due_date || today())
-        setTotal(ex.total_amount ? fmt(ex.total_amount) : '')
-        setMoms(ex.vat_amount ? fmt(ex.vat_amount) : '')
+        setTotal(absTotal ? fmt(absTotal) : '')
+        setMoms(absMoms ? fmt(absMoms) : '')
         setOcr(ex.ocr || '')
         setFakturanummer(ex.invoice_nr || '')
         setValuta(normalizeCurrency(ex.currency) || DEFAULT_CURRENCY)
         setNextLopnr(ex.lopnr)
         const amap = Object.fromEntries((acc || []).map(a => [a.account_nr, a.name]))
-        const m = ex.vat_amount || 0, net = (ex.total_amount || 0) - m
-        const r = [{ konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: ex.total_amount ? fmt(ex.total_amount) : '' }]
-        if (m > 0.005) r.push({ konto: '2640', namn: amap['2640'] || 'Ingående moms', info: '', debet: fmt(m), kredit: '' })
-        r.push({ konto: ex.kostnadskonto || '4000', namn: amap[ex.kostnadskonto || '4000'] || '', info: '', debet: net > 0 ? fmt(net) : '', kredit: '' })
+        const m = absMoms, net = absTotal - m
+        // Kreditfaktura: omvända sidor (2440 debet, moms/kostnad kredit).
+        const big = (d) => kredit ? { debet: '', kredit: d } : { debet: d, kredit: '' }
+        const skuld = (d) => kredit ? { debet: d, kredit: '' } : { debet: '', kredit: d }
+        const r = [{ konto: '2440', namn: 'Leverantörsskulder', info: '', ...skuld(absTotal ? fmt(absTotal) : '') }]
+        if (m > 0.005) r.push({ konto: '2640', namn: amap['2640'] || 'Ingående moms', info: '', ...big(fmt(m)) })
+        r.push({ konto: ex.kostnadskonto || '4000', namn: amap[ex.kostnadskonto || '4000'] || '', info: '', ...big(net > 0 ? fmt(net) : '') })
         setRows([...r, emptyRow()])
       }
     }
@@ -155,19 +162,28 @@ export default function NyLeverantorsfaktura() {
   const hEnter = (e, nextId, before) => { if (e.key !== 'Enter') return; e.preventDefault(); if (before) before(); if (nextId) focusId(nextId) }
   const focusFirstEmptyKonto = () => { const idx = rows.findIndex(r => !r.konto); focusId(`lev-konto-${idx < 0 ? rows.length - 1 : idx}`) }
 
-  // Sätt 2440-kredit = Total, och 2640-debet = Moms; auto vid blur.
-  function syncHeader(nextTotal = total, nextMoms = moms) {
+  // Normal faktura: 2440 kredit = Total, 2640 debet = Moms.
+  // Kreditfaktura: omvänt (2440 debet = Total, 2640 kredit = Moms). Auto vid blur.
+  function syncHeader(nextTotal = total, nextMoms = moms, kredit = kreditfaktura) {
     const t = num(nextTotal), m = num(nextMoms)
+    const skuldSide = kredit ? 'debet' : 'kredit', momsSide = kredit ? 'kredit' : 'debet'
     setRows(rs => {
-      let next = rs.map(r => r.konto === '2440' ? { ...r, kredit: t ? fmt(t) : '', debet: '' } : r)
+      let next = rs.map(r => r.konto === '2440' ? { ...r, [skuldSide]: t ? fmt(t) : '', [momsSide]: '' } : r)
       const momsIdx = next.findIndex(r => r.konto === '2640')
       if (m > 0.005) {
-        if (momsIdx >= 0) next[momsIdx] = { ...next[momsIdx], debet: fmt(m), kredit: '' }
-        else { const ins = next.length > 1 ? 1 : next.length; next.splice(ins, 0, { konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: fmt(m), kredit: '' }) }
+        const momsRow = { [momsSide]: fmt(m), [skuldSide]: '' }
+        if (momsIdx >= 0) next[momsIdx] = { ...next[momsIdx], ...momsRow }
+        else { const ins = next.length > 1 ? 1 : next.length; next.splice(ins, 0, { konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: '', kredit: '', ...momsRow }) }
       } else if (momsIdx >= 0) next.splice(momsIdx, 1)
       if (!next.length || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
       return next
     })
+  }
+
+  // Bocka i/ur Kreditfaktura: vänd alla rader (debet<->kredit) så bokföringen blir en kreditering.
+  function toggleKredit() {
+    setKreditfaktura(k => !k)
+    setRows(rs => rs.map(r => ({ ...r, debet: r.kredit, kredit: r.debet })))
   }
 
   // När man fyllt i ett kostnadskonto och raden saknar belopp → fyll debet med kvarvarande differens.
@@ -179,8 +195,9 @@ export default function NyLeverantorsfaktura() {
       if (!num(r.debet) && !num(r.kredit) && r.konto !== '2440') {
         const sd = next.reduce((s, x, i) => i === idx ? s : s + num(x.debet), 0)
         const sk = next.reduce((s, x, i) => i === idx ? s : s + num(x.kredit), 0)
-        const restDebet = sk - sd
-        if (restDebet > 0.005) next[idx] = { ...next[idx], debet: fmt(restDebet) }
+        // Normal: fyll debet med (kredit−debet). Kreditfaktura: fyll kredit med (debet−kredit).
+        if (kreditfaktura) { const restKredit = sd - sk; if (restKredit > 0.005) next[idx] = { ...next[idx], kredit: fmt(restKredit) } }
+        else { const restDebet = sk - sd; if (restDebet > 0.005) next[idx] = { ...next[idx], debet: fmt(restDebet) } }
       }
       if (!next.length || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
       return next
@@ -288,12 +305,14 @@ export default function NyLeverantorsfaktura() {
 
     setSaving(true)
     try {
-      const costRow = krows.find(r => r.debet > 0 && r.nr !== '2640')
+      // Kostnadskontot ligger på debet vid normal faktura, på kredit vid kreditfaktura.
+      const costRow = krows.find(r => (kreditfaktura ? r.kredit > 0 : r.debet > 0) && r.nr !== '2640')
+      const sign = kreditfaktura ? -1 : 1
       const invPayload = {
         company_id: company.id, supplier_id: supplierId, invoice_nr: fakturanummer || null, ocr: ocr || null,
         invoice_date: fakturadatum, due_date: forfallodatum, currency: isSupportedCurrency(valuta) ? valuta : DEFAULT_CURRENCY,
-        amount_excl_vat: t - num(moms), vat_amount: num(moms), total_amount: t,
-        kostnadskonto: costRow?.nr || '4000', status: 'unpaid', lopnr: nextLopnr,
+        amount_excl_vat: sign * (t - num(moms)), vat_amount: sign * num(moms), total_amount: sign * t,
+        kostnadskonto: costRow?.nr || '4000', status: 'unpaid', lopnr: nextLopnr, kreditfaktura,
       }
       let inv, e0
       if (editId) ({ data: inv, error: e0 } = await supabase.from('supplier_invoices').update(invPayload).eq('id', editId).select().single())
@@ -305,7 +324,7 @@ export default function NyLeverantorsfaktura() {
         const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
           company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: ser,
-          datum: fakturadatum, beskrivning: `Lev.faktura ${supplier?.name || ''} ${fakturanummer || ''}`.trim(),
+          datum: fakturadatum, beskrivning: `${kreditfaktura ? 'Lev.kreditfaktura' : 'Lev.faktura'} ${supplier?.name || ''} ${fakturanummer || ''}`.trim(),
           total_debet: td, total_kredit: tk, created_by: user.id,
         }).select().single()
         if (e1) throw e1
@@ -352,7 +371,10 @@ export default function NyLeverantorsfaktura() {
 
       {/* Verktygsrad */}
       <div className="bg-white border-b px-7 py-2.5 flex items-center gap-6 flex-wrap" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-        <Tool icon="ti-file-minus" label="Skapa kreditfaktura" disabled />
+        <label className={`flex items-center gap-1.5 text-[13px] cursor-pointer select-none ${kreditfaktura ? 'text-purple-700 font-medium' : 'text-gray-600 hover:text-gray-900'}`} title="Bocka i för att skapa en kreditfaktura (omvänd kontering)">
+          <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={kreditfaktura} onChange={toggleKredit} />
+          <i className="ti ti-file-minus" /> Kreditfaktura
+        </label>
         <Tool icon="ti-copy" label="Kopiera" disabled />
         <Tool icon="ti-cash" label="Utbetalningar" onClick={() => navigate('/leverantorsfakturor')} />
         <Tool icon="ti-file-off" label="Inaktivera betalfil" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
@@ -539,7 +561,7 @@ export default function NyLeverantorsfaktura() {
         {/* Knapprad */}
         <div className="flex items-center mt-8 pt-5 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
           <button className="btn" onClick={() => navigate('/leverantorsfakturor')}>Makulera</button>
-          <button className="btn ml-2.5" disabled>Skapa kreditfaktura</button>
+          {kreditfaktura && <span className="ml-2.5 text-xs text-purple-700 bg-purple-50 px-2 py-1 rounded flex items-center gap-1"><i className="ti ti-file-minus" /> Kreditfaktura – omvänd kontering</span>}
           <div className="ml-auto flex items-center gap-2.5">
             <button className="btn" onClick={() => navigate('/leverantorsfakturor')} disabled={saving}>Avbryt</button>
             <button className="btn btn-green" onClick={() => spara(false)} disabled={saving}>{saving ? '…' : 'Spara'}</button>

@@ -15,6 +15,7 @@ const STATES = {
   forfallen: { label: 'Obetald förfallen', bg: 'rgba(220,38,38,0.2)', color: '#991b1b' },
   under: { label: 'Under betalning', bg: 'rgba(129,140,248,0.18)', color: '#4338ca' },
   slutbetald: { label: 'Slutbetald', bg: 'rgba(52,211,153,0.2)', color: '#1a7a2e' },
+  kreditfaktura: { label: 'Kreditfaktura', bg: 'rgba(147,51,234,0.15)', color: '#7e22ce' },
   makulerad: { label: 'Makulerad', bg: 'rgba(156,163,175,0.2)', color: '#4b5563' },
 }
 
@@ -70,6 +71,7 @@ export default function VisaLeverantorsfaktura() {
   function stateOf(i) {
     if (!i) return 'ejbokford'
     if (i.makulerad) return 'makulerad'
+    if (i.kreditfaktura && i.bokford) return 'kreditfaktura'
     const total = i.total_amount || 0, paid = i.paid_amount || 0
     if (total > 0 && paid >= total - 0.005) return 'slutbetald'
     if (paid > 0.005) return 'under'

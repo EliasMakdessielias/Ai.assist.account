@@ -23,6 +23,7 @@ const STATES = {
   forfallen: { label: 'Obetald förfallen', dot: '#dc2626', row: 'rgba(220,38,38,0.09)' },
   under: { label: 'Under betalning', dot: '#818cf8', row: 'rgba(129,140,248,0.08)' },
   slutbetald: { label: 'Slutbetald', dot: '#34d399', row: 'rgba(52,211,153,0.10)' },
+  kreditfaktura: { label: 'Kreditfaktura', dot: '#9333ea', row: 'rgba(147,51,234,0.08)' },
   makulerad: { label: 'Makulerad', dot: '#9ca3af', row: 'rgba(156,163,175,0.10)' },
 }
 const CHIPS = [
@@ -76,6 +77,7 @@ export default function Leverantorsfakturor() {
   const todayStr = today()
   function stateOf(i) {
     if (i.makulerad) return 'makulerad'
+    if (i.kreditfaktura && i.bokford) return 'kreditfaktura'
     const total = i.total_amount || 0, paid = i.paid_amount || 0
     if (total > 0 && paid >= total - 0.005) return 'slutbetald'
     if (paid > 0.005) return 'under'
