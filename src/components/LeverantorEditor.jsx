@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { SUPPORTED_CURRENCIES } from '../lib/currency'
-import { useContainerSize, previewWidthPx, previewHeightPx } from '../lib/docPreview'
+import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
+import PdfCanvas from './PdfCanvas'
 import toast from 'react-hot-toast'
 
 const MOMSTYPER = ['25%', '12%', '6%', '0%', 'Unionsinternt förvärv', 'Omvänd skattskyldighet']
@@ -39,9 +40,22 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
   }
   const [docUrl, setDocUrl] = useState(null)
   const [docMeta, setDocMeta] = useState(null)
-  const [docScale, setDocScale] = useState(1)
+  const [mode, setMode] = useState('auto')           // 'auto' (fit-to-panel) | 'manual'
+  const [manualScale, setManualScale] = useState(1)
+  const [natural, setNatural] = useState({ w: 0, h: 0 })
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
+  // Auto (fit-to-panel) vs Manual zoom – samma logik som övriga dokumentvisare.
+  const autoScale = computeAutoScale(cw, ch, natural.w, natural.h, { min: 0.35 })
+  const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
+  const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
+  const zoomLabel = mode === 'auto'
+    ? (autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
+    : `Manual · ${Math.round(manualScale * 100)}%`
+  const setManual = v => { setMode('manual'); setManualScale(clampScale(v)) }
+  const bumpManual = d => { setMode('manual'); setManualScale(s => clampScale(s + d)) }
+  // Nollställ zoomläget när ett nytt underlag laddas.
+  useEffect(() => { setMode('auto'); setManualScale(1); setNatural({ w: 0, h: 0 }) }, [docUrl])
   useEffect(() => {
     if (!docId) { setDocUrl(null); setDocMeta(null); return }
     let active = true
@@ -305,31 +319,38 @@ export default function LeverantorEditor({ company, prefill = {}, docId, onSaved
         <div onMouseDown={startResize} className="absolute top-0 bottom-0 w-1.5 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors z-30" style={{ left: -3 }} title="Dra för att ändra storlek" />
         <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           <span className="text-[15px] font-bold tracking-tight truncate">FAKTURAUNDERLAG</span>
-          <div className="flex items-center gap-2.5 text-gray-500 shrink-0">
-            <i className="ti ti-zoom-in text-gray-400 text-sm" />
-            <input type="range" min="0.5" max="3" step="0.1" value={docScale} aria-label="Zoom" title="Justera storlek på underlaget"
-              className="w-24 accent-blue-600 cursor-pointer" onChange={e => setDocScale(parseFloat(e.target.value))} />
-            <button title="Återställ till 100%" className="text-xs tabular-nums w-9 text-right hover:text-gray-900" onClick={() => setDocScale(1)}>{Math.round(docScale * 100)}%</button>
+          <div className="flex items-center gap-2 text-gray-500 shrink-0">
+            <button title="Anpassa till panel (Auto)" onClick={() => setMode('auto')}
+              className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${mode === 'auto' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>
+              <i className="ti ti-aspect-ratio" /> Auto
+            </button>
+            <input type="range" min="0.4" max="2.5" step="0.05" value={sliderValue} aria-label="Zoom" title="Justera storlek på underlaget"
+              className="w-24 accent-blue-600 cursor-pointer" onChange={e => setManual(parseFloat(e.target.value))} />
+            <span className="text-xs tabular-nums w-20 text-right" title={mode === 'auto' ? 'Anpassad till panelen' : 'Manuell zoom'}>{zoomLabel}</span>
             <a title="Öppna i ny flik" className="hover:text-gray-900 border-l pl-2.5" style={{ borderColor: 'rgba(0,0,0,0.1)' }} href={docUrl} target="_blank" rel="noreferrer"><i className="ti ti-external-link" /></a>
           </div>
         </div>
         <div className="flex-1 relative overflow-hidden">
           <div ref={previewRef} className="absolute inset-0 overflow-auto p-4">
           {docMeta?.mime_type?.startsWith('image/') ? (
-            <img src={docUrl} alt={docMeta.file_name} draggable={false} className="block mx-auto bg-white shadow select-none"
-              style={{ width: previewWidthPx(cw, docScale) ? `${previewWidthPx(cw, docScale)}px` : `${docScale * 100}%`, maxWidth: 'none', height: 'auto' }} />
+            <div className="min-h-full flex items-center justify-center">
+              <img src={docUrl} alt={docMeta.file_name} draggable={false} onLoad={e => setNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+                className="block bg-white shadow select-none"
+                style={{ width: natural.w ? `${Math.round(natural.w * effScale)}px` : (previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`), maxWidth: 'none', height: 'auto' }} />
+            </div>
           ) : docMeta?.mime_type === 'application/pdf' ? (
-            <iframe src={docUrl} title={docMeta.file_name} className="bg-white shadow block mx-auto"
-              style={{ width: previewWidthPx(cw, docScale) ? `${previewWidthPx(cw, docScale)}px` : `${100 * docScale}%`, height: previewHeightPx(ch, docScale) ? `${previewHeightPx(ch, docScale)}px` : `${Math.max(100, 100 * docScale)}%`, minHeight: '100%', border: 'none' }} />
+            <div className="min-h-full flex items-start justify-center">
+              <PdfCanvas url={docUrl} scale={effScale} onNaturalSize={setNatural} />
+            </div>
           ) : (
             <div className="h-full flex items-center justify-center text-center text-gray-500"><div><i className="ti ti-file text-4xl block mb-2 opacity-40" />{docMeta?.file_name}</div></div>
           )}
           </div>
           {/* Flytande zoomkontroll – alltid synlig */}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white/95 rounded-full shadow-lg px-1.5 py-1" style={{ border: '1px solid rgba(0,0,0,0.12)' }}>
-            <button title="Zooma ut" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setDocScale(s => Math.max(0.4, +(s - 0.2).toFixed(2)))}><i className="ti ti-minus" /></button>
-            <button title="Återställ till 100%" className="text-xs tabular-nums w-12 text-center text-gray-700 hover:text-gray-900" onClick={() => setDocScale(1)}>{Math.round(docScale * 100)}%</button>
-            <button title="Zooma in" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => setDocScale(s => Math.min(4, +(s + 0.2).toFixed(2)))}><i className="ti ti-plus" /></button>
+            <button title="Zooma ut" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => bumpManual(-0.2)}><i className="ti ti-minus" /></button>
+            <button title="Anpassa till panel (Auto)" className="text-xs tabular-nums px-2 min-w-[3.5rem] text-center text-gray-700 hover:text-gray-900" onClick={() => setMode('auto')}>{zoomLabel}</button>
+            <button title="Zooma in" className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-700" onClick={() => bumpManual(0.2)}><i className="ti ti-plus" /></button>
           </div>
         </div>
         <div className="bg-white border-t px-5 py-2 text-xs text-gray-500 truncate shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }} title={docMeta?.file_name}>
