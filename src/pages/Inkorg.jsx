@@ -27,8 +27,8 @@ export default function Inkorg() {
 
   useEffect(() => { if (company) load() }, [company?.id])
 
-  async function load() {
-    setLoading(true)
+  async function load(silent = false) {
+    if (!silent) setLoading(true)
     const [{ data }, { data: ia }] = await Promise.all([
       supabase.from('documents').select('*, verifikationer(ver_nr)').eq('company_id', company.id).order('created_at', { ascending: false }),
       supabase.from('inbox_addresses').select('inbox_type, email_address, is_active').eq('company_id', company.id),
@@ -36,8 +36,19 @@ export default function Inkorg() {
     setDocs(data || [])
     setAddrs(Object.fromEntries((ia || []).filter(a => a.is_active).map(a => [a.inbox_type, a.email_address])))
     setSelected(prev => (data || []).find(d => d.id === prev?.id) || null)
-    setLoading(false)
+    if (!silent) setLoading(false)
   }
+
+  // Auto-uppdatera så inmejlade underlag dyker upp utan manuell omladdning
+  // (vid fönster-fokus + var 45:e sekund). Tyst – ingen spinner.
+  useEffect(() => {
+    if (!company) return
+    const refresh = () => { if (!document.hidden) load(true) }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    const iv = setInterval(refresh, 45000)
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); clearInterval(iv) }
+  }, [company?.id])
 
   useEffect(() => {
     let active = true; setUrl(null)
