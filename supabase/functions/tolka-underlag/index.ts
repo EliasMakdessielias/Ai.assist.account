@@ -111,9 +111,14 @@ Regler:
 - Belopp som tal (punkt som decimal), inte text.
 - Föreslå en korrekt kontering enligt BAS-kontoplanen där debet = kredit (balanserad verifikation).
 - Använd ENDAST kontonummer som finns i kontoplanen nedan.
-- För en leverantörsfaktura med moms: debet kostnadskonto (netto), debet 2640 ingående moms (momsbeloppet), kredit 2440 leverantörsskulder (totalt inkl moms).
+- För en leverantörsfaktura med moms: debet kostnadskonto (NETTO = summa exkl. moms), debet 2640 ingående moms (momsbeloppet), kredit 2440 leverantörsskulder (= "Att betala", totalt inkl. moms efter ev. öresavrundning).
+- DUBBELRÄKNA ALDRIG: bokför kostnaden som EN nettorad. Om fakturan visar både enskilda fakturarader OCH en delsumma/"Summa exkl moms", använd ENBART delsumman (raderna ingår redan i den). Summan av alla debet-kostnadsrader måste vara exakt = netto (summa exkl moms).
+- ÖRESAVRUNDNING: om fakturan har "Öresavrundning"/"Öresutjämning" (t.ex. −0,25), lägg en egen rad på konto 3740 Öres- och kronutjämning. Avrundat NEDÅT (negativt) => kredit 3740; uppåt (positivt) => debet 3740. 2440 ska krediteras med "Att betala", inte netto+moms.
+- En rad får ALDRIG ha både debet och kredit – välj en sida.
+- KONTROLLERA före svar: summa debet = summa kredit (annars justera). Kredit 2440 = beloppet "Att betala".
 - För ett kontantkvitto: kreditera 1910 Kassa eller 1930 Företagskonto istället för 2440.
 - För insättningskvitto (kontanter till banken): debet 1930 Företagskonto, kredit 1910 Kassa.
+- Föredra 2640 Ingående moms (inte 2641) om båda finns i kontoplanen.
 - Sätt momssats till 25, 12, 6 eller 0.
 - beskrivning: kort, t.ex. leverantörens namn + vad det avser.
 - fakturanummer: läs ut fakturans nummer (märkt "Fakturanummer", "Faktnr" eller liknande).
