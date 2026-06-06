@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import { useAuth } from '../hooks/useAuth'
@@ -5,6 +6,10 @@ import StartGuide from './StartGuide'
 
 export default function Layout() {
   const { company, isAdmin, signOut } = useAuth()
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebarCollapsed') === '1' } catch { return false }
+  })
+  useEffect(() => { try { localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0') } catch { /* ignore */ } }, [collapsed])
 
   // Avstängt företag: blockera appen (admin släpps förbi).
   if (company?.suspended && !isAdmin) {
@@ -27,8 +32,8 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 ml-[230px]">
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
+      <main className="flex-1 min-w-0 transition-[margin] duration-150" style={{ marginLeft: collapsed ? 64 : 230 }}>
         <Outlet />
       </main>
     </div>

@@ -7,6 +7,7 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import { useContainerSize, previewWidthPx, previewHeightPx, computeAutoScale, clampScale } from '../lib/docPreview'
 
 const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW'
+const PANEL_VISIBLE_KEY = 'bokpilot.visaLevfaktura.panelVisible'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -30,7 +31,7 @@ export default function VisaLeverantorsfaktura() {
   const [verNr, setVerNr] = useState(null)
   const [docs, setDocs] = useState([])
   const [idx, setIdx] = useState(0)
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem(PANEL_VISIBLE_KEY) !== '0' } catch { return true } })
   const [coupling, setCoupling] = useState(false)
   const [mode, setMode] = useState('auto')           // 'auto' (fit-to-panel) | 'manual'
   const [manualScale, setManualScale] = useState(1)
@@ -44,6 +45,7 @@ export default function VisaLeverantorsfaktura() {
     return v >= 360 ? v : Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.44)
   })
   useEffect(() => { try { localStorage.setItem(PANEL_KEY, String(panelW)) } catch { /* ignore */ } }, [panelW])
+  useEffect(() => { try { localStorage.setItem(PANEL_VISIBLE_KEY, panelOpen ? '1' : '0') } catch { /* ignore */ } }, [panelOpen])
   // Dragbar splitter (pointer = mus + touch + penna). Min 360px, max 75% av vyn.
   function startResize(e) {
     e.preventDefault()
@@ -122,7 +124,7 @@ export default function VisaLeverantorsfaktura() {
   const current = docs[idx] || null
   const isImg = current && (current.mime_type?.startsWith('image') || /\.(png|jpe?g|gif|webp|heic)$/i.test(current.file_name || ''))
   // Auto (fit-to-panel) vs Manual zoom – återanvänder samma logik som UnderlagPanel.
-  const autoScale = computeAutoScale(cw, ch, natural.w, natural.h)
+  const autoScale = computeAutoScale(cw, ch, natural.w, natural.h, { min: 0.35 })
   const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
   const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
   const zoomLabel = mode === 'auto'

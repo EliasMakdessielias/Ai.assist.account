@@ -27,7 +27,7 @@ const navItems = [
   { label: 'Produkter', icon: 'ti-package', to: '/produkter' },
 ]
 
-export default function Sidebar() {
+export default function Sidebar({ collapsed = false, onToggle }) {
   const { company, companies, switchCompany, createCompany, signOut, isAdmin } = useAuth()
   const location = useLocation()
   const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
@@ -46,76 +46,91 @@ export default function Sidebar() {
   }
 
   const linkClass = ({ isActive }) =>
-    `flex items-center gap-2.5 px-5 py-2 text-[13.5px] transition-colors cursor-pointer w-full ${
+    `flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-5'} py-2 text-[13.5px] transition-colors cursor-pointer w-full ${
       isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
     }`
 
   return (
-    <aside className="sidebar w-[230px] bg-white border-r fixed top-0 left-0 h-screen flex flex-col z-50" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-      <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <div className="text-xl font-semibold tracking-tight">{BRAND.appName}</div>
-        <div className="text-[11px] text-gray-400 mt-0.5">{BRAND.tagline}</div>
+    <aside className={`sidebar ${collapsed ? 'w-16' : 'w-[230px]'} bg-white border-r fixed top-0 left-0 h-screen flex flex-col z-50 transition-[width] duration-150`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+      {/* Logotyp + fäll-knapp */}
+      <div className={`border-b flex items-center ${collapsed ? 'justify-center py-4' : 'justify-between px-5 pt-5 pb-4'}`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+        {collapsed ? (
+          <button onClick={onToggle} title="Expandera meny" aria-label="Expandera meny"
+            className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-white text-xs font-bold hover:bg-blue-800">
+            {BRAND.appName.slice(0, 2)}
+          </button>
+        ) : (
+          <>
+            <div className="min-w-0">
+              <div className="text-xl font-semibold tracking-tight truncate">{BRAND.appName}</div>
+              <div className="text-[11px] text-gray-400 mt-0.5 truncate">{BRAND.tagline}</div>
+            </div>
+            <button onClick={onToggle} title="Fäll ihop meny" aria-label="Fäll ihop meny" className="text-gray-400 hover:text-gray-700 p-1 shrink-0">
+              <i className="ti ti-layout-sidebar-left-collapse text-xl" />
+            </button>
+          </>
+        )}
       </div>
 
-      <nav className="flex-1 py-2.5 overflow-y-auto">
+      <nav className="flex-1 py-2.5 overflow-y-auto overflow-x-hidden">
         {navItems.map((item, i) =>
           item.section ? (
-            <div key={i} className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-              {item.section}
-            </div>
+            collapsed
+              ? <div key={i} className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }} />
+              : <div key={i} className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{item.section}</div>
           ) : (
-            <NavLink key={i} to={item.to} end={item.to === '/'} className={linkClass}>
+            <NavLink key={i} to={item.to} end={item.to === '/'} className={linkClass} title={collapsed ? item.label : undefined}>
               <i className={`ti ${item.icon} text-[17px] w-5 text-center`} />
-              {item.label}
-              {item.badge && (
-                <span className="ml-auto bg-blue-700 text-white text-[10px] font-medium px-1.5 py-0 rounded-full">
-                  {item.badge}
-                </span>
-              )}
+              {!collapsed && item.label}
             </NavLink>
           )
         )}
 
         {isAdmin && (
-          <>
-            <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
-            <NavLink to="/admin" className={linkClass}>
-              <i className="ti ti-shield-lock text-[17px] w-5 text-center" />
-              Superadmin
-            </NavLink>
-          </>
+          collapsed ? (
+            <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>
+          ) : (
+            <>
+              <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
+              <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>
+            </>
+          )
         )}
 
-        <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-          Inställningar
-        </div>
-        <button
-          onClick={() => setSettingsOpen(!settingsOpen)}
-          className={`flex items-center gap-2.5 px-5 py-2 text-[13.5px] w-full transition-colors ${
-            settingsOpen ? 'text-gray-900 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-          }`}
-        >
-          <i className="ti ti-settings text-[17px] w-5 text-center" />
-          Inställningar
-          <i className={`ti ti-chevron-down text-sm ml-auto transition-transform ${settingsOpen ? 'rotate-180' : ''}`} />
-        </button>
-        <div className={`nav-submenu ${settingsOpen ? 'open' : ''}`}>
-          {SETTINGS_ITEMS.map((item, i) => {
-            const active = isSettingsItemActive(item, location.pathname)
-            return (
-              <Link
-                key={i}
-                to={item.to}
-                aria-current={active ? 'page' : undefined}
-                className={`block px-5 pl-12 py-1.5 text-[13px] transition-colors ${
-                  active ? 'text-blue-700 font-medium bg-blue-50' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-                }`}
-              >
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
+        {/* Inställningar */}
+        {collapsed ? (
+          <NavLink to="/installningar" className={linkClass} title="Inställningar"
+            aria-current={isSettingsSection(location.pathname) ? 'page' : undefined}>
+            <i className="ti ti-settings text-[17px] w-5 text-center" />
+          </NavLink>
+        ) : (
+          <>
+            <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Inställningar</div>
+            <button
+              onClick={() => setSettingsOpen(!settingsOpen)}
+              className={`flex items-center gap-2.5 px-5 py-2 text-[13.5px] w-full transition-colors ${
+                settingsOpen ? 'text-gray-900 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              <i className="ti ti-settings text-[17px] w-5 text-center" />
+              Inställningar
+              <i className={`ti ti-chevron-down text-sm ml-auto transition-transform ${settingsOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <div className={`nav-submenu ${settingsOpen ? 'open' : ''}`}>
+              {SETTINGS_ITEMS.map((item, i) => {
+                const active = isSettingsItemActive(item, location.pathname)
+                return (
+                  <Link key={i} to={item.to} aria-current={active ? 'page' : undefined}
+                    className={`block px-5 pl-12 py-1.5 text-[13px] transition-colors ${
+                      active ? 'text-blue-700 font-medium bg-blue-50' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                    }`}>
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </div>
+          </>
+        )}
       </nav>
 
       <div className="p-3 border-t relative" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -123,7 +138,7 @@ export default function Sidebar() {
         {menuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-            <div className="absolute bottom-full left-3 right-3 mb-1 bg-white rounded-lg shadow-xl z-50 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+            <div className="absolute bottom-full mb-1 bg-white rounded-lg shadow-xl z-50 overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.12)', left: 12, minWidth: 220 }}>
               <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Byt företag</div>
               <div className="max-h-60 overflow-y-auto">
                 {companies.map(c => (
@@ -142,21 +157,31 @@ export default function Sidebar() {
           </>
         )}
 
-        <div className="bg-gray-50 rounded-lg p-2.5 flex items-center gap-2.5">
-          <button onClick={() => setMenuOpen(o => !o)} className="flex items-center gap-2.5 min-w-0 flex-1" title="Byt företag">
-            <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white text-[11px] font-semibold shrink-0">
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2">
+            <button onClick={() => setMenuOpen(o => !o)} title={`${company?.name || 'Företag'}${companies.length > 1 ? ' · byt företag' : ''}`}
+              className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-white text-[11px] font-semibold hover:bg-blue-800">
               {company?.name?.slice(0, 2).toUpperCase() || 'AB'}
-            </div>
-            <div className="min-w-0 text-left">
-              <div className="text-[12.5px] font-medium truncate">{company?.name || 'Företag'}</div>
-              <div className="text-[11px] text-gray-400">{companies.length > 1 ? `${companies.length} företag · byt` : (company?.org_nr || '')}</div>
-            </div>
-            <i className="ti ti-selector text-gray-400 shrink-0" />
-          </button>
-          <button onClick={signOut} title="Logga ut" className="text-gray-400 hover:text-gray-700 shrink-0 p-1">
-            <i className="ti ti-logout text-lg" />
-          </button>
-        </div>
+            </button>
+            <button onClick={signOut} title="Logga ut" className="text-gray-400 hover:text-gray-700 p-1"><i className="ti ti-logout text-lg" /></button>
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-lg p-2.5 flex items-center gap-2.5">
+            <button onClick={() => setMenuOpen(o => !o)} className="flex items-center gap-2.5 min-w-0 flex-1" title="Byt företag">
+              <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center text-white text-[11px] font-semibold shrink-0">
+                {company?.name?.slice(0, 2).toUpperCase() || 'AB'}
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="text-[12.5px] font-medium truncate">{company?.name || 'Företag'}</div>
+                <div className="text-[11px] text-gray-400">{companies.length > 1 ? `${companies.length} företag · byt` : (company?.org_nr || '')}</div>
+              </div>
+              <i className="ti ti-selector text-gray-400 shrink-0" />
+            </button>
+            <button onClick={signOut} title="Logga ut" className="text-gray-400 hover:text-gray-700 shrink-0 p-1">
+              <i className="ti ti-logout text-lg" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Skapa nytt företag */}
