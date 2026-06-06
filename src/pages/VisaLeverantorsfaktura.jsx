@@ -32,11 +32,27 @@ export default function VisaLeverantorsfaktura() {
   const [idx, setIdx] = useState(0)
   const [panelOpen, setPanelOpen] = useState(true)
   const [coupling, setCoupling] = useState(false)
-  const [scale, setScale] = useState(1)
+  const [mode, setMode] = useState('auto')           // 'auto' (fit-to-panel) | 'manual'
+  const [manualScale, setManualScale] = useState(1)
+  const [natural, setNatural] = useState({ w: 0, h: 0 })
   const [rot, setRot] = useState(0)
   const [loading, setLoading] = useState(true)
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
+  const [panelW, setPanelW] = useState(() => {
+    const v = Number(localStorage.getItem(PANEL_KEY))
+    return v >= 360 ? v : Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.44)
+  })
+  useEffect(() => { try { localStorage.setItem(PANEL_KEY, String(panelW)) } catch { /* ignore */ } }, [panelW])
+  // Dragbar splitter (pointer = mus + touch + penna). Min 360px, max 75% av vyn.
+  function startResize(e) {
+    e.preventDefault()
+    const maxW = Math.round(window.innerWidth * 0.75)
+    const move = ev => setPanelW(Math.min(maxW, Math.max(360, window.innerWidth - ev.clientX)))
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.style.userSelect = '' }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
 
   useEffect(() => { load() }, [id])
 
@@ -105,6 +121,14 @@ export default function VisaLeverantorsfaktura() {
   const sumK = rows.reduce((s, r) => s + (r.kredit || 0), 0)
   const current = docs[idx] || null
   const isImg = current && (current.mime_type?.startsWith('image') || /\.(png|jpe?g|gif|webp|heic)$/i.test(current.file_name || ''))
+  // Auto (fit-to-panel) vs Manual zoom – återanvänder samma logik som UnderlagPanel.
+  const autoScale = computeAutoScale(cw, ch, natural.w, natural.h)
+  const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
+  const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
+  const zoomLabel = mode === 'auto'
+    ? (isImg && autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
+    : `${Math.round(manualScale * 100)}%`
+  const setManual = v => { setMode('manual'); setManualScale(clampScale(v)) }
 
   const F = ({ label, value, w = '' }) => (
     <div className={w}>
@@ -198,49 +222,58 @@ export default function VisaLeverantorsfaktura() {
             <div className="flex-1 overflow-hidden"><UnderlagPanel company={{ id: inv.company_id }} onCouple={couple} title="VÄLJ FRÅN INKORGEN" /></div>
           </div>
         ) : (
-          <div className="w-[44%] border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-            <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              <span className="text-sm font-semibold">KOPPLADE BILDER {docs.length} ({docs.length})</span>
-              <div className="flex items-center gap-2.5 text-gray-500">
-                <button title="Rotera" onClick={() => setRot(r => (r + 90) % 360)}><i className="ti ti-rotate-clockwise" /></button>
-                <i className="ti ti-zoom-in text-gray-400" />
-                <input type="range" min="0.5" max="3" step="0.1" value={scale} aria-label="Zoom" title="Justera storlek"
-                  className="w-24 accent-blue-600 cursor-pointer" onChange={e => setScale(parseFloat(e.target.value))} />
-                <button title="Återställ till 100%" className="text-xs tabular-nums w-9 text-right hover:text-gray-900" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
-                {current?.url && <a href={current.url} download title="Ladda ner"><i className="ti ti-download" /></a>}
-                <button title="Dölj panel" onClick={() => setPanelOpen(false)}><i className="ti ti-x" /></button>
-              </div>
-            </div>
-
-            <div ref={previewRef} className="flex-1 overflow-auto bg-gray-100 p-4">
-              {docs.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-center text-gray-400">
-                  <div><i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />Inga kopplade bilder</div>
+          <>
+            <div onPointerDown={startResize} role="separator" aria-orientation="vertical" title="Dra för att ändra storlek"
+              className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 active:bg-blue-500 transition-colors" style={{ touchAction: 'none' }} />
+            <div className="border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
+              <div className="px-5 py-3 border-b flex items-center justify-between gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                <span className="text-sm font-semibold truncate">KOPPLADE BILDER {docs.length} ({docs.length})</span>
+                <div className="flex items-center gap-2 text-gray-500 shrink-0">
+                  <button title="Rotera" onClick={() => setRot(r => (r + 90) % 360)}><i className="ti ti-rotate-clockwise" /></button>
+                  <button title="Anpassa till panel (Auto)" onClick={() => setMode('auto')}
+                    className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${mode === 'auto' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>
+                    <i className="ti ti-aspect-ratio" /> Auto
+                  </button>
+                  <input type="range" min="0.4" max="2.5" step="0.05" value={sliderValue} aria-label="Zoom" title="Justera storlek"
+                    className="w-20 accent-blue-600 cursor-pointer" onChange={e => setManual(parseFloat(e.target.value))} />
+                  <span className="text-xs tabular-nums w-16 text-right" title={mode === 'auto' ? 'Anpassad till panelen' : 'Manuell zoom'}>{zoomLabel}</span>
+                  {current?.url && <a href={current.url} download title="Ladda ner"><i className="ti ti-download" /></a>}
+                  <button title="Dölj panel" onClick={() => setPanelOpen(false)}><i className="ti ti-x" /></button>
                 </div>
-              ) : !current?.url ? (
-                <div className="h-full flex items-center justify-center text-gray-400">Kunde inte ladda bilden</div>
-              ) : isImg ? (
-                <img src={current.url} alt="" draggable={false}
-                  className="block mx-auto shadow-lg bg-white select-none"
-                  style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${scale * 100}%`, maxWidth: 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined }} />
-              ) : (
-                <iframe src={current.url} title="underlag" className="bg-white block mx-auto" style={{ width: previewWidthPx(cw, scale) ? `${previewWidthPx(cw, scale)}px` : `${scale * 100}%`, maxWidth: 'none', height: previewHeightPx(ch, scale) ? `${previewHeightPx(ch, scale)}px` : `${Math.max(70, 70 * scale)}vh`, border: 'none' }} />
-              )}
-            </div>
-
-            {docs.length > 1 && (
-              <div className="px-5 py-2 border-t flex items-center justify-center gap-3 text-sm" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-                <button className="btn text-xs py-1 px-2" disabled={idx === 0} onClick={() => { setIdx(i => i - 1); setScale(1); setRot(0) }}><i className="ti ti-chevron-left" /></button>
-                <span>{idx + 1} / {docs.length}</span>
-                <button className="btn text-xs py-1 px-2" disabled={idx >= docs.length - 1} onClick={() => { setIdx(i => i + 1); setScale(1); setRot(0) }}><i className="ti ti-chevron-right" /></button>
               </div>
-            )}
 
-            <div className="px-5 py-3 border-t flex items-center justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              {current && <button className="btn" onClick={() => kopplaBort(current.id)}>Koppla bort</button>}
-              <button className="btn btn-green" onClick={() => setCoupling(true)}>Koppla fler</button>
+              <div ref={previewRef} className="flex-1 overflow-auto bg-gray-100 p-4">
+                {docs.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-center text-gray-400">
+                    <div><i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />Inga kopplade bilder</div>
+                  </div>
+                ) : !current?.url ? (
+                  <div className="h-full flex items-center justify-center text-gray-400">Kunde inte ladda bilden</div>
+                ) : isImg ? (
+                  <div className="min-h-full flex items-center justify-center">
+                    <img src={current.url} alt="" draggable={false} onLoad={e => setNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+                      className="block shadow-lg bg-white select-none"
+                      style={{ width: natural.w ? `${Math.round(natural.w * effScale)}px` : (previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`), maxWidth: 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined }} />
+                  </div>
+                ) : (
+                  <iframe src={current.url} title="underlag" className="bg-white block mx-auto" style={{ width: previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`, maxWidth: 'none', height: previewHeightPx(ch, effScale) ? `${previewHeightPx(ch, effScale)}px` : `${Math.max(70, 70 * effScale)}vh`, border: 'none' }} />
+                )}
+              </div>
+
+              {docs.length > 1 && (
+                <div className="px-5 py-2 border-t flex items-center justify-center gap-3 text-sm" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                  <button className="btn text-xs py-1 px-2" disabled={idx === 0} onClick={() => { setIdx(i => i - 1); setMode('auto'); setManualScale(1); setNatural({ w: 0, h: 0 }); setRot(0) }}><i className="ti ti-chevron-left" /></button>
+                  <span>{idx + 1} / {docs.length}</span>
+                  <button className="btn text-xs py-1 px-2" disabled={idx >= docs.length - 1} onClick={() => { setIdx(i => i + 1); setMode('auto'); setManualScale(1); setNatural({ w: 0, h: 0 }); setRot(0) }}><i className="ti ti-chevron-right" /></button>
+                </div>
+              )}
+
+              <div className="px-5 py-3 border-t flex items-center justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+                {current && <button className="btn" onClick={() => kopplaBort(current.id)}>Koppla bort</button>}
+                <button className="btn btn-green" onClick={() => setCoupling(true)}>Koppla fler</button>
+              </div>
             </div>
-          </div>
+          </>
         )
       )}
     </div>
