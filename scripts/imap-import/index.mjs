@@ -101,15 +101,15 @@ async function run() {
     logger: false,
   })
   await client.connect()
-  await ensureMailbox(client, PROCESSED)
-  await ensureMailbox(client, FAILED)
+  const processedPath = await ensureMailbox(client, PROCESSED)
+  const failedPath = await ensureMailbox(client, FAILED)
 
   let processed = 0, failed = 0, rejected = 0
   const lock = await client.getMailboxLock(MAILBOX)
   try {
     const uids = await client.search({ seen: false }, { uid: true })
     for (const uid of uids) {
-      let target = PROCESSED
+      let target = processedPath
       try {
         const msg = await client.fetchOne(uid, { source: true }, { uid: true })
         const mail = await simpleParser(msg.source)
@@ -120,7 +120,7 @@ async function run() {
           mail.headers.get('x-original-to'),
         ])
         if (!recipient) {
-          rejected++; target = FAILED
+          rejected++; target = failedPath
           console.log(`uid ${uid}: ingen giltig underlagsadress – ignorerad`)
         } else {
           const attachments = (mail.attachments || []).map(a => ({
@@ -144,12 +144,12 @@ async function run() {
             processed++
             console.log(`uid ${uid}: ${st} (${res.body?.created ?? 0} poster)`)
           } else {
-            failed++; target = FAILED
+            failed++; target = failedPath
             console.log(`uid ${uid}: webhook ${res.status} ${st || ''} – flyttas till ${FAILED}`)
           }
         }
       } catch (e) {
-        failed++; target = FAILED
+        failed++; target = failedPath
         console.error(`uid ${uid}: fel vid bearbetning – ${e?.message || e}`)
       }
       try {
