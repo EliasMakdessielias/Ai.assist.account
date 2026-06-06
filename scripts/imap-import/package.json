@@ -1,0 +1,13 @@
+{
+  "name": "bokpilot-imap-import",
+  "private": true,
+  "type": "module",
+  "description": "Läser Hostinger-mailboxen underlag@bokpilot.se via IMAP och importerar underlag till BokPilots Inkorg via inbound-email-webhooken.",
+  "scripts": {
+    "import": "node index.mjs"
+  },
+  "dependencies": {
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.1"
+  }
+}

@@ -157,7 +157,15 @@ Deno.serve(async (req) => {
     attachments = Array.isArray(payload.attachments) ? payload.attachments : []
     recipientCandidates = [payload.to].filter(Boolean).map(String)
   }
+  const messageId = (payload.messageId || payload.MessageID || payload.MessageId || '').toString().slice(0, 400) || null
+  const sourceTag = (payload.source || 'email').toString().slice(0, 40)
   const now = new Date().toISOString()
+
+  // Idempotens: samma Message-ID importeras aldrig två gånger.
+  if (messageId) {
+    const { data: dup } = await admin.from('inbound_email_log').select('id').eq('message_id', messageId).maybeSingle()
+    if (dup) return json({ status: 'duplicate', messageId })
+  }
 
   // 3) Hitta den mottagaradress som matchar {nr}underlag@bokpilot.se.
   let parsed: { archiveNumber: string; email: string } | null = null
@@ -165,7 +173,7 @@ Deno.serve(async (req) => {
   for (const cand of recipientCandidates) { const p = parseRecipient(cand); if (p) { parsed = p; recipient = cand; break } }
 
   const log = (company_id: string | null, status: string, detail: string, n = 0) =>
-    admin.from('inbound_email_log').insert({ company_id, recipient: extractEmail(recipient), sender, subject, status, detail, attachment_count: n })
+    admin.from('inbound_email_log').insert({ company_id, recipient: extractEmail(recipient), sender, subject, status, detail, attachment_count: n, message_id: messageId })
 
   if (!parsed) { await log(null, 'rejected', 'okand_eller_ogiltig_mottagaradress'); return json({ status: 'rejected', reason: 'unknown_recipient' }) }
   const { data: inbox } = await admin.from('inbox_addresses')
@@ -175,8 +183,8 @@ Deno.serve(async (req) => {
 
   const companyId = inbox.company_id
   const base = {
-    company_id: companyId, source: 'email', email_from: sender, email_to: parsed.email,
-    email_subject: subject, email_body: bodyText, received_at: now,
+    company_id: companyId, source: sourceTag, email_from: sender, email_to: parsed.email,
+    email_subject: subject, email_body: bodyText, received_at: now, inbound_message_id: messageId,
   }
   const results: any[] = []
 
