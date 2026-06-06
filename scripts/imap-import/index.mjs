@@ -66,8 +66,18 @@ function pickRecipient(values) {
   return null
 }
 
+// Hitta/skapa en mapp och returnera dess fulla sökväg. Hanterar Hostingers
+// "INBOX."-hierarki (mappar ligger under INBOX med t.ex. "." som avskiljare).
 async function ensureMailbox(client, name) {
-  try { await client.mailboxCreate(name) } catch { /* finns redan */ }
+  let boxes = await client.list()
+  const delim = boxes[0]?.delimiter || '.'
+  const find = () => boxes.find(b => b.path === name || b.path === `INBOX${delim}${name}`)?.path
+  let p = find()
+  if (p) return p
+  const path = `INBOX${delim}${name}`
+  try { await client.mailboxCreate(path) } catch { /* kan redan finnas */ }
+  boxes = await client.list()
+  return find() || path
 }
 
 async function postToWebhook(body) {
