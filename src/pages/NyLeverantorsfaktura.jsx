@@ -186,6 +186,20 @@ export default function NyLeverantorsfaktura() {
     setRows(rs => rs.map(r => ({ ...r, debet: r.kredit, kredit: r.debet })))
   }
 
+  // En rad får ALDRIG ha både debet och kredit. Om båda är satta läggs beloppet
+  // på rätt sida: kostnad/moms på debet, leverantörsskuld (24xx) på kredit – och
+  // omvänt om det är en kreditfaktura.
+  function singleSide(r) {
+    const d = num(r.debet), k = num(r.kredit)
+    if (d > 0 && k > 0) {
+      const isPayable = /^24/.test(String(r.konto || ''))
+      const toKredit = kreditfaktura ? !isPayable : isPayable
+      const val = fmt(Math.max(d, k))
+      return { ...r, debet: toKredit ? '' : val, kredit: toKredit ? val : '' }
+    }
+    return r
+  }
+
   // När man fyllt i ett kostnadskonto och raden saknar belopp → fyll debet med kvarvarande differens.
   function onKontoBlur(idx) {
     setRows(rs => {
@@ -249,7 +263,7 @@ export default function NyLeverantorsfaktura() {
     let nya = kr.map(r => {
       const nr = String(r.konto ?? '').trim()
       const d = num(r.debet), k = num(r.kredit)
-      return { konto: nr, namn: accMap[nr] || r.benamning || '', info: '', debet: d > 0 ? fmt(d) : '', kredit: k > 0 ? fmt(k) : '' }
+      return singleSide({ konto: nr, namn: accMap[nr] || r.benamning || '', info: '', debet: d > 0 ? fmt(d) : '', kredit: k > 0 ? fmt(k) : '' })
     }).filter(r => r.konto)
     // Härled Total/Moms
     let t = num(result.total ?? result.belopp ?? result.summa)
@@ -284,6 +298,7 @@ export default function NyLeverantorsfaktura() {
 
   function konteringRows() {
     return rows.filter(r => r.konto && (num(r.debet) > 0 || num(r.kredit) > 0))
+      .map(r => singleSide(r))   // skydd: aldrig både debet och kredit på samma rad
       .map(r => ({ nr: r.konto, name: accMap[r.konto] || r.namn || '', info: r.info || '', debet: num(r.debet), kredit: num(r.kredit) }))
   }
 
