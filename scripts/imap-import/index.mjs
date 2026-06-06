@@ -20,12 +20,31 @@
 import { ImapFlow } from 'imapflow'
 import { simpleParser } from 'mailparser'
 import { createHmac } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+// Ladda .env från skriptets mapp (om den finns) – enkel parser, inga deps.
+try {
+  const envPath = join(dirname(fileURLToPath(import.meta.url)), '.env')
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/)
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '')
+  }
+} catch { /* ingen .env – använd process.env */ }
 
 const env = (k, d) => process.env[k] ?? d
 const INBOX_DOMAIN = 'bokpilot.se'
 
-const REQUIRED = ['IMAP_HOST', 'IMAP_USER', 'IMAP_PASSWORD', 'INBOUND_WEBHOOK_URL', 'INBOUND_EMAIL_WEBHOOK_SECRET']
-for (const k of REQUIRED) if (!env(k)) { console.error(`Saknar miljövariabel: ${k}`); process.exit(1) }
+// Webhook-URL och secret kan anges med endera namnschemat.
+const WEBHOOK_URL = env('INBOUND_EMAIL_WEBHOOK_URL') || env('INBOUND_WEBHOOK_URL')
+const WEBHOOK_TOKEN = env('INBOUND_EMAIL_WEBHOOK_TOKEN') || env('INBOUND_EMAIL_WEBHOOK_SECRET')
+
+const missing = []
+for (const k of ['IMAP_HOST', 'IMAP_USER', 'IMAP_PASSWORD']) if (!env(k)) missing.push(k)
+if (!WEBHOOK_URL) missing.push('INBOUND_EMAIL_WEBHOOK_URL')
+if (!WEBHOOK_TOKEN) missing.push('INBOUND_EMAIL_WEBHOOK_TOKEN')
+if (missing.length) { console.error('Saknar miljövariabler: ' + missing.join(', ')); process.exit(1) }
 
 const MAILBOX = env('IMAP_MAILBOX', 'INBOX')
 const PROCESSED = env('IMAP_PROCESSED', 'Processed')
@@ -52,8 +71,8 @@ async function ensureMailbox(client, name) {
 }
 
 async function postToWebhook(body) {
-  const sig = createHmac('sha256', env('INBOUND_EMAIL_WEBHOOK_SECRET')).update(body).digest('hex')
-  const resp = await fetch(env('INBOUND_WEBHOOK_URL'), {
+  const sig = createHmac('sha256', WEBHOOK_TOKEN).update(body).digest('hex')
+  const resp = await fetch(WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Bokpilot-Signature': `sha256=${sig}` },
     body,
