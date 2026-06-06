@@ -4,7 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
-import { useContainerSize, previewWidthPx, previewHeightPx } from '../lib/docPreview'
+import { useContainerSize, previewWidthPx, previewHeightPx, computeAutoScale, clampScale } from '../lib/docPreview'
+
+const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
