@@ -107,7 +107,13 @@ async function run() {
   let processed = 0, failed = 0, rejected = 0
   const lock = await client.getMailboxLock(MAILBOX)
   try {
-    const uids = await client.search({ seen: false }, { uid: true })
+    // Bearbeta ALLA mejl i INBOX (Hostingers SEARCH UNSEEN är opålitlig). Säkert
+    // eftersom varje mejl flyttas till Processed/Failed efteråt + webhooken
+    // dedupar på Message-ID, så inget importeras två gånger.
+    const uids = []
+    if ((client.mailbox?.exists || 0) > 0) {
+      for await (const m of client.fetch('1:*', { uid: true })) uids.push(m.uid)
+    }
     for (const uid of uids) {
       let target = processedPath
       try {
