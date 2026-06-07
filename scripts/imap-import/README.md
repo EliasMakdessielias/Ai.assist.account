@@ -30,8 +30,8 @@ IMAP_PORT=993
 IMAP_USER=underlag@bokpilot.se
 IMAP_PASSWORD=********              # mailboxens lösenord
 IMAP_TLS=true
-INBOUND_WEBHOOK_URL=https://bypebgvxdmbzxqecllao.supabase.co/functions/v1/inbound-email
-INBOUND_EMAIL_WEBHOOK_SECRET=********   # samma secret som edge-funktionen
+INBOUND_EMAIL_WEBHOOK_URL=https://bypebgvxdmbzxqecllao.supabase.co/functions/v1/inbound-email
+INBOUND_EMAIL_WEBHOOK_TOKEN=********    # samma secret som edge-funktionen
 # valfritt: IMAP_MAILBOX=INBOX  IMAP_PROCESSED=Processed  IMAP_FAILED=Failed
 ```
 
@@ -58,8 +58,9 @@ Register-ScheduledTask -TaskName 'BokPilotUnderlagImport' -Action $action -Trigg
 ## Hur kraven uppfylls
 - **Endast olästa** mejl läses; efter import markeras de `\Seen` och flyttas till `Processed`
   (fel → `Failed`) → **idempotent**. Webhooken dedupar dessutom på **Message-ID**.
-- **Mottagaren** läses ur To/Cc/Delivered-To/X-Original-To; endast `{archiveNumber}underlag@bokpilot.se`
-  accepteras, annars flyttas mejlet till `Failed` utan att skapa Inkorg-post.
+- **Mottagaren** läses i ordning Delivered-To → X-Original-To → Envelope-To → To → Cc; endast
+  `^([0-9]{5,10})underlag@bokpilot.se$` accepteras (testbar parser i `parse.mjs`), annars flyttas
+  mejlet till `Failed` utan att skapa Inkorg-post.
 - **Flera bilagor** → webhooken skapar **en Inkorg-post per bilaga** med klassificering + confidence.
 - **`source = "hostinger-imap"`** och **`inbound_message_id`** sparas på varje post; loggas i `inbound_email_log`.
 - **Inga känsliga uppgifter loggas** (endast uid/status).
