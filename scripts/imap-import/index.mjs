@@ -23,6 +23,7 @@ import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { pickRecipient } from './parse.mjs'
 
 // Ladda .env från skriptets mapp (om den finns) – enkel parser, inga deps.
 try {
@@ -34,7 +35,6 @@ try {
 } catch { /* ingen .env – använd process.env */ }
 
 const env = (k, d) => process.env[k] ?? d
-const INBOX_DOMAIN = 'bokpilot.se'
 
 // Webhook-URL och secret kan anges med endera namnschemat.
 const WEBHOOK_URL = env('INBOUND_EMAIL_WEBHOOK_URL') || env('INBOUND_WEBHOOK_URL')
@@ -49,22 +49,6 @@ if (missing.length) { console.error('Saknar miljövariabler: ' + missing.join(',
 const MAILBOX = env('IMAP_MAILBOX', 'INBOX')
 const PROCESSED = env('IMAP_PROCESSED', 'Processed')
 const FAILED = env('IMAP_FAILED', 'Failed')
-
-// Plocka ut {archiveNumber}underlag@bokpilot.se ur en lista av header-värden.
-function pickRecipient(values) {
-  const cands = []
-  for (const v of values) if (v) for (const p of String(v).split(',')) { const t = p.trim(); if (t) cands.push(t) }
-  for (const c of cands) {
-    const m = c.match(/<([^>]+)>/)
-    const addr = (m ? m[1] : c).trim().toLowerCase()
-    const at = addr.indexOf('@')
-    if (at < 0) continue
-    const local = addr.slice(0, at), domain = addr.slice(at + 1)
-    if (domain !== INBOX_DOMAIN) continue
-    if (/^\d+underlag$/.test(local)) return addr
-  }
-  return null
-}
 
 // Hitta/skapa en mapp och returnera dess fulla sökväg. Hanterar Hostingers
 // "INBOX."-hierarki (mappar ligger under INBOX med t.ex. "." som avskiljare).
@@ -119,11 +103,13 @@ async function run() {
       try {
         const msg = await client.fetchOne(uid, { source: true }, { uid: true })
         const mail = await simpleParser(msg.source)
+        // Ordning enligt Krav C: Delivered-To, X-Original-To, Envelope-To, To, Cc.
         const recipient = pickRecipient([
-          ...((mail.to?.value || []).map(v => v.address)),
-          ...((mail.cc?.value || []).map(v => v.address)),
           mail.headers.get('delivered-to'),
           mail.headers.get('x-original-to'),
+          mail.headers.get('envelope-to'),
+          ...((mail.to?.value || []).map(v => v.address)),
+          ...((mail.cc?.value || []).map(v => v.address)),
         ])
         if (!recipient) {
           rejected++; target = failedPath
