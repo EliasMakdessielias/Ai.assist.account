@@ -5,6 +5,9 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
 import { INBOX_CATEGORIES as KATS } from '../lib/inboxAddresses'
+import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
+import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
+import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -21,6 +24,8 @@ export default function Inkorg() {
   const [sel, setSel] = useState(new Set())
   const [addrs, setAddrs] = useState({})
   const fileRef = useRef()
+  // Gemensam dokumentvisare till höger – egen layout-nyckel (krockar ej med andra moduler).
+  const { panelW, dragging, startResize } = useDocumentViewerLayout({ widthKey: 'bokpilot.inkorg.viewerW' })
 
   const cur = KATS.find(k => k.key === kat)
   const inboxAddr = addrs.underlag || ''
@@ -159,8 +164,21 @@ export default function Inkorg() {
     toast.success(`${selVisible.length} raderade`); setSel(new Set()); load()
   }
 
+  const viewerDocs = selected ? [{ id: selected.id, url, file_name: selected.file_name, mime_type: selected.mime_type }] : []
+  const viewerPanel = selected ? (
+    <DocumentViewerPanel
+      docs={viewerDocs} index={0} title={selected.file_name}
+      onClose={() => setSelected(null)} dragging={dragging} emptyIcon={cur.icon}
+      footer={cur.create ? (
+        <button className="btn btn-green w-full justify-center py-2" onClick={() => skapa(selected)}>
+          <i className="ti ti-file-plus" /> {cur.create === 'lev' ? 'Skapa leverantörsfaktura' : 'Skapa verifikation'}
+        </button>
+      ) : null}
+    />
+  ) : null
+
   return (
-    <div className="flex h-screen">
+    <DocumentSplitLayout open={!!selected} panelW={panelW} startResize={startResize} panel={viewerPanel}>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           <span className="text-base font-medium">Inkorg</span>
@@ -266,32 +284,6 @@ export default function Inkorg() {
           )}
         </div>
       </div>
-
-      {/* Förhandsvisning */}
-      {selected && (
-        <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: 520 }}>
-          <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-            <span className="text-[15px] font-bold tracking-tight truncate" title={selected.file_name}>{selected.file_name}</span>
-            <button className="text-gray-400 hover:text-gray-700" onClick={() => setSelected(null)}><i className="ti ti-x" /></button>
-          </div>
-          <div className="bg-white border-b px-5 h-10 flex items-center gap-4 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-            {url && <a className="text-sm text-gray-500 flex items-center gap-1" href={url} target="_blank" rel="noreferrer" download={selected.file_name}><i className="ti ti-download" /> Ladda ner</a>}
-          </div>
-          <div className="flex-1 overflow-auto flex items-center justify-center p-4">
-            {!url ? <div className="text-gray-400">Hämtar…</div>
-              : selected.mime_type?.startsWith('image/') ? <img src={url} alt={selected.file_name} className="max-w-full max-h-full object-contain bg-white shadow" />
-              : selected.mime_type === 'application/pdf' ? <iframe src={url} title={selected.file_name} className="w-full h-full bg-white shadow" />
-              : <a href={url} target="_blank" rel="noreferrer" className="text-blue-700">{selected.file_name}</a>}
-          </div>
-          {cur.create && (
-            <div className="bg-white border-t px-5 py-3 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              <button className="btn btn-green w-full justify-center py-2" onClick={() => skapa(selected)}>
-                <i className="ti ti-file-plus" /> {cur.create === 'lev' ? 'Skapa leverantörsfaktura' : 'Skapa verifikation'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    </DocumentSplitLayout>
   )
 }

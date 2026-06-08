@@ -1,18 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
-import PdfCanvas from '../components/PdfCanvas'
-import DocMagnifier from '../components/DocMagnifier'
-import { useContainerSize, previewWidthPx, computeAutoScale, clampScale, resolveViewerWidth } from '../lib/docPreview'
+import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
+import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
-// v2: ny standardproportion (45%). Gör att tidigare sparad 40% inte låser fast användare
-// på gamla layouten – nya drag sparas under denna nyckel och respekteras framåt.
+// Layout-state via gemensam hook (krav A/E). v2-nyckel = 45%-standard.
 const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW2'
 const PANEL_VISIBLE_KEY = 'bokpilot.visaLevfaktura.panelVisible'
-const MAG_KEY = 'bokpilot.viewer.magnifier'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -36,37 +33,11 @@ export default function VisaLeverantorsfaktura() {
   const [verNr, setVerNr] = useState(null)
   const [docs, setDocs] = useState([])
   const [idx, setIdx] = useState(0)
-  const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem(PANEL_VISIBLE_KEY) !== '0' } catch { return true } })
   const [coupling, setCoupling] = useState(false)
-  const [mode, setMode] = useState('auto')           // 'auto' (fit-to-panel) | 'manual'
-  const [manualScale, setManualScale] = useState(1)
-  const [natural, setNatural] = useState({ w: 0, h: 0 })
-  const [rot, setRot] = useState(0)
   const [loading, setLoading] = useState(true)
-  const previewRef = useRef(null)
-  const { width: cw, height: ch } = useContainerSize(previewRef)
-  // Dokumentvisare = 45% av fönstret som standard (ger ~10/45/45 med sidomenyn).
-  // Giltig sparad bredd i localStorage respekteras; ogiltig återställs till 45%.
-  const [panelW, setPanelW] = useState(() => {
-    try { return resolveViewerWidth(localStorage.getItem(PANEL_KEY), typeof window !== 'undefined' ? window.innerWidth : 1200) }
-    catch { return resolveViewerWidth(null, 1200) }
-  })
-  const [dragging, setDragging] = useState(false)
-  const [magnifier, setMagnifier] = useState(() => { try { return localStorage.getItem(MAG_KEY) !== '0' } catch { return true } })
-  useEffect(() => { try { localStorage.setItem(PANEL_KEY, String(panelW)) } catch { /* ignore */ } }, [panelW])
-  useEffect(() => { try { localStorage.setItem(PANEL_VISIBLE_KEY, panelOpen ? '1' : '0') } catch { /* ignore */ } }, [panelOpen])
-  useEffect(() => { try { localStorage.setItem(MAG_KEY, magnifier ? '1' : '0') } catch { /* ignore */ } }, [magnifier])
-  // Dragbar splitter (pointer = mus + touch + penna). Min 360px, max 75% av vyn.
-  // Förstoringsglaset stängs av under dragning (krav 19).
-  function startResize(e) {
-    e.preventDefault()
-    const maxW = Math.round(window.innerWidth * 0.75)
-    setDragging(true)
-    const move = ev => setPanelW(Math.min(maxW, Math.max(360, window.innerWidth - ev.clientX)))
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.style.userSelect = ''; setDragging(false) }
-    document.body.style.userSelect = 'none'
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
-  }
+  // Gemensam dokumentvisar-layout (bredd/öppen/splitter) – egen localStorage-nyckel per modul.
+  const { panelW, open: panelOpen, setOpen: setPanelOpen, dragging, startResize } =
+    useDocumentViewerLayout({ widthKey: PANEL_KEY, openKey: PANEL_VISIBLE_KEY })
 
   useEffect(() => { load() }, [id])
 
@@ -88,7 +59,6 @@ export default function VisaLeverantorsfaktura() {
       }))
       setDocs(withUrls)
     } else {
-      // Ej bokförd – syntetisera kontering ur fakturahuvudet
       const moms = i?.vat_amount || 0, net = (i?.total_amount || 0) - moms
       setRows([
         { account_nr: '2440', account_name: 'Leverantörsskulder', debet: 0, kredit: i?.total_amount || 0 },
@@ -134,169 +104,120 @@ export default function VisaLeverantorsfaktura() {
   const sumD = rows.reduce((s, r) => s + (r.debet || 0), 0)
   const sumK = rows.reduce((s, r) => s + (r.kredit || 0), 0)
   const current = docs[idx] || null
-  const isImg = current && (current.mime_type?.startsWith('image') || /\.(png|jpe?g|gif|webp|heic)$/i.test(current.file_name || ''))
-  // Auto (fit-to-panel) vs Manual zoom – återanvänder samma logik som UnderlagPanel.
-  const autoScale = computeAutoScale(cw, ch, natural.w, natural.h, { min: 0.35 })
-  const effScale = mode === 'auto' ? (autoScale ?? 1) : manualScale
-  const sliderValue = clampScale(mode === 'auto' ? (autoScale ?? 1) : manualScale)
-  const zoomLabel = mode === 'auto'
-    ? (autoScale ? `Auto · ${Math.round(autoScale * 100)}%` : 'Auto')
-    : `Manual · ${Math.round(manualScale * 100)}%`
-  const setManual = v => { setMode('manual'); setManualScale(clampScale(v)) }
 
   const F = ({ label, value, w = '' }) => (
     <div className={w}>
       <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-      <div className="input bg-gray-50 text-gray-700 truncate">{value || ' '}</div>
+      <div className="input bg-gray-50 text-gray-700 truncate">{value || ' '}</div>
     </div>
   )
 
-  return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Vänster: faktura */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-          <div className="flex items-center gap-3">
-            <span className="text-[15px] font-bold tracking-tight">LEVERANTÖRSFAKTURA {inv.lopnr || ''}</span>
-            <span className="px-2.5 py-0.5 rounded-md text-xs font-medium" style={{ background: st.bg, color: st.color }}>{st.label}</span>
-            {verNr && <span className="text-xs text-gray-400">VER.NR: {verNr}</span>}
-          </div>
-          <div className="flex items-center gap-2.5">
-            <button className="btn" onClick={() => navigate('/leverantorsfakturor/ny')}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
-            <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
-            {!panelOpen && <button className="btn" onClick={() => setPanelOpen(true)}><i className="ti ti-photo" /> Visa bilder</button>}
-          </div>
+  // Vänster arbetsyta (återanvänds i båda högerpanel-lägena).
+  const workspace = (
+    <div className="flex-1 min-w-0 overflow-y-auto">
+      <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+        <div className="flex items-center gap-3">
+          <span className="text-[15px] font-bold tracking-tight">LEVERANTÖRSFAKTURA {inv.lopnr || ''}</span>
+          <span className="px-2.5 py-0.5 rounded-md text-xs font-medium" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+          {verNr && <span className="text-xs text-gray-400">VER.NR: {verNr}</span>}
         </div>
-
-        <div className="p-7">
-          <div className="grid grid-cols-12 gap-4 mb-4">
-            <F label="Leverantör" value={inv.suppliers ? `${inv.suppliers.org_nr || ''} - ${inv.suppliers.name}` : '–'} w="col-span-5" />
-            <F label="Fakturadatum" value={inv.invoice_date} w="col-span-2" />
-            <F label="Förfallodatum" value={inv.due_date} w="col-span-2" />
-            <F label="Total" value={fmt(inv.total_amount)} w="col-span-1" />
-            <F label="Moms" value={fmt(inv.vat_amount)} w="col-span-2" />
-            <F label="OCR" value={inv.ocr} w="col-span-5" />
-            <F label="Fakturanummer" value={inv.invoice_nr} w="col-span-4" />
-            <F label="Valuta" value={inv.currency || 'SEK'} w="col-span-1" />
-            <F label="Kurs" value="1" w="col-span-1" />
-            <F label="Enhet" value="1" w="col-span-1" />
-          </div>
-
-          {/* Kontering */}
-          <div className="text-sm font-medium mb-2">Kontering</div>
-          <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                  <th className="text-left px-3 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
-                  <th className="text-left px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kontobenämning</th>
-                  <th className="text-left px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Transaktionsinfo</th>
-                  <th className="text-right px-3 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Debet</th>
-                  <th className="text-right px-3 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kredit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i}>
-                    <td className="px-3 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.account_nr}</td>
-                    <td className="px-3 py-2.5 border-b text-gray-700" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.account_name}</td>
-                    <td className="px-3 py-2.5 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.transaction_info || ''}</td>
-                    <td className="px-3 py-2.5 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.debet ? fmt(r.debet) : ''}</td>
-                    <td className="px-3 py-2.5 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.kredit ? fmt(r.kredit) : ''}</td>
-                  </tr>
-                ))}
-                <tr className="bg-gray-50 font-medium">
-                  <td colSpan="3" className="px-3 py-2.5 text-right text-gray-500">Summa</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{fmt(sumD)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{fmt(sumK)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex items-center mt-8 pt-5 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-            {!inv.makulerad && stateOf(inv) !== 'slutbetald' && <button className="btn" onClick={makulera}>Makulera</button>}
-            <div className="ml-auto flex items-center gap-2.5">
-              {!inv.bokford && !inv.makulerad && <button className="btn btn-green" onClick={() => navigate(`/leverantorsfakturor/ny?edit=${inv.id}`)}><i className="ti ti-edit" /> Redigera / Bokför</button>}
-              {verNr && <Link to={`/bokforing/${inv.verifikation_id}`} className="btn"><i className="ti ti-book" /> Visa verifikation</Link>}
-              <button className="btn btn-primary" onClick={() => navigate('/leverantorsfakturor')}>Stäng</button>
-            </div>
-          </div>
+        <div className="flex items-center gap-2.5">
+          <button className="btn" onClick={() => navigate('/leverantorsfakturor/ny')}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
+          <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
+          {!panelOpen && <button className="btn" onClick={() => setPanelOpen(true)}><i className="ti ti-photo" /> Visa bilder</button>}
         </div>
       </div>
 
-      {/* Höger: KOPPLADE BILDER */}
-      {panelOpen && (
-        coupling ? (
-          <div className="border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
-            <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              <span className="text-sm font-semibold">KOPPLA BILD</span>
-              <button className="btn text-xs py-1 px-2" onClick={() => setCoupling(false)}>Stäng</button>
-            </div>
-            <div className="flex-1 overflow-hidden"><UnderlagPanel company={{ id: inv.company_id }} onCouple={couple} title="VÄLJ FRÅN INKORGEN" /></div>
+      <div className="p-7">
+        <div className="grid grid-cols-12 gap-4 mb-4">
+          <F label="Leverantör" value={inv.suppliers ? `${inv.suppliers.org_nr || ''} - ${inv.suppliers.name}` : '–'} w="col-span-5" />
+          <F label="Fakturadatum" value={inv.invoice_date} w="col-span-2" />
+          <F label="Förfallodatum" value={inv.due_date} w="col-span-2" />
+          <F label="Total" value={fmt(inv.total_amount)} w="col-span-1" />
+          <F label="Moms" value={fmt(inv.vat_amount)} w="col-span-2" />
+          <F label="OCR" value={inv.ocr} w="col-span-5" />
+          <F label="Fakturanummer" value={inv.invoice_nr} w="col-span-4" />
+          <F label="Valuta" value={inv.currency || 'SEK'} w="col-span-1" />
+          <F label="Kurs" value="1" w="col-span-1" />
+          <F label="Enhet" value="1" w="col-span-1" />
+        </div>
+
+        <div className="text-sm font-medium mb-2">Kontering</div>
+        <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="text-left px-3 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
+                <th className="text-left px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kontobenämning</th>
+                <th className="text-left px-3 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Transaktionsinfo</th>
+                <th className="text-right px-3 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Debet</th>
+                <th className="text-right px-3 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kredit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td className="px-3 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.account_nr}</td>
+                  <td className="px-3 py-2.5 border-b text-gray-700" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.account_name}</td>
+                  <td className="px-3 py-2.5 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.transaction_info || ''}</td>
+                  <td className="px-3 py-2.5 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.debet ? fmt(r.debet) : ''}</td>
+                  <td className="px-3 py-2.5 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.kredit ? fmt(r.kredit) : ''}</td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50 font-medium">
+                <td colSpan="3" className="px-3 py-2.5 text-right text-gray-500">Summa</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmt(sumD)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{fmt(sumK)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center mt-8 pt-5 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+          {!inv.makulerad && stateOf(inv) !== 'slutbetald' && <button className="btn" onClick={makulera}>Makulera</button>}
+          <div className="ml-auto flex items-center gap-2.5">
+            {!inv.bokford && !inv.makulerad && <button className="btn btn-green" onClick={() => navigate(`/leverantorsfakturor/ny?edit=${inv.id}`)}><i className="ti ti-edit" /> Redigera / Bokför</button>}
+            {verNr && <Link to={`/bokforing/${inv.verifikation_id}`} className="btn"><i className="ti ti-book" /> Visa verifikation</Link>}
+            <button className="btn btn-primary" onClick={() => navigate('/leverantorsfakturor')}>Stäng</button>
           </div>
-        ) : (
-          <>
-            <div onPointerDown={startResize} role="separator" aria-orientation="vertical" title="Dra för att ändra storlek"
-              className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 active:bg-blue-500 transition-colors" style={{ touchAction: 'none' }} />
-            <div className="border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
-              <div className="px-5 py-3 border-b flex items-center justify-between gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-                <span className="text-sm font-semibold truncate">KOPPLADE BILDER {docs.length} ({docs.length})</span>
-                <div className="flex items-center gap-2 text-gray-500 shrink-0">
-                  <button title="Rotera" onClick={() => setRot(r => (r + 90) % 360)}><i className="ti ti-rotate-clockwise" /></button>
-                  <button title="Anpassa till panel (Auto)" onClick={() => setMode('auto')}
-                    className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${mode === 'auto' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>
-                    <i className="ti ti-aspect-ratio" /> Auto
-                  </button>
-                  <button title={magnifier ? 'Förstoringsglas på (klicka för att stänga av)' : 'Förstoringsglas av'} onClick={() => setMagnifier(m => !m)}
-                    className={`px-1.5 py-0.5 rounded ${magnifier ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
-                    <i className="ti ti-zoom-in" />
-                  </button>
-                  <input type="range" min="0.4" max="2.5" step="0.05" value={sliderValue} aria-label="Zoom" title="Justera storlek"
-                    className="w-20 accent-blue-600 cursor-pointer" onChange={e => setManual(parseFloat(e.target.value))} />
-                  <span className="text-xs tabular-nums w-16 text-right" title={mode === 'auto' ? 'Anpassad till panelen' : 'Manuell zoom'}>{zoomLabel}</span>
-                  {current?.url && <a href={current.url} download title="Ladda ner"><i className="ti ti-download" /></a>}
-                  <button title="Dölj panel" onClick={() => setPanelOpen(false)}><i className="ti ti-x" /></button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // Kopplingsläge: Inkorgen med förhandsvisning (UnderlagPanel sköter egen layout).
+  if (coupling) {
+    return (
+      <div className="flex h-screen overflow-hidden">
+        {workspace}
+        <UnderlagPanel company={{ id: inv.company_id }} onCouple={couple} title="VÄLJ FRÅN INKORGEN" onClose={() => setCoupling(false)} width={panelW} />
+      </div>
+    )
+  }
+
+  // Normalt läge: gemensam dokumentvisare till höger.
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {workspace}
+      {panelOpen && (
+        <>
+          <div onPointerDown={startResize} role="separator" aria-orientation="vertical" title="Dra för att ändra storlek"
+            className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 active:bg-blue-500 transition-colors" style={{ touchAction: 'none' }} />
+          <div className="bg-white flex flex-col h-full" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
+            <DocumentViewerPanel
+              docs={docs} index={idx} onIndexChange={setIdx}
+              title={`KOPPLADE BILDER ${docs.length} (${docs.length})`}
+              onClose={() => setPanelOpen(false)} dragging={dragging}
+              emptyText="Inga kopplade bilder"
+              footer={
+                <div className="flex items-center justify-end gap-2.5">
+                  {current && <button className="btn" onClick={() => kopplaBort(current.id)}>Koppla bort</button>}
+                  <button className="btn btn-green" onClick={() => setCoupling(true)}>Koppla fler</button>
                 </div>
-              </div>
-
-              <div ref={previewRef} className="flex-1 overflow-auto bg-gray-100 p-4">
-                <DocMagnifier enabled={magnifier && !dragging && !!current?.url} scrollRef={previewRef} className="min-h-full">
-                {docs.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-center text-gray-400">
-                    <div><i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />Inga kopplade bilder</div>
-                  </div>
-                ) : !current?.url ? (
-                  <div className="h-full flex items-center justify-center text-gray-400">Kunde inte ladda bilden</div>
-                ) : isImg ? (
-                  <div className="min-h-full flex items-center justify-center">
-                    <img src={current.url} alt="" draggable={false} onLoad={e => setNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
-                      className="block shadow-lg bg-white select-none"
-                      style={{ width: natural.w ? `${Math.round(natural.w * effScale)}px` : (previewWidthPx(cw, effScale) ? `${previewWidthPx(cw, effScale)}px` : `${effScale * 100}%`), maxWidth: 'none', height: 'auto', transform: rot ? `rotate(${rot}deg)` : undefined }} />
-                  </div>
-                ) : (
-                  <div className="min-h-full flex items-start justify-center">
-                    <PdfCanvas url={current.url} scale={effScale} onNaturalSize={setNatural} />
-                  </div>
-                )}
-                </DocMagnifier>
-              </div>
-
-              {docs.length > 1 && (
-                <div className="px-5 py-2 border-t flex items-center justify-center gap-3 text-sm" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-                  <button className="btn text-xs py-1 px-2" disabled={idx === 0} onClick={() => { setIdx(i => i - 1); setMode('auto'); setManualScale(1); setNatural({ w: 0, h: 0 }); setRot(0) }}><i className="ti ti-chevron-left" /></button>
-                  <span>{idx + 1} / {docs.length}</span>
-                  <button className="btn text-xs py-1 px-2" disabled={idx >= docs.length - 1} onClick={() => { setIdx(i => i + 1); setMode('auto'); setManualScale(1); setNatural({ w: 0, h: 0 }); setRot(0) }}><i className="ti ti-chevron-right" /></button>
-                </div>
-              )}
-
-              <div className="px-5 py-3 border-t flex items-center justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-                {current && <button className="btn" onClick={() => kopplaBort(current.id)}>Koppla bort</button>}
-                <button className="btn btn-green" onClick={() => setCoupling(true)}>Koppla fler</button>
-              </div>
-            </div>
-          </>
-        )
+              }
+            />
+          </div>
+        </>
       )}
     </div>
   )

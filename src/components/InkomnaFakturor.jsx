@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
+import DocumentViewerPanel from './viewer/DocumentViewerPanel'
+import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -15,9 +17,21 @@ export default function InkomnaFakturor({ tolkningMode = false }) {
   const [uploading, setUploading] = useState(false)
   const [busyId, setBusyId] = useState(null)
   const [results, setResults] = useState({})
+  const [selected, setSelected] = useState(null)
+  const [selUrl, setSelUrl] = useState(null)
   const fileRef = useRef()
+  // Gemensam dokumentvisare (egen layout-nyckel för inkomna fakturor).
+  const { panelW, dragging, startResize } = useDocumentViewerLayout({ widthKey: 'bokpilot.levfaktura.inkomna.viewerW' })
 
   useEffect(() => { if (company) load() }, [company?.id])
+
+  // Signerad URL för valt underlag (privat bucket) – endast filer användaren har åtkomst till.
+  useEffect(() => {
+    let active = true; setSelUrl(null)
+    if (!selected?.storage_path) return
+    supabase.storage.from('underlag').createSignedUrl(selected.storage_path, 3600).then(({ data }) => { if (active) setSelUrl(data?.signedUrl || null) })
+    return () => { active = false }
+  }, [selected?.id])
 
   async function load() {
     setLoading(true)
@@ -52,15 +66,14 @@ export default function InkomnaFakturor({ tolkningMode = false }) {
     load()
   }
 
-  async function visa(d) {
-    const { data: s } = await supabase.storage.from('underlag').createSignedUrl(d.storage_path, 3600)
-    if (s?.signedUrl) window.open(s.signedUrl, '_blank')
-  }
+  // Visa underlaget i den gemensamma högerpanelen (i stället för ny flik).
+  function visa(d) { setSelected(d) }
 
   async function del(d) {
     if (!confirm(`Radera "${d.file_name}"?`)) return
     await supabase.storage.from('underlag').remove([d.storage_path])
     await supabase.from('documents').delete().eq('id', d.id)
+    if (selected?.id === d.id) setSelected(null)
     toast.success('Raderat'); load()
   }
 
@@ -85,7 +98,8 @@ export default function InkomnaFakturor({ tolkningMode = false }) {
   }
 
   return (
-    <div className="p-7">
+    <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)' }}>
+      <div className="flex-1 min-w-0 overflow-y-auto p-7">
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <span className="text-[15px] font-bold tracking-tight">{tolkningMode ? 'SKICKA FÖR TOLKNING' : 'INKOMNA FAKTUROR'}</span>
         <button className="btn btn-primary ml-auto" onClick={() => fileRef.current?.click()} disabled={uploading}>
@@ -145,8 +159,22 @@ export default function InkomnaFakturor({ tolkningMode = false }) {
       <div className="text-xs text-gray-400 mt-3">
         {tolkningMode
           ? 'Ladda upp fakturor och klicka Tolka för att läsa ut leverantör, datum och belopp med AI. Klicka sedan Skapa leverantörsfaktura så fylls fältet i automatiskt.'
-          : 'Inkomna underlag (ej bokförda). Klicka Skapa leverantörsfaktura så öppnas editorn med bilden kopplad och tolkad automatiskt.'}
+          : 'Inkomna underlag (ej bokförda). Klicka på ögat för att förhandsgranska i panelen till höger.'}
       </div>
+      </div>
+
+      {selected && (
+        <>
+          <div onPointerDown={startResize} role="separator" aria-orientation="vertical" title="Dra för att ändra storlek"
+            className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 active:bg-blue-500 transition-colors" style={{ touchAction: 'none' }} />
+          <div className="bg-white flex flex-col h-full" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
+            <DocumentViewerPanel
+              docs={[{ id: selected.id, url: selUrl, file_name: selected.file_name, mime_type: selected.mime_type }]} index={0}
+              title={selected.file_name} onClose={() => setSelected(null)} dragging={dragging}
+              footer={<button className="btn btn-green w-full justify-center py-2" onClick={() => skapaFaktura(selected)}><i className="ti ti-file-plus" /> Skapa leverantörsfaktura</button>} />
+          </div>
+        </>
+      )}
     </div>
   )
 }

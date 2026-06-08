@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
+import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
 export default function VisaVerifikation() {
   const { id } = useParams()
@@ -13,7 +15,9 @@ export default function VisaVerifikation() {
   const [rows, setRows] = useState([])
   const [docs, setDocs] = useState([])
   const [idx, setIdx] = useState(0)
-  const [panelOpen, setPanelOpen] = useState(true)
+  // Gemensam dokumentvisar-layout (egen nyckel för bokföringsmodulen).
+  const { panelW, open: panelOpen, setOpen: setPanelOpen, dragging, startResize } =
+    useDocumentViewerLayout({ widthKey: 'bokpilot.bokforing.viewerW', openKey: 'bokpilot.bokforing.viewerOpen' })
   const [loading, setLoading] = useState(true)
   const [couplingMode, setCouplingMode] = useState(false)
   const [korrigerad, setKorrigerad] = useState(null)   // denna ver har rättats -> info
@@ -69,7 +73,6 @@ export default function VisaVerifikation() {
   const totalD = rows.reduce((s, r) => s + (r.debet || 0), 0)
   const totalK = rows.reduce((s, r) => s + (r.kredit || 0), 0)
   const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const current = docs[idx] || null
 
   return (
     <div className="flex h-screen">
@@ -203,43 +206,17 @@ export default function VisaVerifikation() {
         <UnderlagPanel company={{ id: ver.company_id }} onCouple={couple} title="KOPPLA UNDERLAG" onClose={() => setCouplingMode(false)} />
       )}
 
-      {/* Underlag – högerpanel (kopplade) */}
+      {/* Underlag – högerpanel (kopplade), gemensam dokumentvisare med splitter */}
       {!couplingMode && docs.length > 0 && panelOpen && (
-        <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: 520 }}>
-          <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-            <span className="text-[15px] font-bold tracking-tight">UNDERLAG</span>
-            <span className="text-sm text-gray-500">{idx + 1} ({docs.length})</span>
+        <>
+          <div onPointerDown={startResize} role="separator" aria-orientation="vertical" title="Dra för att ändra storlek"
+            className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 active:bg-blue-500 transition-colors" style={{ touchAction: 'none' }} />
+          <div className="bg-white flex flex-col h-full" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
+            <DocumentViewerPanel
+              docs={docs} index={idx} onIndexChange={setIdx} title="UNDERLAG"
+              onClose={() => setPanelOpen(false)} dragging={dragging} emptyText="Inget underlag" />
           </div>
-          <div className="bg-white border-b px-5 h-10 flex items-center gap-4 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-            {current?.url && (
-              <a className="text-sm text-gray-500 flex items-center gap-1" href={current.url} target="_blank" rel="noreferrer" download={current.file_name}>
-                <i className="ti ti-download" /> Ladda ner
-              </a>
-            )}
-          </div>
-          <div className="flex-1 relative overflow-auto flex items-center justify-center p-4">
-            {!current?.url ? (
-              <div className="text-gray-400">Kunde inte hämta underlaget</div>
-            ) : current.mime_type?.startsWith('image/') ? (
-              <img src={current.url} alt={current.file_name} className="max-w-full max-h-full object-contain bg-white shadow" />
-            ) : current.mime_type === 'application/pdf' ? (
-              <iframe src={current.url} title={current.file_name} className="w-full h-full bg-white shadow" />
-            ) : (
-              <a href={current.url} target="_blank" rel="noreferrer" className="text-blue-700">{current.file_name}</a>
-            )}
-            {docs.length > 1 && (
-              <>
-                <button className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow flex items-center justify-center text-gray-600 hover:text-gray-900 disabled:opacity-30"
-                  onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0}><i className="ti ti-chevron-left" /></button>
-                <button className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow flex items-center justify-center text-gray-600 hover:text-gray-900 disabled:opacity-30"
-                  onClick={() => setIdx(i => Math.min(docs.length - 1, i + 1))} disabled={idx === docs.length - 1}><i className="ti ti-chevron-right" /></button>
-              </>
-            )}
-          </div>
-          <div className="bg-white border-t px-5 py-3 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-            <div className="text-xs text-gray-500 truncate" title={current?.file_name}>{current?.file_name}</div>
-          </div>
-        </div>
+        </>
       )}
 
     </div>
