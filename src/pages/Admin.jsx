@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import ConfirmDialog from '../components/kontoplan/ConfirmDialog'
 import { PURGE_CONFIRM_PHRASE, summarizePurge } from '../lib/purgeTestData'
+import { ASSIGNABLE_ROLES, ROLE_LABELS, ROLE_DESC } from '../lib/platformRoles'
 import toast from 'react-hot-toast'
 
 export default function Admin() {
@@ -15,8 +16,27 @@ export default function Admin() {
   const [purgeTarget, setPurgeTarget] = useState(null)   // företag att tömma
   const [purgeBusy, setPurgeBusy] = useState(false)
   const [purgeSummary, setPurgeSummary] = useState(null)
+  const [roles, setRoles] = useState(null)
+  const [grant, setGrant] = useState({ email: '', role: 'operations_admin' })
 
-  useEffect(() => { if (isAdmin) load() }, [isAdmin])
+  useEffect(() => { if (isAdmin) { load(); loadRoles() } }, [isAdmin])
+
+  async function loadRoles() {
+    const { data } = await supabase.rpc('admin_list_platform_roles')
+    setRoles(data || [])
+  }
+  async function grantRole() {
+    if (!grant.email.trim()) return toast.error('Ange e-post')
+    const { error } = await supabase.rpc('admin_grant_platform_role', { p_email: grant.email.trim(), p_role: grant.role })
+    if (error) return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte tilldela roll')
+    toast.success(`${ROLE_LABELS[grant.role]} tilldelad ${grant.email.trim()}`)
+    setGrant(g => ({ ...g, email: '' })); loadRoles()
+  }
+  async function revokeRole(email, role) {
+    const { error } = await supabase.rpc('admin_revoke_platform_role', { p_email: email, p_role: role })
+    if (error) return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ta bort roll')
+    toast.success('Roll borttagen'); loadRoles()
+  }
 
   async function runPurge() {
     if (!purgeTarget) return
@@ -93,6 +113,38 @@ export default function Admin() {
       </div>
 
       <div className="p-7">
+        {/* Plattformsroller */}
+        <div className="bg-white rounded-xl p-5 mb-6" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+          <h2 className="text-sm font-semibold mb-1 flex items-center gap-2"><i className="ti ti-users-group text-purple-600" /> Plattformsroller</h2>
+          <p className="text-xs text-gray-500 mb-3">Delegera drift/support/billing utan full superadmin. Superadmin hanteras separat. Alla ändringar loggas.</p>
+          <div className="flex flex-wrap items-end gap-2 mb-4">
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">E-post</label>
+              <input className="input text-sm" placeholder="person@bokpilot.se" value={grant.email} onChange={e => setGrant(g => ({ ...g, email: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">Roll</label>
+              <select className="input text-sm" value={grant.role} onChange={e => setGrant(g => ({ ...g, role: e.target.value }))}>
+                {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-primary text-sm py-2" onClick={grantRole}><i className="ti ti-plus" /> Tilldela</button>
+          </div>
+          <p className="text-[11px] text-gray-400 mb-3">{ROLE_DESC[grant.role]}</p>
+          {roles === null ? <div className="text-xs text-gray-400">Laddar roller…</div>
+            : roles.length === 0 ? <div className="text-xs text-gray-400">Inga tilldelade roller (utöver superadmin).</div>
+            : (
+              <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+                {roles.map(r => (
+                  <div key={`${r.email}:${r.role}`} className="flex items-center justify-between px-3 py-2 text-sm border-b last:border-0" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+                    <span><span className="font-medium">{r.email}</span> <span className="text-gray-400">·</span> <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-xs">{ROLE_LABELS[r.role] || r.role}</span></span>
+                    <button className="text-gray-300 hover:text-red-600" title="Ta bort roll" onClick={() => revokeRole(r.email, r.role)}><i className="ti ti-trash" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+
         <div className="mb-4 relative max-w-sm">
           <input className="input pl-8" placeholder="Sök e-post eller företag" value={search} onChange={e => setSearch(e.target.value)} />
           <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />

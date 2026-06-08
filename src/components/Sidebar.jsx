@@ -29,7 +29,8 @@ const navItems = [
 ]
 
 export default function Sidebar({ collapsed = false, onToggle }) {
-  const { company, companies, switchCompany, createCompany, signOut, isAdmin } = useAuth()
+  const { company, companies, switchCompany, createCompany, signOut, isAdmin, platformAccess } = useAuth()
+  const canViewOps = !!platformAccess?.canViewOperations
   const location = useLocation()
   const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
   const [menuOpen, setMenuOpen] = useState(false)
@@ -93,17 +94,17 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           )
         )}
 
-        {isAdmin && (
+        {(isAdmin || canViewOps) && (
           collapsed ? (
             <>
-              <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>
-              <NavLink to="/admin/system" className={linkClass} title="Systemövervakning"><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" /></NavLink>
+              {isAdmin && <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>}
+              {canViewOps && <NavLink to="/admin/system" className={linkClass} title="Systemövervakning"><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" /></NavLink>}
             </>
           ) : (
             <>
               <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
-              <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>
-              <NavLink to="/admin/system" className={linkClass}><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" />Systemövervakning</NavLink>
+              {isAdmin && <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>}
+              {canViewOps && <NavLink to="/admin/system" className={linkClass}><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" />Systemövervakning</NavLink>}
             </>
           )
         )}

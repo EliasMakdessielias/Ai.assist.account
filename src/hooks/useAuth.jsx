@@ -9,6 +9,7 @@ export function AuthProvider({ children }) {
   const [companies, setCompanies] = useState([])
   const [company, setCompany] = useState(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [platformAccess, setPlatformAccess] = useState(null)   // { isSuperadmin, roles, canViewOperations, ... }
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -38,6 +39,11 @@ export function AuthProvider({ children }) {
       const { data: pa } = await supabase.from('platform_admins').select('email').limit(1)
       setIsAdmin((pa || []).length > 0)
     } catch { setIsAdmin(false) }
+    // Granulär plattformsåtkomst (superadmin/operations_admin/support_admin/billing_admin).
+    try {
+      const { data: access } = await supabase.rpc('my_platform_access')
+      setPlatformAccess(access || null)
+    } catch { setPlatformAccess(null) }
     // Acceptera ev. väntande inbjudningar (kopplar användaren till företag som bjudit in mejlet).
     await acceptInvites(u)
     let list = await fetchCompanies(u.id)
@@ -117,7 +123,7 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut()
-    setUser(null); setCompanies([]); setCompany(null); setIsAdmin(false)
+    setUser(null); setCompanies([]); setCompany(null); setIsAdmin(false); setPlatformAccess(null)
   }
 
   async function reloadCompany() {
@@ -128,7 +134,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, company, companies, isAdmin, loading, signUp, signIn, signOut, reloadCompany, switchCompany, createCompany }}>
+    <AuthContext.Provider value={{ user, company, companies, isAdmin, platformAccess, loading, signUp, signIn, signOut, reloadCompany, switchCompany, createCompany }}>
       {children}
     </AuthContext.Provider>
   )

@@ -23,14 +23,16 @@ const Stat = ({ label, value, tone = 'gray', sub }) => (
 )
 
 export default function Systemovervakning() {
-  const { isAdmin } = useAuth()
+  const { platformAccess } = useAuth()
+  const canView = !!platformAccess?.canViewOperations
+  const canManage = !!platformAccess?.canManageOperations
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(null)
   const [filters, setFilters] = useState({ component: '', severity: '', ack: '' })
 
-  useEffect(() => { if (isAdmin) load() }, [isAdmin])
+  useEffect(() => { if (canView) load() }, [canView])
   async function load() {
     setLoading(true); setError(null)
     const { data: res, error: err } = await supabase.rpc('admin_system_overview')
@@ -45,7 +47,13 @@ export default function Systemovervakning() {
     toast.success(okMsg); await load()
   }
 
-  if (!isAdmin) return <div className="p-12 text-center text-gray-400">Ingen åtkomst.</div>
+  if (!canView) return (
+    <div className="p-12 text-center">
+      <i className="ti ti-lock text-4xl text-gray-300 block mb-3" />
+      <div className="text-gray-600 font-medium">Ingen åtkomst</div>
+      <div className="text-sm text-gray-400 mt-1">Systemövervakning kräver rollen <b>operations_admin</b> eller <b>superadmin</b>.</div>
+    </div>
+  )
 
   const q = data?.queue || {}
   const errors = filterSystemErrors(data?.systemErrors, filters)
@@ -55,7 +63,12 @@ export default function Systemovervakning() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium flex items-center gap-2"><i className="ti ti-activity-heartbeat text-purple-600" /> Systemövervakning</span>
+        <span className="text-base font-medium flex items-center gap-2"><i className="ti ti-activity-heartbeat text-purple-600" /> Systemövervakning
+          {platformAccess?.isSuperadmin
+            ? <Pill tone="gray">superadmin</Pill>
+            : <Pill tone="gray">operations_admin</Pill>}
+          {!canManage && <span className="text-xs text-gray-400">(läsläge)</span>}
+        </span>
         <div className="flex items-center gap-3">
           {data?.generatedAt && <span className="text-xs text-gray-400">Uppdaterad {formatTime(data.generatedAt)}</span>}
           <button className="btn text-sm" onClick={load} disabled={loading}><i className={`ti ti-refresh ${loading ? 'animate-spin' : ''}`} /> Uppdatera</button>
@@ -151,7 +164,7 @@ export default function Systemovervakning() {
                             <td className="px-3 py-2">{e.has_email_queue ? <i className="ti ti-mail text-blue-600" title="E-post till admins köad" /> : <span className="text-gray-300">–</span>}</td>
                             <td className="px-3 py-2">{e.acknowledged ? <Pill tone="green" icon="ti-check">Kvitterad</Pill> : <span className="text-gray-400">Öppen</span>}</td>
                             <td className="px-3 py-2 text-right whitespace-nowrap">
-                              {!e.acknowledged && <button className="btn text-[11px] py-0.5 px-2" disabled={busy} onClick={() => action('admin_acknowledge_system_error', { p_event_id: e.id }, 'Kvitterad')}>Kvittera</button>}
+                              {canManage && !e.acknowledged && <button className="btn text-[11px] py-0.5 px-2" disabled={busy} onClick={() => action('admin_acknowledge_system_error', { p_event_id: e.id }, 'Kvitterad')}>Kvittera</button>}
                             </td>
                           </tr>
                         )
@@ -181,8 +194,10 @@ export default function Systemovervakning() {
                           <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{d.next_retry_at ? formatTime(d.next_retry_at) : '–'}</td>
                           <td className="px-3 py-2"><Pill tone={d.status === 'failed' ? 'red' : 'amber'}>{d.status}</Pill></td>
                           <td className="px-3 py-2 text-right whitespace-nowrap">
-                            <button className="btn text-[11px] py-0.5 px-2 mr-1" disabled={busy} onClick={() => action('admin_retry_notification', { p_queue_id: d.queue_id }, 'Köad för nytt försök')}>Retry</button>
-                            <button className="btn btn-danger text-[11px] py-0.5 px-2" disabled={busy} onClick={() => action('admin_cancel_notification', { p_queue_id: d.queue_id }, 'Avbruten')}>Avbryt</button>
+                            {canManage ? <>
+                              <button className="btn text-[11px] py-0.5 px-2 mr-1" disabled={busy} onClick={() => action('admin_retry_notification', { p_queue_id: d.queue_id }, 'Köad för nytt försök')}>Retry</button>
+                              <button className="btn btn-danger text-[11px] py-0.5 px-2" disabled={busy} onClick={() => action('admin_cancel_notification', { p_queue_id: d.queue_id }, 'Avbruten')}>Avbryt</button>
+                            </> : <span className="text-gray-300 text-[11px]">–</span>}
                           </td>
                         </tr>
                       ))}
