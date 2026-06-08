@@ -7,7 +7,7 @@ import {
   formatPrice, formatLimit,
 } from '../lib/billing'
 import UsageOverview from '../components/UsageOverview'
-import { stripeCustomerUrl } from '../lib/stripeBilling'
+import { stripeCustomerUrl, isValidStripeId, planStripeStatus } from '../lib/stripeBilling'
 import toast from 'react-hot-toast'
 
 const Pill = ({ tone, children }) => (
@@ -16,7 +16,7 @@ const Pill = ({ tone, children }) => (
 const toDate = ts => ts ? new Date(ts).toISOString().slice(0, 10) : ''
 const fromDate = d => d ? new Date(d + 'T00:00:00Z').toISOString() : null
 const fmt = ts => ts ? new Date(ts).toLocaleDateString('sv-SE') : '–'
-const emptyPlan = () => ({ id: null, name: '', description: '', monthly_price: 0, yearly_price: 0, max_users: '', max_companies: '', max_invoices_per_month: '', max_documents_per_month: '', max_storage_mb: '', max_ai_operations_per_month: '', support_level: 'email', features: '' })
+const emptyPlan = () => ({ id: null, name: '', description: '', monthly_price: 0, yearly_price: 0, max_users: '', max_companies: '', max_invoices_per_month: '', max_documents_per_month: '', max_storage_mb: '', max_ai_operations_per_month: '', support_level: 'email', features: '', stripe_product_id: '', stripe_price_monthly: '', stripe_price_yearly: '' })
 
 export default function BillingAdmin() {
   const { platformAccess } = useAuth()
@@ -56,6 +56,9 @@ export default function BillingAdmin() {
   async function savePlan() {
     const p = planEdit
     if (!p.name.trim()) return toast.error('Ange namn')
+    if (!isValidStripeId(p.stripe_product_id, 'prod_')) return toast.error('Stripe product id måste börja med prod_')
+    if (!isValidStripeId(p.stripe_price_monthly, 'price_')) return toast.error('Monthly price id måste börja med price_')
+    if (!isValidStripeId(p.stripe_price_yearly, 'price_')) return toast.error('Yearly price id måste börja med price_')
     const num = v => v === '' || v === null ? null : Number(v)
     setBusy(true)
     const { error } = await supabase.rpc('admin_upsert_plan', {
@@ -64,6 +67,7 @@ export default function BillingAdmin() {
       p_max_documents: num(p.max_documents_per_month), p_max_storage_mb: num(p.max_storage_mb), p_max_ai: num(p.max_ai_operations_per_month),
       p_support_level: p.support_level || null,
       p_features: typeof p.features === 'string' ? p.features.split(',').map(s => s.trim()).filter(Boolean) : (p.features || []),
+      p_stripe_product_id: p.stripe_product_id || null, p_stripe_price_monthly: p.stripe_price_monthly || null, p_stripe_price_yearly: p.stripe_price_yearly || null,
     })
     setBusy(false)
     if (error) return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte spara plan')
@@ -187,7 +191,11 @@ export default function BillingAdmin() {
                   <span className="font-semibold">{p.name}</span>
                   {p.is_active ? <Pill tone="green">Aktiv</Pill> : <Pill tone="gray">Inaktiv</Pill>}
                 </div>
-                <div className="text-xs text-gray-500 mb-2">{p.description}</div>
+                <div className="text-xs text-gray-500 mb-1">{p.description}</div>
+                {(() => { const st = planStripeStatus(p); return (
+                  <div className="text-[10px] mb-1">{st.connected
+                    ? <span className="text-green-600"><i className="ti ti-brand-stripe" /> Stripe kopplad{st.monthly ? ' · mån' : ''}{st.yearly ? ' · år' : ''}</span>
+                    : <span className="text-gray-400"><i className="ti ti-plug-connected-x" /> Saknar Stripe price-id</span>}</div>) })()}
                 <div className="text-sm font-medium">{formatPrice(p.monthly_price)}/mån · {formatPrice(p.yearly_price)}/år</div>
                 <div className="text-[11px] text-gray-500 mt-2 space-y-0.5">
                   <div>Användare: {formatLimit(p.max_users)} · Företag: {formatLimit(p.max_companies)}</div>
@@ -225,6 +233,18 @@ export default function BillingAdmin() {
                 <input className="input text-sm" value={planEdit.support_level || ''} onChange={e => setPlanEdit(p => ({ ...p, support_level: e.target.value }))} /></div>
               <div><label className="block text-xs text-gray-500 mb-1">Funktioner (kommaseparerade)</label>
                 <input className="input text-sm" value={planEdit.features || ''} onChange={e => setPlanEdit(p => ({ ...p, features: e.target.value }))} /></div>
+
+              <div className="border-t pt-3 mt-1" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+                <div className="text-xs font-semibold text-gray-600 mb-1 flex items-center gap-1"><i className="ti ti-brand-stripe text-purple-600" /> Stripe-koppling</div>
+                <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
+                  1. Skapa en produkt i Stripe. 2. Skapa två återkommande priser (månad + år). 3. Kopiera respektive
+                  <code className="bg-gray-100 px-1 rounded">price_…</code>-id och klistra in nedan. Lämna tomt tills Stripe är aktiverat.
+                </p>
+                {[['stripe_product_id', 'Produkt-id (prod_…)', 'prod_…'], ['stripe_price_monthly', 'Pris-id månad (price_…)', 'price_…'], ['stripe_price_yearly', 'Pris-id år (price_…)', 'price_…']].map(([k, l, ph]) => (
+                  <div key={k} className="mb-2"><label className="block text-[11px] text-gray-500 mb-0.5">{l}</label>
+                    <input className="input text-sm font-mono" placeholder={ph} value={planEdit[k] || ''} onChange={e => setPlanEdit(p => ({ ...p, [k]: e.target.value.trim() }))} /></div>
+                ))}
+              </div>
             </div>
             <div className="px-5 py-3 border-t flex justify-end gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
               <button className="btn" onClick={() => setPlanEdit(null)}>Avbryt</button>

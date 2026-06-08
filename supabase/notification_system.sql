@@ -173,3 +173,8 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 --   price->plan + status-map + sync + notiser (payment_succeeded/failed, subscription_cancelled, plan_changed) + audit.
 --   Okänt price -> report_system_error + ingen ändring. stripe_checkout_context (kund-gate, price/kund-uppslag).
 -- Env: STRIPE_SECRET_KEY/WEBHOOK_SECRET/PRICE_*/SUCCESS_URL/CANCEL_URL. Billing-ready; checkout aktiveras när env+priser satta.
+
+-- Stripe price-id per plan (migration stripe_plan_ids). subscription_plans.stripe_product_id/stripe_price_monthly/yearly.
+-- admin_upsert_plan utökad med Stripe-ids + validering (prod_/price_-prefix, tomt OK), audit. Fylls i Billing -> Planer.
+-- Edge-secrets dokumenterade i supabase/functions/.env.example (STRIPE_SECRET_KEY/WEBHOOK_SECRET/SUCCESS_URL/CANCEL_URL).
+-- Secret keys ENDAST som edge-secrets, aldrig i DB. Checkout väljer price från planen per period.

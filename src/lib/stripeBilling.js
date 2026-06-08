@@ -39,3 +39,16 @@ export async function openStripePortal(supabase, companyId) {
 }
 
 export const stripeCustomerUrl = id => id ? `https://dashboard.stripe.com/customers/${id}` : null
+
+// Validera Stripe-id (tomt = tillåtet tills Stripe aktiveras). price_ för pris, prod_ för produkt.
+export const isValidStripeId = (value, prefix) => {
+  const t = (value || '').trim()
+  return t === '' || t.startsWith(prefix)
+}
+
+// Stripe-kopplingsstatus för en plan (för badges i admin).
+export function planStripeStatus(plan) {
+  const monthly = !!(plan?.stripe_price_monthly)
+  const yearly = !!(plan?.stripe_price_yearly)
+  return { monthly, yearly, product: !!(plan?.stripe_product_id), connected: monthly || yearly }
+}

@@ -222,9 +222,12 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
 - **Notiser:** `payment_succeeded`/`plan_changed`→kund; `payment_failed`/`subscription_cancelled`→kund + billing_admin (mallar).
   Audit: checkout/sync/payment/cancel. **Checkout-knappen** på Abonnemang försöker Stripe; om ej konfigurerat → faller
   tillbaka till supportärende (`request_subscription_change`). Billing-admin ser payment-ids/status/nästa debitering + Stripe-länk.
-- **Env (krav 1):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*_MONTHLY/YEARLY`, `STRIPE_SUCCESS_URL`,
-  `STRIPE_CANCEL_URL`. Sätt + fyll `subscription_plans.stripe_price_*` för att aktivera. Utan dessa: allt fungerar utom
-  faktisk checkout (returnerar `configured:false`).
+- **Env (krav 1, se `supabase/functions/.env.example`):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`,
+  `STRIPE_CANCEL_URL` (secret keys ENDAST som edge-secrets, aldrig i DB). Utan dessa: allt fungerar utom faktisk checkout.
+- **Price-id per plan (admin-yta):** `subscription_plans.stripe_product_id/stripe_price_monthly/stripe_price_yearly`. Fylls i
+  av billing_admin/superadmin i **Billing → Planer → Redigera** (validering: `prod_`/`price_`-prefix, tomt tillåtet;
+  audit). Plan-kort visar **Stripe kopplad / Saknar price-id**. Checkout väljer price från planen utifrån vald period;
+  saknas price → `configured:false` (blockeras med supportärende-fallback). `isValidStripeId`/`planStripeStatus` (testat).
 
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { STRIPE_HANDLED_EVENTS, STRIPE_REQUIRED_ENV, mapStripeStatus, stripeCustomerUrl } from './stripeBilling'
+import { STRIPE_HANDLED_EVENTS, STRIPE_REQUIRED_ENV, mapStripeStatus, stripeCustomerUrl, isValidStripeId, planStripeStatus } from './stripeBilling'
 
 describe('Stripe-event-stöd (krav 7)', () => {
   it('hanterar minst de sex kärn-eventen', () => {
@@ -36,5 +36,27 @@ describe('stripeCustomerUrl', () => {
   it('bygger dashboard-länk', () => {
     expect(stripeCustomerUrl('cus_123')).toBe('https://dashboard.stripe.com/customers/cus_123')
     expect(stripeCustomerUrl(null)).toBeNull()
+  })
+})
+
+describe('isValidStripeId (krav 5)', () => {
+  it('tomt är tillåtet (tills Stripe aktiveras)', () => {
+    expect(isValidStripeId('', 'price_')).toBe(true)
+    expect(isValidStripeId(null, 'prod_')).toBe(true)
+  })
+  it('price_/prod_ krävs annars', () => {
+    expect(isValidStripeId('price_123', 'price_')).toBe(true)
+    expect(isValidStripeId('prod_123', 'prod_')).toBe(true)
+    expect(isValidStripeId('xyz', 'price_')).toBe(false)
+    expect(isValidStripeId('prod_123', 'price_')).toBe(false)
+  })
+})
+
+describe('planStripeStatus (krav 6)', () => {
+  it('visar monthly/yearly/product/connected', () => {
+    expect(planStripeStatus({ stripe_price_monthly: 'price_m' })).toEqual({ monthly: true, yearly: false, product: false, connected: true })
+    expect(planStripeStatus({ stripe_price_monthly: 'price_m', stripe_price_yearly: 'price_y', stripe_product_id: 'prod_x' }))
+      .toEqual({ monthly: true, yearly: true, product: true, connected: true })
+    expect(planStripeStatus({})).toEqual({ monthly: false, yearly: false, product: false, connected: false })
   })
 })
