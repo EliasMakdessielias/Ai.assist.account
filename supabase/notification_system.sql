@@ -107,3 +107,12 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- operations_admin (platform_admins ∪ platform_user_roles role=operations_admin). occurredAt i payload.
 -- critical -> dedupe-suffix ':critical' (bryter igenom inom timmen). Mallar: system_error in_app + email
 -- (subject "BokPilot driftvarning: {{component}} - {{severity}}"). buildEmailHtml absolutifierar relativa CTA-länkar.
+
+-- Support-admin (migrationer support_admin_core + support_admin_rpcs). UI: src/pages/SupportAdmin.jsx (/admin/support).
+-- Tabeller: support_tickets/support_messages/support_internal_notes/support_attachments. RLS: kund ser egna/företagets
+-- ärenden+meddelanden (tenant isolation), support_admin/superadmin ser alla; interna anteckningar endast can_view_support().
+-- RPC: list/get/reply/add_internal_note/assign/update_status/update_priority (admin) + create/customer_reply (kund) +
+-- list_support_admins. Notiser: support_ticket_created/_admin_reply/_customer_reply (+mallar). support_admin_ids().
+-- nq_select uppdaterad: user_id=auth.uid() OR can_view_operations() (mottagare ser egna notiser).
+-- VIKTIGT: notify_event fanns i 3 överlagrade versioner (9/10/11-arg) p.g.a. create-or-replace med ändrad signatur;
+-- de äldre droppades, endast 11-arg (…, p_dedupe_key, p_channels) finns kvar -> 6-arg trigger-anrop ej längre tvetydiga.

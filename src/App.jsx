@@ -42,6 +42,7 @@ import Artikelkontering from './pages/Artikelkontering'
 import Bokforingsmallar from './pages/Bokforingsmallar'
 import Notiser from './pages/Notiser'
 import Systemovervakning from './pages/Systemovervakning'
+import SupportAdmin from './pages/SupportAdmin'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="installningar/team" element={<Team />} />
           <Route path="admin" element={<Admin />} />
           <Route path="admin/system" element={<Systemovervakning />} />
+          <Route path="admin/support" element={<SupportAdmin />} />
           <Route path="installningar/kassa-bankkonton" element={<KassaBankKonton />} />
           <Route path="installningar/import-export" element={<ImportExport />} />
           <Route path="installningar/sie" element={<Sie />} />

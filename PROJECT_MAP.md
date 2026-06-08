@@ -102,6 +102,23 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   notification_* skyddas av RLS (`is_platform_admin()`). On-demand-workers pingar `record_worker_health(true)`
   vid lyckad körning (rensar last_error); cron pingar `scheduled-notifications`.
 
+**Admin: Support** (`src/pages/SupportAdmin.jsx`, `src/lib/support.js`):
+- Route `/admin/support` (Plattform → Support), **superadmin + support_admin** (`can_view_support()` RPC-gating +
+  RLS). operations_admin/billing_admin nekas om de inte också har support_admin. Forbidden-state för övriga.
+- **Datamodell:** `support_tickets` (company, created_by, assigned_admin, subject, category, priority, status,
+  last_message_at, closed_at), `support_messages` (konversation, is_admin), `support_internal_notes`
+  (**aldrig synliga för kund** – RLS `can_view_support()`), `support_attachments`. Status: new/open/
+  waiting_for_customer/waiting_for_support/resolved/closed. Priority: low/normal/high/urgent. 7 kategorier.
+- **RLS:** kund ser egna/sitt företags ärenden + meddelanden (tenant isolation via `user_company_ids()`),
+  support ser alla; interna anteckningar endast support. Skrivning via SECURITY DEFINER-RPC.
+- **RPC (krav 11):** `list_support_tickets`/`get_support_ticket` (admin, + begränsad kundöversikt: namn/org.nr/
+  användare/senaste aktivitet/inkomna underlag/misslyckade importer – ingen bokföringsdata), `reply_support_ticket`,
+  `add_internal_note`, `assign_support_ticket`, `update_support_ticket_status`, `update_support_ticket_priority`,
+  `create_support_ticket`/`customer_reply_support_ticket` (kund), `list_support_admins`. Alla loggar i `platform_audit_log`.
+- **Notiser:** nytt ärende → support_admin/superadmin; admin svarar → kund; kund svarar → tilldelad+support;
+  urgent → hög/urgent prioritet (event types `support_ticket_created`/`_admin_reply`/`_customer_reply` + mallar).
+  Mottagare ser egna notiser via uppdaterad `nq_select` (`user_id=auth.uid() OR can_view_operations()`).
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,

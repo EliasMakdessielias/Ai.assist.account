@@ -31,6 +31,7 @@ const navItems = [
 export default function Sidebar({ collapsed = false, onToggle }) {
   const { company, companies, switchCompany, createCompany, signOut, isAdmin, platformAccess } = useAuth()
   const canViewOps = !!platformAccess?.canViewOperations
+  const canViewSupport = !!platformAccess?.canViewSupport
   const location = useLocation()
   const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
   const [menuOpen, setMenuOpen] = useState(false)
@@ -94,17 +95,19 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           )
         )}
 
-        {(isAdmin || canViewOps) && (
+        {(isAdmin || canViewOps || canViewSupport) && (
           collapsed ? (
             <>
               {isAdmin && <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>}
               {canViewOps && <NavLink to="/admin/system" className={linkClass} title="Systemövervakning"><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" /></NavLink>}
+              {canViewSupport && <NavLink to="/admin/support" className={linkClass} title="Support"><i className="ti ti-headset text-[17px] w-5 text-center" /></NavLink>}
             </>
           ) : (
             <>
               <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
               {isAdmin && <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>}
               {canViewOps && <NavLink to="/admin/system" className={linkClass}><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" />Systemövervakning</NavLink>}
+              {canViewSupport && <NavLink to="/admin/support" className={linkClass}><i className="ti ti-headset text-[17px] w-5 text-center" />Support</NavLink>}
             </>
           )
         )}
