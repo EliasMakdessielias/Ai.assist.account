@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   TICKET_STATUSES, TICKET_PRIORITIES, TICKET_CATEGORIES, STATUS_LABELS, CATEGORY_LABELS,
   filterTickets, canViewSupportAdmin, isActiveStatus, isOpenForReply,
+  CUSTOMER_STATUS_LABELS, CUSTOMER_PRIORITIES, customerStatusLabel,
 } from './support'
 
 describe('support-konstanter (krav 3/4/5)', () => {
@@ -38,6 +39,22 @@ describe('filterTickets (krav 6)', () => {
   })
   it('kombinerar filter', () => {
     expect(filterTickets(tix, { status: 'open', companyId: 'c1', search: 'bokför' }).map(t => t.id)).toEqual(['3'])
+  })
+})
+
+describe('kundvy (krav 3/5)', () => {
+  it('kundvänliga statusnamn (new/open = Öppet)', () => {
+    expect(customerStatusLabel('new')).toBe('Öppet')
+    expect(customerStatusLabel('open')).toBe('Öppet')
+    expect(customerStatusLabel('waiting_for_customer')).toBe('Väntar på dig')
+    expect(customerStatusLabel('waiting_for_support')).toBe('Väntar på support')
+    expect(customerStatusLabel('resolved')).toBe('Löst')
+    expect(customerStatusLabel('closed')).toBe('Stängt')
+    TICKET_STATUSES.forEach(s => expect(CUSTOMER_STATUS_LABELS[s]).toBeTruthy())
+  })
+  it('kund får inte välja urgent', () => {
+    expect(CUSTOMER_PRIORITIES).toEqual(['low', 'normal', 'high'])
+    expect(CUSTOMER_PRIORITIES).not.toContain('urgent')
   })
 })
 

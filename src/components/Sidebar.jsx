@@ -26,6 +26,8 @@ const navItems = [
   { label: 'Kunder', icon: 'ti-users', to: '/kunder' },
   { label: 'Leverantörer', icon: 'ti-building-store', to: '/leverantorer' },
   { label: 'Produkter', icon: 'ti-package', to: '/produkter' },
+  { section: 'Hjälp' },
+  { label: 'Support', icon: 'ti-headset', to: '/support' },
 ]
 
 export default function Sidebar({ collapsed = false, onToggle }) {

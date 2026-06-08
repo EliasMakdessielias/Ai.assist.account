@@ -18,6 +18,15 @@ export const STATUS_META = {
   waiting_for_support: { tone: 'red' }, resolved: { tone: 'green' }, closed: { tone: 'gray' },
 }
 export const PRIORITY_META = { low: { tone: 'gray' }, normal: { tone: 'gray' }, high: { tone: 'amber' }, urgent: { tone: 'red' } }
+
+// Kundvänliga statusnamn (krav 3) – new/open visas som "Öppet".
+export const CUSTOMER_STATUS_LABELS = {
+  new: 'Öppet', open: 'Öppet', waiting_for_customer: 'Väntar på dig', waiting_for_support: 'Väntar på support',
+  resolved: 'Löst', closed: 'Stängt',
+}
+export const customerStatusLabel = s => CUSTOMER_STATUS_LABELS[s] || s
+// Prioriteter kund får välja (ingen urgent).
+export const CUSTOMER_PRIORITIES = ['low', 'normal', 'high']
 export const TONE_CLASS = {
   blue: 'bg-blue-100 text-blue-700', amber: 'bg-amber-100 text-amber-700',
   red: 'bg-red-100 text-red-700', green: 'bg-green-100 text-green-700', gray: 'bg-gray-100 text-gray-500',
