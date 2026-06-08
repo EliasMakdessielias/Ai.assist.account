@@ -9,6 +9,7 @@ import {
 import {
   METRIC_LABEL, STATUS_META as LIMIT_STATUS_META, BAR_CLASS, TEXT_CLASS, hasWarnings, worstStatus,
 } from '../lib/planLimits'
+import { startStripeCheckout } from '../lib/stripeBilling'
 import toast from 'react-hot-toast'
 
 const Pill = ({ tone, children }) => (
@@ -36,8 +37,14 @@ export default function Abonnemang() {
     setLoading(false)
   }
   async function requestChange(planId, planName) {
-    if (!confirm(`Skicka en begäran om att byta till ${planName}? BokPilot kontaktar dig.`)) return
     setBusy(true)
+    // 1) Försök Stripe Checkout (om konfigurerat) -> redirect till betalning.
+    try {
+      const res = await startStripeCheckout(supabase, { companyId: company.id, planId, billingPeriod: sub?.billing_period })
+      if (res?.configured && res.url) { window.location.href = res.url; return }
+    } catch { /* faller tillbaka till supportflöde */ }
+    // 2) Fallback (Stripe ej uppsatt): skapa supportärende för manuell hantering.
+    if (!confirm(`Skicka en begäran om att byta till ${planName}? BokPilot kontaktar dig.`)) { setBusy(false); return }
     const { data: ticketId, error } = await supabase.rpc('request_subscription_change', { p_company_id: company.id, p_desired_plan_id: planId, p_message: '' })
     setBusy(false)
     if (error) return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skicka begäran')

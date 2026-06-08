@@ -7,6 +7,7 @@ import {
   formatPrice, formatLimit,
 } from '../lib/billing'
 import UsageOverview from '../components/UsageOverview'
+import { stripeCustomerUrl } from '../lib/stripeBilling'
 import toast from 'react-hot-toast'
 
 const Pill = ({ tone, children }) => (
@@ -158,9 +159,12 @@ export default function BillingAdmin() {
                 </div>
 
                 <div className="bg-white rounded-xl p-4 text-xs text-gray-500" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-                  <div className="font-semibold text-gray-600 mb-1">Billing-readiness (ej kopplat till provider)</div>
-                  <div>Provider: {s?.payment_provider || '–'} · Kund-ID: {s?.payment_customer_id || '–'} · Prenumerations-ID: {s?.payment_subscription_id || '–'}</div>
-                  <div className="mt-1">Skapad: {fmt(s?.created_at)} · Pausad: {fmt(s?.suspended_at)} · Avslutad: {fmt(s?.cancelled_at)}</div>
+                  <div className="font-semibold text-gray-600 mb-1">Betalning (Stripe)</div>
+                  <div>Provider: {s?.payment_provider || '–'} · Betalstatus: {s?.payment_status || '–'} · Nästa debitering: {fmt(s?.next_billing_at)}</div>
+                  <div className="mt-1">Kund-ID: {s?.payment_customer_id
+                    ? <a href={stripeCustomerUrl(s.payment_customer_id)} target="_blank" rel="noopener" className="text-blue-600 hover:underline">{s.payment_customer_id}</a>
+                    : '–'} · Prenumeration: {s?.payment_subscription_id || '–'}</div>
+                  <div className="mt-1">Senaste betalning: {fmt(s?.last_payment_at)} · Skapad: {fmt(s?.created_at)} · Pausad: {fmt(s?.suspended_at)} · Avslutad: {fmt(s?.cancelled_at)}</div>
                 </div>
               </div>
             )}
