@@ -18,6 +18,12 @@ export const TONE_CLASS = {
 
 export const statusLabel = s => STATUS_LABELS[s] || s || 'Ingen plan'
 
+// Kundvända statusnamn (krav 4).
+export const CUSTOMER_STATUS_LABELS = {
+  trial: 'Testperiod', active: 'Aktiv', past_due: 'Betalning krävs', suspended: 'Avstängd', cancelled: 'Avslutad', expired: 'Utgången',
+}
+export const customerStatusLabel = s => CUSTOMER_STATUS_LABELS[s] || s || 'Ingen plan'
+
 export function formatPrice(n, currency = 'SEK') {
   const v = Number(n) || 0
   return `${v.toLocaleString('sv-SE')} ${currency === 'SEK' ? 'kr' : currency}`
@@ -36,3 +42,22 @@ export function filterSubscriptions(rows, { status = '', planId = '', search = '
 
 // Endast billing_admin/superadmin får billing-vyn.
 export const canManageBilling = access => !!access?.canManageBilling
+
+// Usage-rader för kundvyn: visar förbrukning ENDAST om data finns (krav 3), annars bara limit.
+export const USAGE_METRICS = [
+  { key: 'users', label: 'Användare', limitKey: 'max_users' },
+  { key: 'invoices_this_month', label: 'Fakturor denna månad', limitKey: 'max_invoices_per_month' },
+  { key: 'documents_this_month', label: 'Underlag denna månad', limitKey: 'max_documents_per_month' },
+  { key: 'storage_mb', label: 'Lagring (MB)', limitKey: 'max_storage_mb' },
+  { key: 'ai', label: 'AI-operationer/mån', limitKey: 'max_ai_operations_per_month' },
+]
+export function usageRows(usage, plan) {
+  return USAGE_METRICS.map(m => ({
+    label: m.label,
+    used: usage && usage[m.key] !== undefined && usage[m.key] !== null ? usage[m.key] : null,
+    limit: plan ? plan[m.limitKey] : null,
+  }))
+}
+
+export const STATUS_WARNING = { past_due: true, suspended: true, expired: true }
+export const isWarningStatus = s => !!STATUS_WARNING[s]

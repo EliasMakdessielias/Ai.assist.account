@@ -45,6 +45,7 @@ import Systemovervakning from './pages/Systemovervakning'
 import SupportAdmin from './pages/SupportAdmin'
 import Support from './pages/Support'
 import BillingAdmin from './pages/BillingAdmin'
+import Abonnemang from './pages/Abonnemang'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="installningar/artikelkontering" element={<Artikelkontering />} />
           <Route path="installningar/bokforingsmallar" element={<Bokforingsmallar />} />
           <Route path="installningar/notiser" element={<Notiser />} />
+          <Route path="installningar/abonnemang" element={<Abonnemang />} />
         </Route>
       </Routes>
     </>

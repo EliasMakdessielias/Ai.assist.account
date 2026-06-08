@@ -138,3 +138,8 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- RPC (can_manage_billing-gated, audit): admin_list_subscriptions/get/set_company_plan(vägrar inaktiv plan)/
 -- set_subscription_status/set_subscription_dates + admin_list_plans/upsert_plan/set_plan_active.
 -- Notiser: subscription_status_changed (statusbyte) + notify_subscription_lifecycle() i cron (trial_ending/expiring).
+
+-- Kund-abonnemangsvy (migration customer_subscription). UI: src/pages/Abonnemang.jsx (/installningar/abonnemang).
+-- my_subscription(company): eget abonnemang + plan + usage (users/invoices/documents/storage; AI utelämnas).
+-- request_subscription_change(company, plan, message): support-ärende (billing) + notis till billing_admin_ids() +
+-- audit. Mall subscription_change_requested. Kund kan ej ändra plan/status (admin-RPC can_manage_billing-gated).

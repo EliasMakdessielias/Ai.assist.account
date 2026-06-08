@@ -26,6 +26,9 @@ describe('Inställningar – aktiv undermeny', () => {
   it('på /installningar/notiser är ENDAST Notiser aktiv', () => {
     expect(activeSettingsLabels('/installningar/notiser')).toEqual(['Notiser'])
   })
+  it('på /installningar/abonnemang är ENDAST Abonnemang aktiv', () => {
+    expect(activeSettingsLabels('/installningar/abonnemang')).toEqual(['Abonnemang'])
+  })
   it('aldrig flera aktiva samtidigt på en inställningssida', () => {
     for (const p of ['/installningar', '/installningar/kontoplan', '/installningar/kontoplan/9999', '/installningar/team', '/installningar/kassa-bankkonton', '/installningar/rakenskapsar', '/installningar/import-export']) {
       expect(activeSettingsLabels(p).length).toBeLessThanOrEqual(1)

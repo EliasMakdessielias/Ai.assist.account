@@ -165,6 +165,17 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   ≤7 dagar (`subscription_expiring`) → kund (stabil källa: subscription-datum). Mallar för alla tre. **Ingen provider-
   integration ännu** – strukturen är adaptervänlig (payment_*-fält) för framtida Stripe e.d.
 
+**Kund: Abonnemang** (`src/pages/Abonnemang.jsx`, route `/installningar/abonnemang`, Inställningar → Abonnemang):
+- Kund ser **endast sitt företags** abonnemang (RPC `my_subscription` validerar medlemskap; RLS skyddar tabellerna).
+  Visar nuvarande plan (namn/beskrivning/pris/period/status/period- & trial-slut/supportnivå), **kundvända statusnamn**
+  (`CUSTOMER_STATUS_LABELS`: trial→Testperiod osv), limits + **usage där data finns** (`usageRows`: användare/fakturor/
+  underlag/lagring från riktiga tabeller; AI = "–", hittar ej på siffror), varningsbanner vid past_due/suspended/expired
+  (länk till Support; ingen enforcement-låsning ännu), och plan-jämförelse (Bas/Plus/Premium).
+- **Uppgraderingsbegäran** (`request_subscription_change`): skapar support-ärende (kategori `billing`, prioritet `normal`,
+  ämne "Begäran om abonnemangsändring", meddelande med önskad plan) + notis till **billing_admin/superadmin**
+  (`subscription_change_requested`) + audit. Kunden ser ärendet i Support (in-app bekräftelse). **Ingen betalning/Stripe.**
+- Kund kan **inte** ändra plan/status själv – admin-RPC:er är `can_manage_billing()`-gated.
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,

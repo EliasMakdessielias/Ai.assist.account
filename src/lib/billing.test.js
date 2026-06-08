@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   SUB_STATUSES, BILLING_PERIODS, STATUS_LABELS, PERIOD_LABELS,
   formatPrice, formatLimit, filterSubscriptions, canManageBilling, statusLabel,
+  usageRows, isWarningStatus, customerStatusLabel,
 } from './billing'
 
 describe('billing-konstanter (krav 3/4)', () => {
@@ -26,6 +27,14 @@ describe('formattering', () => {
     expect(statusLabel('active')).toBe('Aktiv')
     expect(statusLabel(null)).toBe('Ingen plan')
   })
+  it('kundvända statusnamn (krav 4)', () => {
+    expect(customerStatusLabel('trial')).toBe('Testperiod')
+    expect(customerStatusLabel('past_due')).toBe('Betalning krävs')
+    expect(customerStatusLabel('suspended')).toBe('Avstängd')
+    expect(customerStatusLabel('cancelled')).toBe('Avslutad')
+    expect(customerStatusLabel('expired')).toBe('Utgången')
+    expect(customerStatusLabel('active')).toBe('Aktiv')
+  })
 })
 
 describe('filterSubscriptions (krav 5)', () => {
@@ -39,6 +48,33 @@ describe('filterSubscriptions (krav 5)', () => {
   it('söker på namn/org', () => {
     expect(filterSubscriptions(rows, { search: 'acme' })).toHaveLength(2)
     expect(filterSubscriptions(rows, { search: '556002' })).toHaveLength(1)
+  })
+})
+
+describe('usageRows (krav 3 – usage endast om data finns)', () => {
+  const plan = { max_users: 10, max_invoices_per_month: 300, max_documents_per_month: 1000, max_storage_mb: 10240, max_ai_operations_per_month: 1000 }
+  it('visar used endast där data finns, annars null (bara limit)', () => {
+    const rows = usageRows({ users: 3, invoices_this_month: 12, documents_this_month: 40, storage_mb: 5 }, plan)
+    const byLabel = Object.fromEntries(rows.map(r => [r.label, r]))
+    expect(byLabel['Användare'].used).toBe(3)
+    expect(byLabel['Användare'].limit).toBe(10)
+    expect(byLabel['Fakturor denna månad'].used).toBe(12)
+    // AI saknar usage-data -> used null, men limit visas
+    expect(byLabel['AI-operationer/mån'].used).toBeNull()
+    expect(byLabel['AI-operationer/mån'].limit).toBe(1000)
+  })
+  it('inget usage-objekt -> alla used null (hittar inte på siffror)', () => {
+    expect(usageRows(null, plan).every(r => r.used === null)).toBe(true)
+  })
+})
+
+describe('isWarningStatus (krav 5)', () => {
+  it('past_due/suspended/expired = varning', () => {
+    expect(isWarningStatus('past_due')).toBe(true)
+    expect(isWarningStatus('suspended')).toBe(true)
+    expect(isWarningStatus('expired')).toBe(true)
+    expect(isWarningStatus('active')).toBe(false)
+    expect(isWarningStatus('trial')).toBe(false)
   })
 })
 
