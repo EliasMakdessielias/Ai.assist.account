@@ -27,11 +27,22 @@ Centralt notissystem som hela appen kan använda utan duplicerad logik.
   övriga → `pending`. Obligatoriska events (security/system/permission/locked/invite) kan ej stängas av för in_app.
   sms/push kräver aktiv opt-in-subscription. Idempotens via `idempotency_key = event:user:channel`.
 
-**Integration (hooks):**
-- Trigger `trg_notify_inbound_document` på `documents`: när inkommande underlag (`source='email'`)
-  skapas → `notify_event` (kvitto→`kvitto_classified`, lev.faktura→`supplier_invoice_received`,
-  osäkert→`invoice_needs_review`). Täcker både IMAP- och webhook-vägen.
-- Fler events kan kopplas genom att anropa `notify_event(...)` (RPC från edge functions / DB-triggers).
+**Integration (hooks):** kontrakt i `src/lib/notificationHooks.js` (`NOTIFY_HOOKS`, dedupe/actionUrl/mottagare).
+Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `company_id`) + `notify_event(... p_dedupe_key)`.
+- `trg_notify_inbound_document` (documents INSERT, `source='email'`) → kvitto/lev.faktura/osäkert. *(Fas 1)*
+- `trg_notify_bookkeeping_suggestion` (documents UPDATE `tolkad` false→true) → `bookkeeping_suggestion`, /inkorg.
+- `trg_notify_verifikation_created` (verifikationer INSERT, ej Momsredovisning) → `verifikation_created`,
+  endast skaparen (`created_by`), /bokforing/{id}.
+- `trg_notify_import_failed` (account_import_batches `status=failed`/`error`) → `import_failed`, /installningar/import-export.
+- `run_scheduled_notifications()` (pg_cron **`bokpilot-scheduled-notifications`** dagligen 06:00):
+  `payment_overdue` (kundfaktura `status=sent`+förfallen, leverantörsfaktura obetald saldo+förfallen,
+  dedupe `payment_overdue:{invoiceId}:{dueDate}`) + `bank_reconciliation_action` (omatchade banktransaktioner,
+  dedupe per företag+dag). Returnerar antal notifierade (loggas i `cron.job_run_details`).
+- `report_system_error(component, message, company?)` (RPC, anropas av workers/edge functions) →
+  `system_error` **endast plattformsadmins**, timme-bucket-dedupe (anti-spam). Email-worker rapporterar fatala fel.
+- `notify_vat_report_ready(company, verifikationId, period)` (RPC) → anropas av Moms-sidan efter momsredovisning.
+- **Email-default-off** (`EMAIL_DEFAULT_OFF`): informativa events (underlag/kvitto/verifikation/förslag/kontoplanimport)
+  default endast in_app; viktiga (faktura/moms/bank/import/säkerhet/system) default in_app+email. Obligatoriska låsta på (in_app+email).
 
 **UI:**
 - `NotificationCenter` (klocka + dropdown i Sidebar): olästa-badge, läs/markera alla, länk till objekt.

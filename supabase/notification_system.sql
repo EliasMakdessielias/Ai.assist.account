@@ -68,3 +68,13 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- Skapa testnotis (in_app/email). Se src/pages/Notiser.jsx. (Fullständig definition i migrationen.)
 -- create function set_notification_preference(p_company_id uuid, p_event_type text, p_channel text, p_enabled boolean) ...
 -- create function send_test_notification(p_company_id uuid, p_channel text) returns uuid ...
+
+-- Affärsflödes-hooks (migration notify_event_hooks). Kontrakt i src/lib/notificationHooks.js.
+-- Idempotens: notification_events.dedupe_key (unik per company_id) + notify_event(... p_dedupe_key).
+-- Triggers: trg_notify_bookkeeping_suggestion (documents UPDATE tolkad), trg_notify_verifikation_created
+--   (verifikationer INSERT, ej Momsredovisning, endast skaparen), trg_notify_import_failed (account_import_batches).
+-- run_scheduled_notifications(): payment_overdue (invoices/supplier_invoices) + bank_reconciliation_action.
+--   Schemalagd via pg_cron-jobb 'bokpilot-scheduled-notifications' (0 6 * * *).
+-- report_system_error(component, message, company?): system_error endast plattformsadmins, timme-bucket dedupe.
+-- notify_vat_report_ready(company, verifikation_id, period): anropas från Moms-sidan.
+-- notify_event har email-default-off för informativa events; obligatoriska tvångas på för in_app+email.
