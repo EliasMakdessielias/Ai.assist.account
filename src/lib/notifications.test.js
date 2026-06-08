@@ -96,6 +96,16 @@ describe('preferens-UI: resolvePref (laddning)', () => {
     expect(resolvePref(tampered, 'security_event', 'email')).toBe(true)
     expect(resolvePref(tampered, 'security_event', 'in_app')).toBe(true)
   })
+  it('informativa events har email AV som standard (in_app på)', () => {
+    // speglar notify_event email-default-off
+    expect(resolvePref([], 'verifikation_created', 'in_app')).toBe(true)
+    expect(resolvePref([], 'verifikation_created', 'email')).toBe(false)
+    expect(resolvePref([], 'bookkeeping_suggestion', 'email')).toBe(false)
+    expect(resolvePref([], 'kvitto_classified', 'email')).toBe(false)
+    // viktiga events behåller email på
+    expect(resolvePref([], 'payment_overdue', 'email')).toBe(true)
+    expect(resolvePref([], 'import_failed', 'email')).toBe(true)
+  })
 })
 
 describe('event-typer', () => {

@@ -65,7 +65,7 @@ export function resolvePref(dbRows, eventType, channel) {
   if (MANDATORY_EVENTS.includes(eventType) && (channel === 'in_app' || channel === 'email')) return true
   const row = (dbRows || []).find(r => r.event_type === eventType && r.channel === channel)
   if (row) return !!row.enabled
-  return defaultChannelEnabled(channel)
+  return defaultChannelEnabled(channel, eventType)
 }
 
 // Ersätt {{var}} med värden; saknade variabler tas bort (matchar SQL render_template).
@@ -81,10 +81,16 @@ export function missingVars(requiredVars = [], vars = {}) {
   return (requiredVars || []).filter(k => vars?.[k] === undefined || vars?.[k] === null || vars?.[k] === '')
 }
 
+// Informativa/högfrekventa events där email är AV som standard (in_app räcker) – speglar notify_event i DB.
+// Viktiga events (faktura/moms/säkerhet/system/import) behåller email på som standard.
+export const EMAIL_DEFAULT_OFF = ['underlag_received', 'kvitto_classified', 'verifikation_created', 'bookkeeping_suggestion', 'chart_import_done']
+
 // Standard på/av per kanal när användaren inte gjort ett val.
-// in_app + email på som standard; sms/push av (kräver explicit opt-in).
-export function defaultChannelEnabled(channel) {
-  return channel === 'in_app' || channel === 'email'
+// in_app alltid på; email på utom för informativa events; sms/push av (kräver opt-in).
+export function defaultChannelEnabled(channel, eventType) {
+  if (channel === 'in_app') return true
+  if (channel === 'email') return !EMAIL_DEFAULT_OFF.includes(eventType)
+  return false
 }
 
 // Är kanalen tillåten att stänga av för detta event?

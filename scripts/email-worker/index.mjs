@@ -203,5 +203,7 @@ try {
   process.exit(0)
 } catch (err) {
   console.error('Fel:', err?.message || err)
+  // Rapportera produktionskritiskt fel i kö-processorn till plattformsadmins (dedupe per timme).
+  try { await sb.rpc('report_system_error', { p_component: 'email-worker', p_message: String(err?.message || err).slice(0, 300) }) } catch { /* rapportering får ej maskera ursprungsfelet */ }
   process.exit(1)
 }
