@@ -240,6 +240,7 @@ Deno.serve(async (req) => {
 
   const created = results.filter(r => r.status).length
   await log(companyId, 'received', JSON.stringify(results).slice(0, 1000), created)
+  await admin.rpc('record_worker_health', { p_component: 'inbound-email', p_ok: true, p_error: null })
   return json({ status: 'received', created, results })
   } catch (err) {
     // Oväntat ohanterat fel i klassificerings-/lagringspipelinen -> notifiera admins.

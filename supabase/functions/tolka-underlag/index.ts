@@ -185,6 +185,7 @@ ${kontoplan}`
     if (!text) throw new Error('Tomt svar från Gemini')
     const result = JSON.parse(text)
 
+    await admin.rpc('record_worker_health', { p_component: 'tolka-underlag', p_ok: true, p_error: null })
     return new Response(JSON.stringify({ ok: true, result }), {
       headers: { ...cors, 'Content-Type': 'application/json' },
     })

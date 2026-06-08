@@ -70,6 +70,22 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
     befintlig modell (ingen ny parallell datamodell).
   - `apply_email_unsubscribe(user, event_type)` – bakom edge function `notif-unsubscribe` (se Email-leverans).
 
+**Admin: Systemövervakning** (`src/pages/Systemovervakning.jsx`, `src/lib/systemStatus.js`):
+- Route `/admin/system` (Plattform → Systemövervakning), **endast plattformsadmins** (`isAdmin` + RPC-gating
+  `is_platform_admin()` + RLS). Självständig sida – kan flyttas till admin.bokpilot.se utan ändring.
+- En RPC `admin_system_overview()` (admin-gated, en round-trip) returnerar: **worker_health** per komponent
+  (imap-import, inbound-email, tolka-underlag, email-worker, scheduled-notifications) med status
+  healthy/warning/failing/unknown; **queue-summary** (pending/processing/sent today/failed/skipped/cancelled/
+  retries/oldest pending age); senaste 50 **system_error** (filtrerbara komponent/severity/kvittering);
+  senaste 30 **e-postleveransfel**.
+- Statuslogik (`computeWorkerStatus`, testad): unknown=ingen record, failing=consecutive>0 eller error/critical
+  nyligen, warning=warning eller gammal success (>24h), healthy annars.
+- Actions (admin-gated RPC): `admin_retry_notification`, `admin_cancel_notification`,
+  `admin_acknowledge_system_error` (`notification_events.acknowledged_at/by`).
+- **Sekretess:** system_error-events hålls `company_id=null` så kunder aldrig kan läsa dem; worker_health +
+  notification_* skyddas av RLS (`is_platform_admin()`). On-demand-workers pingar `record_worker_health(true)`
+  vid lyckad körning (rensar last_error); cron pingar `scheduled-notifications`.
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,

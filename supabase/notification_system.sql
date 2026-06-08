@@ -87,3 +87,9 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 --   eskalerar till critical efter >=3 consecutive. Endast plattformsadmins.
 -- Rapporterande komponenter: email-worker, inbound-email, tolka-underlag (service-role direkt) + imap-import via
 --   edge 'report-error' (HMAC ERROR_REPORT_SECRET). Metadata saneras (inga tokens/credentials/innehåll).
+
+-- Admin-dashboard (migration admin_system_dashboard). UI: src/pages/Systemovervakning.jsx (/admin/system).
+-- notification_events.acknowledged_at/by; report_system_error håller system_error company-null (kunder ser ej).
+-- admin_system_overview() (admin-gated): worker_health-status + queue-summary + system_errors + leveransfel.
+-- admin_retry_notification / admin_cancel_notification / admin_acknowledge_system_error (is_platform_admin-gated).
+-- record_worker_health rensar last_error vid lyckad körning. Cron pingar 'scheduled-notifications'.
