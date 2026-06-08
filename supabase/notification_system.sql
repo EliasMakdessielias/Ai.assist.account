@@ -102,3 +102,8 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 --   gate:as nu på can_view_operations(); actions (retry/cancel/ack) på can_manage_operations() + audit.
 -- Roll-admin (superadmin): admin_grant_platform_role/admin_revoke_platform_role (+ audit). my_platform_access()
 --   -> frontend. admin_list_platform_roles() för UI. Alla actions loggas i platform_audit_log.
+
+-- Driftvarningar (migration ops_failing_alerts). report_system_error notifierar nu superadmin +
+-- operations_admin (platform_admins ∪ platform_user_roles role=operations_admin). occurredAt i payload.
+-- critical -> dedupe-suffix ':critical' (bryter igenom inom timmen). Mallar: system_error in_app + email
+-- (subject "BokPilot driftvarning: {{component}} - {{severity}}"). buildEmailHtml absolutifierar relativa CTA-länkar.

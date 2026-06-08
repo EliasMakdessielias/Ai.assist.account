@@ -39,10 +39,15 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   dedupe `payment_overdue:{invoiceId}:{dueDate}`) + `bank_reconciliation_action` (omatchade banktransaktioner,
   dedupe per företag+dag). Returnerar antal notifierade (loggas i `cron.job_run_details`).
 - `report_system_error(component, message, company?, severity?, errorCode?, metadata?, occurredAt?)` (RPC) →
-  `system_error` **endast plattformsadmins**. Severity-routing: `warning`→in_app, `error`/`critical`→in_app+email
-  (via `notify_event(... p_channels)`). Dedupe `system_error:{component}:{errorCode}:{hourBucket}` (anti-spam).
-  Eskalerar till `critical` efter ≥3 consecutive failures (`worker_health`). Canonical helper `src/lib/systemError.js`
-  (severity/routing/dedupe/sanering – tester). **Rapporterande komponenter:**
+  `system_error` till **superadmin + operations_admin** (mottagare = `platform_admins` ∪ `platform_user_roles`
+  role=operations_admin; aldrig vanliga kunder). Severity-routing: `warning`→in_app, `error`/`critical`→in_app+email
+  (via `notify_event(... p_channels)`); `critical`→priority `urgent`. Dedupe `system_error:{component}:{errorCode}:{hourBucket}`
+  (+`:critical`-suffix så kritisk eskalering bryter igenom inom timmen även om lägre severity kvitterats). Max en
+  notis per fel och timme – kvitterat fel ger ingen ny notis i samma bucket. Eskalerar till `critical` efter ≥3
+  consecutive (`worker_health`). **Driftvarnings-mall** (`system_error` email, sv-SE): subject
+  "BokPilot driftvarning: {{component}} - {{severity}}", body med component/severity/errorCode/occurredAt/message +
+  länk till Systemövervakning ({{actionUrl}}). E-post-CTA absolutifierar relativa länkar (`absoluteUrl`).
+  Canonical helper `src/lib/systemError.js` (severity/routing/dedupe/sanering – tester). **Rapporterande komponenter:**
   - `email-worker` (= kö-processor): RPC direkt (service-role) + health-ping vid lyckad körning.
   - `inbound-email` edge: config-secret saknas, storage-upload, DB-insert, ohanterat pipeline-fel.
   - `tolka-underlag` (OCR/Gemini) edge: gemini-API/rate-limit/timeout/file-extraction/malformed-svar (ej klientfel).

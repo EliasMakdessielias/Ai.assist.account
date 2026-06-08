@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isValidEmail, backoffMinutes, nextRetryAt, isPermanentFailure,
   deliveryDecision, failureTransition, buildUnsubToken, verifyUnsubToken,
-  unsubscribeUrl, emailFooter, NON_UNSUBSCRIBABLE,
+  unsubscribeUrl, emailFooter, NON_UNSUBSCRIBABLE, absoluteUrl, buildEmailHtml,
 } from './emailDelivery.js'
 
 const SECRET = 'test-secret-123'
@@ -93,6 +93,20 @@ describe('unsubscribe-token (HMAC)', () => {
     expect(verifyUnsubToken(tok + 'x', SECRET)).toBeNull()
     expect(verifyUnsubToken('skräp', SECRET)).toBeNull()
     expect(verifyUnsubToken(null, SECRET)).toBeNull()
+  })
+})
+
+describe('absoluteUrl + CTA i e-post', () => {
+  it('gör relativa länkar absoluta (fungerar i mejlklienter)', () => {
+    expect(absoluteUrl('/admin/system')).toBe('https://app.bokpilot.se/admin/system')
+    expect(absoluteUrl('inkorg')).toBe('https://app.bokpilot.se/inkorg')
+    expect(absoluteUrl('https://app.bokpilot.se/x')).toBe('https://app.bokpilot.se/x')
+    expect(absoluteUrl('')).toBe('')
+  })
+  it('CTA-knappen i mailet använder absolut href', () => {
+    const html = buildEmailHtml({ subject: 'S', body: 'B', linkUrl: '/admin/system' })
+    expect(html).toContain('href="https://app.bokpilot.se/admin/system"')
+    expect(html).not.toContain('href="/admin/system"')
   })
 })
 

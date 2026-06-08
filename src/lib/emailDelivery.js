@@ -98,12 +98,20 @@ export function emailFooter({ companyName, unsubUrl }) {
   }
 }
 
+export const APP_ORIGIN = 'https://app.bokpilot.se'
+// Relativa länkar (t.ex. /inkorg) måste göras absoluta i e-post – relativa href fungerar inte i mejlklienter.
+export function absoluteUrl(url) {
+  if (!url) return ''
+  return /^https?:\/\//i.test(url) ? url : APP_ORIGIN + (url.startsWith('/') ? url : '/' + url)
+}
+
 // Bygg HTML-mail från subject/body (text) + ev. action-länk i link_url.
 export function buildEmailHtml({ subject, body, linkUrl, footer }) {
   const safe = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const para = safe(body).split(/\n+/).filter(Boolean).map(p => `<p style="margin:0 0 12px;color:#374151;font-size:14px;line-height:1.5">${p}</p>`).join('')
-  const cta = linkUrl
-    ? `<p style="margin:20px 0"><a href="${linkUrl}" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;display:inline-block">Öppna i BokPilot</a></p>`
+  const href = absoluteUrl(linkUrl)
+  const cta = href
+    ? `<p style="margin:20px 0"><a href="${href}" style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:14px;display:inline-block">Öppna i BokPilot</a></p>`
     : ''
   return `<!doctype html><html><body style="margin:0;background:#f9fafb;padding:24px"><div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:28px;font-family:-apple-system,Segoe UI,Roboto,sans-serif">
 <h1 style="margin:0 0 16px;font-size:18px;color:#111827">${safe(subject)}</h1>${para}${cta}${footer?.html || ''}</div></body></html>`
