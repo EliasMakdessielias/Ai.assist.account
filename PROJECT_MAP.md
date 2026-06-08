@@ -119,6 +119,15 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   urgent → hög/urgent prioritet (event types `support_ticket_created`/`_admin_reply`/`_customer_reply` + mallar).
   Mottagare ser egna notiser via uppdaterad `nq_select` (`user_id=auth.uid() OR can_view_operations()`).
 
+**Kund: Support** (`src/pages/Support.jsx`, route `/support`, sidebar Hjälp → Support – synlig för alla inloggade):
+- Kund skapar ärende (kategori + ämne + meddelande + prioritet **låg/normal/hög**, ingen urgent), ser **sitt
+  företags** ärenden (RLS, tenant isolation), öppnar tråd, svarar, och **stänger** eget ärende. Kundvänliga
+  statusnamn (`customerStatusLabel`: new/open→"Öppet" osv). **Ser aldrig interna anteckningar** (RLS) eller admin-vyn.
+- Läser ärenden/meddelanden via direkt RLS-skyddad SELECT (inga admin-fält visas). Skriver via RPC:
+  `create_support_ticket` (status=new, första meddelandet, urgent→high-clamp), `customer_reply_support_ticket`
+  (status→waiting_for_support), `customer_close_support_ticket` (→closed). Alla loggar i `platform_audit_log`
+  (utan meddelandeinnehåll). Admin-RPC (`list/get_support_ticket` m.fl.) är `can_view_support()`-gated → ej åtkomliga för kund.
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,

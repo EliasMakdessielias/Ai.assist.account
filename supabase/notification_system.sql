@@ -116,3 +116,7 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- nq_select uppdaterad: user_id=auth.uid() OR can_view_operations() (mottagare ser egna notiser).
 -- VIKTIGT: notify_event fanns i 3 överlagrade versioner (9/10/11-arg) p.g.a. create-or-replace med ändrad signatur;
 -- de äldre droppades, endast 11-arg (…, p_dedupe_key, p_channels) finns kvar -> 6-arg trigger-anrop ej längre tvetydiga.
+
+-- Kund-support (migration customer_support). UI: src/pages/Support.jsx (/support).
+-- create_support_ticket clampar urgent->high (kund får max high) + audit. customer_reply_support_ticket + audit.
+-- customer_close_support_ticket (kund stänger eget ärende -> closed) + audit. Kund läser via RLS-SELECT (ej admin-RPC).
