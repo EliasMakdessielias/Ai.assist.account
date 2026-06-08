@@ -45,6 +45,17 @@ export const OVERALL_STATUS_FILTERS = [
   { value: 'warning', label: 'Nära gränsen' }, { value: 'exceeded', label: 'Gräns nådd' },
 ]
 
+// Kanal-/dedupe-kontrakt för plan-limit-notiser (speglar _notify_plan_limit i DB).
+// warning -> in_app; exceeded -> in_app + email; annars inga.
+export function channelsForStatus(status) {
+  return status === 'exceeded' ? ['in_app', 'email'] : status === 'warning' ? ['in_app'] : []
+}
+// Dedupe: event-typ (warning/exceeded) i nyckeln -> warning->exceeded samma dag tillåts; max 1/metric/dag.
+export function planLimitDedupeKey(status, companyId, metric, day) {
+  const ev = status === 'exceeded' ? 'plan_limit_exceeded' : 'plan_limit_warning'
+  return `${ev}:${companyId}:${metric}:${day}`
+}
+
 export const isBlockingStatus = s => s === 'exceeded'
 export const hasWarnings = limits => (limits || []).some(l => l.status === 'warning' || l.status === 'exceeded')
 export const worstStatus = limits => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { limitStatus, LIMIT_METRICS, hasWarnings, worstStatus, isBlockingStatus, USAGE_SORT_OPTIONS, OVERALL_STATUS_FILTERS } from './planLimits'
+import { limitStatus, LIMIT_METRICS, hasWarnings, worstStatus, isBlockingStatus, USAGE_SORT_OPTIONS, OVERALL_STATUS_FILTERS, channelsForStatus, planLimitDedupeKey } from './planLimits'
 
 describe('limitStatus (krav 4/5)', () => {
   it('ok < 80%', () => {
@@ -43,6 +43,27 @@ describe('aggregat', () => {
 describe('metrics (krav 2)', () => {
   it('täcker de sex limit-typerna', () => {
     expect(LIMIT_METRICS.map(m => m.key)).toEqual(['users', 'companies', 'invoices', 'documents', 'storage', 'ai'])
+  })
+})
+
+describe('schemalagd enforcement: kanaler + dedupe (krav 8/10)', () => {
+  it('warning -> in_app; exceeded -> in_app + email; ok -> inga', () => {
+    expect(channelsForStatus('warning')).toEqual(['in_app'])
+    expect(channelsForStatus('exceeded')).toEqual(['in_app', 'email'])
+    expect(channelsForStatus('ok')).toEqual([])
+    expect(channelsForStatus('unlimited')).toEqual([])
+  })
+  it('dedupe: samma status+metric+dag = samma nyckel', () => {
+    expect(planLimitDedupeKey('warning', 'c1', 'users', '20260608')).toBe(planLimitDedupeKey('warning', 'c1', 'users', '20260608'))
+  })
+  it('warning->exceeded samma dag tillåts (olika nycklar)', () => {
+    const w = planLimitDedupeKey('warning', 'c1', 'documents', '20260608')
+    const e = planLimitDedupeKey('exceeded', 'c1', 'documents', '20260608')
+    expect(w).not.toBe(e)
+    expect(e).toBe('plan_limit_exceeded:c1:documents:20260608')
+  })
+  it('ny dag = ny nyckel', () => {
+    expect(planLimitDedupeKey('exceeded', 'c1', 'ai', '20260608')).not.toBe(planLimitDedupeKey('exceeded', 'c1', 'ai', '20260609'))
   })
 })
 
