@@ -62,3 +62,9 @@ begin
   return n;
 end $$ language plpgsql security definer set search_path = public;
 revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, authenticated;
+
+-- Preferens-UI (Inställningar → Notiser). Migration: notification_preference_rpcs.
+-- Sätt egen preference med validering (tenant isolation + obligatoriska + sms/push opt-in).
+-- Skapa testnotis (in_app/email). Se src/pages/Notiser.jsx. (Fullständig definition i migrationen.)
+-- create function set_notification_preference(p_company_id uuid, p_event_type text, p_channel text, p_enabled boolean) ...
+-- create function send_test_notification(p_company_id uuid, p_channel text) returns uuid ...

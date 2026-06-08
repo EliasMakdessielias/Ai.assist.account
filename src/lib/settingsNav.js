@@ -16,6 +16,7 @@ export const SETTINGS_ITEMS = [
   { label: 'Artikelkontering', to: '/installningar/artikelkontering', match: p => p === '/installningar/artikelkontering' },
   { label: 'Bokföringsmallar', to: '/installningar/bokforingsmallar', match: p => p === '/installningar/bokforingsmallar' },
   { label: 'Import och export', to: '/installningar/import-export', match: p => p === '/installningar/import-export' },
+  { label: 'Notiser', to: '/installningar/notiser', match: p => p === '/installningar/notiser' },
 ]
 
 export function isSettingsItemActive(item, pathname) {

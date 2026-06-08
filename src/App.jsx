@@ -40,6 +40,7 @@ import Admin from './pages/Admin'
 import Aterstall from './pages/Aterstall'
 import Artikelkontering from './pages/Artikelkontering'
 import Bokforingsmallar from './pages/Bokforingsmallar'
+import Notiser from './pages/Notiser'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="installningar/aterstall" element={<Aterstall />} />
           <Route path="installningar/artikelkontering" element={<Artikelkontering />} />
           <Route path="installningar/bokforingsmallar" element={<Bokforingsmallar />} />
+          <Route path="installningar/notiser" element={<Notiser />} />
         </Route>
       </Routes>
     </>

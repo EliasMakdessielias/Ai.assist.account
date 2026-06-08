@@ -36,7 +36,18 @@ Centralt notissystem som hela appen kan använda utan duplicerad logik.
 **UI:**
 - `NotificationCenter` (klocka + dropdown i Sidebar): olästa-badge, läs/markera alla, länk till objekt.
   Auto-uppdatering vid fönster-fokus + var 60:e sek.
-- Preferenser: `notification_preferences` per kanal (UI-yta kan byggas i Inställningar).
+- **Preferens-UI** `src/pages/Notiser.jsx` (Inställningar → Notiser, route `/installningar/notiser`):
+  event-typer grupperade i 7 sektioner (`EVENT_GROUPS`: Underlag & Inkorg, Fakturor, Bokföring, Moms,
+  Bank, Säkerhet, System), toggle per kanal (in_app/email/sms/push). Status per cell via `channelStatus()`:
+  Aktiv / Avstängd / Obligatorisk (låst) / Kräver opt-in / Provider saknas. sms/push disabled tills provider finns
+  (`CHANNEL_PROVIDER_AVAILABLE`). Obligatoriska events låsta på för in_app/email. Testknapp "Skicka testnotis"
+  (in_app + email). Läser `notification_preferences` + `notification_subscriptions` (RLS-scopat per användare).
+- **Backend-validering (RPC, SECURITY DEFINER):**
+  - `set_notification_preference(company, event_type, channel, enabled)` – tenant isolation (medlem i företaget),
+    vägrar stänga av obligatoriska (in_app/email), kräver aktiv opt-in för sms/push. Upsert i `notification_preferences`.
+  - `send_test_notification(company, channel)` – skapar testnotis i kön (in_app→sent, email→pending), återanvänder
+    befintlig modell (ingen ny parallell datamodell).
+  - `apply_email_unsubscribe(user, event_type)` – bakom edge function `notif-unsubscribe` (se Email-leverans).
 
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
