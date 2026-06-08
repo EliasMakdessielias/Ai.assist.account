@@ -74,21 +74,32 @@ supabase secrets set FOLIO_OCR_TIMEOUT_MS=20000 FOLIO_OCR_API_SECRET=...
 
 ## Aktivera
 
+Folio kan aktiveras på **två sätt** — DB-config (admin-toggle) har företräde framför env:
+
+**A) Admin-toggle (rekommenderas, kräver ingen omdeploy):**
 1. Driftsätt Folio-tjänsten isolerat (egen container) och exponera adapter-kontraktet ovan.
-2. Sätt `FOLIO_OCR_BASE_URL` (+ ev. `FOLIO_OCR_API_SECRET`) som secrets.
-3. Sätt `ENABLE_FOLIO_OCR=true`.
-4. Gå till **/admin/ocr-test** (operations_admin/superadmin), klicka **Folio health** → ska visa
-   "tillgänglig".
-5. Välj ett dokument och kör **Kör båda** för att jämföra Gemini vs Folio.
+2. Sätt ev. `FOLIO_OCR_API_SECRET` som edge-secret (API-nyckeln lagras ALDRIG i DB/frontend).
+3. Gå till **/admin/ocr-test** (superadmin) → sektionen **"Folio-OCR – konfiguration"** → bocka i
+   *Aktivera Folio-OCR*, ange *Folio Base URL*, **Spara** (auditas i `platform_audit_log`).
+4. Klicka **Uppdatera status** → health-panelen ska visa "Folio-OCR är tillgänglig".
+5. Välj dokument och kör **Tolka med Folio** eller **Kör båda**.
+
+**B) Env (bootstrap / fallback om ingen DB-rad satts):**
+- `ENABLE_FOLIO_OCR=true` + `FOLIO_OCR_BASE_URL=<url>` (+ ev. `FOLIO_OCR_API_SECRET`) som edge-secrets.
+
+Statuslägen i UI/health (`status`): `disabled` (av), `not_configured` (på men saknar Base URL →
+"Folio-OCR är inte konfigurerad"), `available` (health ok), `unavailable` (svarar inte).
+Knappen **"Tolka med Folio"** är inaktiv vid `disabled`/`not_configured`.
 
 ## Inaktivera / avinstallera (safe uninstall, krav 14)
 
 Vilket som helst av följande stänger av Folio helt — **utan** att påverka det befintliga
 OCR-flödet:
 
-- Sätt `ENABLE_FOLIO_OCR=false` (eller ta bort `FOLIO_OCR_BASE_URL`). `ocr-folio` returnerar då
-  `{ available:false }`.
-- Ta bort edge-funktionen `ocr-folio` helt.
+- Admin-toggle: avbocka *Aktivera Folio-OCR* i `/admin/ocr-test` och spara → `status:'disabled'`.
+- Eller env: `ENABLE_FOLIO_OCR=false` (eller ta bort `FOLIO_OCR_BASE_URL`). `ocr-folio` returnerar då
+  `{ available:false, status:'disabled' }`.
+- Ta bort edge-funktionen `ocr-folio` helt (tabellen `ocr_provider_config` är fristående och skadar inget).
 
 Inga databasmigrationer krävs för det befintliga flödet, inga importvägar bryts (Gemini-flödet
 importerar aldrig Folio-koden), och inga obligatoriska nya env-variabler saknas. `src/lib/ocr/*`

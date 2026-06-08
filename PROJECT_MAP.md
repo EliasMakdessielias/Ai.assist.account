@@ -276,13 +276,22 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
 - **[OCR_FALLBACK]** `runOcrWithFallback({plan, providers})`: kör sekundär först om aktiv, faller tillbaka till
   primär vid fel/timeout om `ENABLE_OCR_FALLBACK=true`. Skapar aldrig trasiga poster (`{failed:true}` vid total miss).
   Flaggor: `OCR_PROVIDER_PRIMARY=gemini`, `OCR_PROVIDER_SECONDARY=folio_ocr`, `ENABLE_OCR_FALLBACK=true`.
-- **[FOLIO_OCR_EXPERIMENTAL_PROVIDER]** edge function `ocr-folio` (verify_jwt, ops-gated via `my_platform_access`):
-  isolerad proxy mot SEPARAT Folio-tjänst. **Default AV** (`ENABLE_FOLIO_OCR=false` ⇒ `{available:false}`,
-  safe uninstall). Laddar dokument från Storage (service-role), POSTar `{filename,mimeType,contentBase64,persist:false}`
-  till `{FOLIO_OCR_BASE_URL}/ocr` med timeout, normaliserar svaret. `record_worker_health('folio-ocr',…)` +
-  `report_system_error` vid kritiskt fel. Secrets (`FOLIO_OCR_*`) endast server-side, loggas aldrig.
-  Testverktyg `src/pages/OcrTest.jsx` (`/admin/ocr-test`, canViewOperations): Gemini vs Folio sida-vid-sida
-  (processtid, fält, confidence, fallback, health). Komponent `folio-ocr` i Systemövervakning. Doc: `docs/FOLIO_OCR.md`.
+- **[FOLIO_OCR_EXPERIMENTAL_PROVIDER]** edge function `ocr-folio` (verify_jwt=true, inloggad+company-åtkomst,
+  ops-gated via `my_platform_access`, CORS: authorization/x-client-info/apikey/content-type): isolerad proxy mot
+  SEPARAT Folio-tjänst. **Default AV.** Config-prioritet: **DB-rad `ocr_provider_config`** (admin-toggle) gäller om
+  satt, annars env (`ENABLE_FOLIO_OCR`/`FOLIO_OCR_BASE_URL`). API-secret (`FOLIO_OCR_API_SECRET`) ENDAST env, aldrig
+  DB/frontend. Statuslägen (`status`): `disabled` / `not_configured` / `available` / `unavailable`. Laddar dokument
+  från Storage (service-role), POSTar `{filename,mimeType,contentBase64,persist:false}` till `{base}/ocr` med timeout,
+  normaliserar svaret. `record_worker_health('folio-ocr',…)`; `report_system_error` **endast vid riktig service-failure**
+  (ej disabled/not_configured/timeout). Folio-fel påverkar aldrig Gemini och skapar inga dokumentposter.
+- **Admin-toggle (krav 11):** `ocr_provider_config` (singleton) + RPC:er `get_ocr_provider_config()` (operations/superadmin,
+  läser folioEnabled+baseUrl, inga secrets) och `set_ocr_provider_config(p_enabled,p_base_url)` (endast superadmin, auditas
+  i `platform_audit_log`).
+- **UI** `src/pages/OcrTest.jsx` (`/admin/ocr-test`, canViewOperations): provider-health-panel (Gemini=Produktion·tillgänglig,
+  Folio=Experimentell·status), separata knappar **"Tolka med Gemini"** (`tolkaDocument`), **"Tolka med Folio"** (endast
+  `ocr-folio`, inaktiv när disabled/not_configured), **"Kör båda"**. Lugna Folio-lägen (`src/lib/ocr/folioStatus.js`:
+  `folioStatus`/`folioStatusMeta`/`folioRunOutcome`/`folioButtonDisabled`, testad). Superadmin ser Folio-konfigsektion
+  (på/av + Base URL). Komponent `folio-ocr` i Systemövervakning. Doc: `docs/FOLIO_OCR.md`.
 
 ## Övrigt (urval)
 - Dokumentvisare: `src/components/PdfCanvas.jsx` (pdf.js) + `src/lib/docPreview.js` (Auto/Manual fit-to-panel,
