@@ -4,8 +4,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
   CUSTOMER_STATUS_LABELS, customerStatusLabel, STATUS_META, TONE_CLASS, PERIOD_LABELS,
-  formatPrice, formatLimit, usageRows, isWarningStatus,
+  formatPrice, formatLimit, isWarningStatus,
 } from '../lib/billing'
+import {
+  METRIC_LABEL, STATUS_META as LIMIT_STATUS_META, BAR_CLASS, TEXT_CLASS, hasWarnings, worstStatus,
+} from '../lib/planLimits'
 import toast from 'react-hot-toast'
 
 const Pill = ({ tone, children }) => (
@@ -17,14 +20,19 @@ export default function Abonnemang() {
   const { company } = useAuth()
   const navigate = useNavigate()
   const [data, setData] = useState(null)
+  const [limits, setLimits] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => { if (company) load() }, [company?.id])
   async function load() {
     setLoading(true)
-    const { data: d, error } = await supabase.rpc('my_subscription', { p_company_id: company.id })
+    const [{ data: d, error }, { data: lim }] = await Promise.all([
+      supabase.rpc('my_subscription', { p_company_id: company.id }),
+      supabase.rpc('check_all_plan_limits', { p_company_id: company.id }),
+    ])
     if (error) toast.error('Kunde inte ladda abonnemang'); else setData(d)
+    setLimits(lim || [])
     setLoading(false)
   }
   async function requestChange(planId, planName) {
@@ -39,7 +47,7 @@ export default function Abonnemang() {
 
   const sub = data?.subscription, plan = data?.plan
   const status = sub?.status
-  const rows = usageRows(data?.usage, plan)
+  const limitWarn = worstStatus(limits)
 
   return (
     <div>
@@ -88,21 +96,43 @@ export default function Abonnemang() {
               </div>
             </div>
 
-            {/* Limits + usage */}
+            {/* Plangräns-varning */}
+            {hasWarnings(limits) && (
+              <div className={`rounded-xl p-4 flex items-start gap-3 ${limitWarn === 'exceeded' ? 'bg-red-50 border border-red-200' : 'bg-amber-50 border border-amber-200'}`}>
+                <i className={`ti ti-gauge text-xl mt-0.5 ${limitWarn === 'exceeded' ? 'text-red-600' : 'text-amber-600'}`} />
+                <div className="text-sm">
+                  <div className={`font-medium ${limitWarn === 'exceeded' ? 'text-red-700' : 'text-amber-700'}`}>
+                    {limitWarn === 'exceeded' ? 'Du har nått en eller flera plangränser' : 'Du närmar dig en eller flera plangränser'}
+                  </div>
+                  <div className="text-gray-600 mt-0.5">Dina bokföringsfunktioner fungerar som vanligt. Uppgradera för att höja gränserna.</div>
+                </div>
+              </div>
+            )}
+
+            {/* Limits + usage med progress bars */}
             <div className="bg-white rounded-xl p-5" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
               <h3 className="text-sm font-semibold mb-3">Användning &amp; gränser</h3>
-              <div className="space-y-2">
-                {rows.map(r => (
-                  <div key={r.label} className="flex items-center justify-between text-sm border-b last:border-0 py-1.5" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
-                    <span className="text-gray-600">{r.label}</span>
-                    <span className="tabular-nums">
-                      {r.used !== null ? <span className="font-medium">{Number(r.used).toLocaleString('sv-SE')}</span> : <span className="text-gray-400">–</span>}
-                      <span className="text-gray-400"> / {formatLimit(r.limit)}</span>
-                    </span>
-                  </div>
-                ))}
+              <div className="space-y-3">
+                {limits.map(l => {
+                  const meta = LIMIT_STATUS_META[l.status] || LIMIT_STATUS_META.unlimited
+                  const pct = l.status === 'unlimited' ? 0 : Math.min(100, l.percentUsed || 0)
+                  return (
+                    <div key={l.metric}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-gray-600">{METRIC_LABEL[l.metric] || l.metric}</span>
+                        <span className={`tabular-nums text-xs ${TEXT_CLASS[meta.tone]}`}>
+                          {Number(l.used).toLocaleString('sv-SE')} / {l.limit === null ? 'Obegränsat' : Number(l.limit).toLocaleString('sv-SE')}
+                          {l.status !== 'unlimited' && l.status !== 'ok' && ` · ${meta.label}`}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                        <div className={`h-full rounded-full ${BAR_CLASS[meta.tone]}`} style={{ width: `${l.status === 'unlimited' ? 0 : pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <p className="text-[11px] text-gray-400 mt-2">Förbrukning visas där data finns. "–" = ingen mätning tillgänglig ännu.</p>
+              <p className="text-[11px] text-gray-400 mt-3">Mjuka gränser – dina bokföringsfunktioner stängs inte av. Vid behov, begär uppgradering nedan.</p>
             </div>
 
             {/* Tillgängliga planer + uppgraderingsbegäran */}

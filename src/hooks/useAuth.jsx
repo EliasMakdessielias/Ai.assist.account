@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import toast from 'react-hot-toast'
 
 const AuthContext = createContext({})
 const ACTIVE_KEY = 'activeCompanyId'
@@ -96,10 +97,12 @@ export function AuthProvider({ children }) {
     const { data: comp, error } = await supabase.from('companies').insert({ name: name.trim(), org_nr: orgNr || null, suspended: !isAdmin }).select().single()
     if (error) throw error
     await supabase.from('user_companies').insert({ user_id: user.id, company_id: comp.id, role: 'admin', email: user.email })
+    const prev = company   // tidigare aktivt företag (har ev. plan att kontrollera mot)
     const list = await fetchCompanies(user.id)
     setCompanies(list)
     setCompany(comp)
     localStorage.setItem(ACTIVE_KEY, comp.id)
+    if (prev?.id) { import('../lib/planLimits').then(m => m.enforceAndToast(supabase, prev.id, 'companies', toast)).catch(() => {}) }
     return comp
   }
 

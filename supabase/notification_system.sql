@@ -143,3 +143,10 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- my_subscription(company): eget abonnemang + plan + usage (users/invoices/documents/storage; AI utelämnas).
 -- request_subscription_change(company, plan, message): support-ärende (billing) + notis till billing_admin_ids() +
 -- audit. Mall subscription_change_requested. Kund kan ej ändra plan/status (admin-RPC can_manage_billing-gated).
+
+-- Plan-enforcement (soft) (migration plan_enforcement). Lib: src/lib/planLimits.js.
+-- ai_usage_log + record_ai_usage (loggas av tolka-underlag). _plan_used/_limit_for.
+-- check_plan_limit(company, metric) + check_all_plan_limits: {limit,used,remaining,percentUsed,status}
+--   status ok<80% / warning 80-99% / exceeded>=100% / unlimited(null/-1). Åtkomst: eget företag/can_manage_billing.
+-- enforce_plan_limit: check + in_app-notis (plan_limit_warning/exceeded) dedupe per metric+status+företag+dag.
+-- Inkopplat soft i: tolka-underlag (ai), inbound-email (documents), NyFaktura, Team-invite, createCompany. Blockerar ej.

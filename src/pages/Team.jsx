@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { enforceAndToast } from '../lib/planLimits'
 import toast from 'react-hot-toast'
 
 export default function Team() {
@@ -34,6 +35,7 @@ export default function Team() {
     setSaving(false)
     if (error) return toast.error('Kunde inte bjuda in: ' + error.message)
     toast.success('Inbjudan skapad')
+    enforceAndToast(supabase, company.id, 'users', toast)   // mjuk plangräns-varning (användare)
     setEmail('')
     load()
   }

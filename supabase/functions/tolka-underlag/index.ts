@@ -185,6 +185,11 @@ ${kontoplan}`
     if (!text) throw new Error('Tomt svar från Gemini')
     const result = JSON.parse(text)
 
+    // Plan-enforcement (soft): registrera AI-användning + kontrollera/varna. Blockerar aldrig OCR.
+    try {
+      await admin.rpc('record_ai_usage', { p_company_id: companyId, p_kind: 'ocr' })
+      await admin.rpc('enforce_plan_limit', { p_company_id: companyId, p_metric: 'ai' })
+    } catch { /* soft – får ej stoppa tolkningen */ }
     await admin.rpc('record_worker_health', { p_component: 'tolka-underlag', p_ok: true, p_error: null })
     return new Response(JSON.stringify({ ok: true, result }), {
       headers: { ...cors, 'Content-Type': 'application/json' },

@@ -240,6 +240,8 @@ Deno.serve(async (req) => {
 
   const created = results.filter(r => r.status).length
   await log(companyId, 'received', JSON.stringify(results).slice(0, 1000), created)
+  // Plan-enforcement (soft): varna vid dokumentgräns. Blockerar aldrig import.
+  try { await admin.rpc('enforce_plan_limit', { p_company_id: companyId, p_metric: 'documents' }) } catch { /* soft */ }
   await admin.rpc('record_worker_health', { p_component: 'inbound-email', p_ok: true, p_error: null })
   return json({ status: 'received', created, results })
   } catch (err) {

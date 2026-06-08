@@ -176,6 +176,21 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   (`subscription_change_requested`) + audit. Kunden ser ärendet i Support (in-app bekräftelse). **Ingen betalning/Stripe.**
 - Kund kan **inte** ändra plan/status själv – admin-RPC:er är `can_manage_billing()`-gated.
 
+**Plan-enforcement (soft)** (`src/lib/planLimits.js`, DB):
+- **Mjuka gränser** – varnar men stänger ALDRIG av bokföringsfunktioner. Kontrollerar 6 limits: users/companies/
+  invoices/documents/storage/ai. Usage-aggregering: users (`user_companies`), invoices/documents (denna månad),
+  storage (sum `documents.file_size`), ai (`ai_usage_log`, loggas av tolka-underlag).
+- **RPC:** `check_plan_limit(company, metric)` + `check_all_plan_limits(company)` → `{limit, used, remaining,
+  percentUsed, status}` med status **ok (<80%) / warning (80–99%) / exceeded (≥100%) / unlimited (null/-1)**.
+  `enforce_plan_limit(company, metric)` = check + in_app-notis vid warning/exceeded (dedupe per metric+status+företag+dag).
+  Åtkomst: eget företag eller `can_manage_billing()` (RLS/RPC skyddar).
+- **Notiser:** `plan_limit_warning` / `plan_limit_exceeded` (in_app, mallar). Recipients = företagets medlemmar.
+- **Enforcement inkopplat (soft, blockerar ej):** AI/OCR (`tolka-underlag` – `record_ai_usage` + enforce ai),
+  inkommande e-post (`inbound-email` – enforce documents), fakturaskapande (`NyFaktura`), användarinbjudan (`Team`),
+  företagsskapande (`useAuth.createCompany`) via `enforceAndToast` (kundvänlig varning). AI/OCR tillåts vid exceeded
+  (soft warning, ingen hard block – krav 9).
+- **UI (Abonnemang-sidan):** progress bars per limit (grön/gul/röd), varningsbanner vid warning/exceeded, "Begär uppgradering".
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,

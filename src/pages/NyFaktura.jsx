@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { bokforKundfaktura } from '../lib/bokforing'
 import { serie } from '../lib/serier'
+import { enforceAndToast } from '../lib/planLimits'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -82,6 +83,7 @@ export default function NyFaktura() {
       }
 
       toast.success(`Faktura ${invoiceNr} ${status === 'draft' ? 'sparad som utkast' : 'skapad'}`)
+      enforceAndToast(supabase, company.id, 'invoices', toast)   // mjuk plangräns-varning
       navigate(`/fakturor/${inv.id}`)
     } catch (err) {
       toast.error('Kunde inte spara: ' + err.message)
