@@ -28,6 +28,46 @@ export const MANDATORY_EVENTS = EVENT_TYPES.filter(e => e.mandatory).map(e => e.
 export const eventLabel = key => EVENT_TYPES.find(e => e.key === key)?.label || key
 export const eventIcon = key => EVENT_TYPES.find(e => e.key === key)?.icon || 'ti-bell'
 
+// Logisk gruppering av event-typer för preferens-UI (Inställningar → Notiser).
+export const EVENT_GROUPS = [
+  { key: 'inkorg', label: 'Underlag & Inkorg', icon: 'ti-inbox', events: ['underlag_received', 'kvitto_classified', 'invoice_needs_review', 'ocr_failed', 'import_failed'] },
+  { key: 'fakturor', label: 'Fakturor', icon: 'ti-file-invoice', events: ['supplier_invoice_received', 'payment_overdue'] },
+  { key: 'bokforing', label: 'Bokföring', icon: 'ti-book', events: ['bookkeeping_suggestion', 'verifikation_created', 'chart_import_done'] },
+  { key: 'moms', label: 'Moms', icon: 'ti-receipt-tax', events: ['vat_report_ready'] },
+  { key: 'bank', label: 'Bank', icon: 'ti-building-bank', events: ['bank_reconciliation_action'] },
+  { key: 'sakerhet', label: 'Säkerhet', icon: 'ti-shield-lock', events: ['security_event', 'permission_changed', 'user_invited', 'locked_account_blocked'] },
+  { key: 'system', label: 'System', icon: 'ti-settings', events: ['system_error'] },
+]
+
+// Kanaler som har en konfigurerad provider just nu. sms/push byggs i senare fas.
+export const CHANNEL_PROVIDER_AVAILABLE = { in_app: true, email: true, sms: false, push: false }
+export const providerAvailable = ch => CHANNEL_PROVIDER_AVAILABLE[ch] === true
+
+// Status för en (event, kanal)-cell i preferens-UI.
+// 'mandatory' | 'provider_missing' | 'needs_opt_in' | 'active' | 'off'
+export function channelStatus({ eventType, channel, enabled, hasOptIn = false }) {
+  if (MANDATORY_EVENTS.includes(eventType) && (channel === 'in_app' || channel === 'email')) return 'mandatory'
+  if (!providerAvailable(channel)) return 'provider_missing'
+  if ((channel === 'sms' || channel === 'push') && !hasOptIn) return 'needs_opt_in'
+  return enabled ? 'active' : 'off'
+}
+export const STATUS_META = {
+  mandatory: { label: 'Obligatorisk', tone: 'amber' },
+  provider_missing: { label: 'Provider saknas', tone: 'gray' },
+  needs_opt_in: { label: 'Kräver opt-in', tone: 'blue' },
+  active: { label: 'Aktiv', tone: 'green' },
+  off: { label: 'Avstängd', tone: 'gray' },
+}
+
+// Effektivt på/av för en cell givet sparade DB-rader (annars standard).
+// Obligatoriska in_app/email är alltid på oavsett sparat värde.
+export function resolvePref(dbRows, eventType, channel) {
+  if (MANDATORY_EVENTS.includes(eventType) && (channel === 'in_app' || channel === 'email')) return true
+  const row = (dbRows || []).find(r => r.event_type === eventType && r.channel === channel)
+  if (row) return !!row.enabled
+  return defaultChannelEnabled(channel)
+}
+
 // Ersätt {{var}} med värden; saknade variabler tas bort (matchar SQL render_template).
 export function renderTemplate(tmpl, vars = {}) {
   if (tmpl == null) return ''
@@ -47,8 +87,10 @@ export function defaultChannelEnabled(channel) {
   return channel === 'in_app' || channel === 'email'
 }
 
-// Är kanalen tillåten att stänga av för detta event? (obligatoriska in_app kan ej stängas)
+// Är kanalen tillåten att stänga av för detta event?
+// Obligatoriska (säkerhets-/systemkritiska) events kan ej stängas av för in_app/email –
+// systemet tvångsskickar dem (se kö-processor + apply_email_unsubscribe). sms/push styrs via opt-in.
 export function canDisable(eventType, channel) {
-  if (channel !== 'in_app') return true
+  if (channel === 'sms' || channel === 'push') return true
   return !MANDATORY_EVENTS.includes(eventType)
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   renderTemplate, missingVars, defaultChannelEnabled, canDisable,
   EVENT_TYPES, MANDATORY_EVENTS, NOTIFICATION_CHANNELS, eventLabel,
+  EVENT_GROUPS, providerAvailable, channelStatus, resolvePref,
 } from './notifications'
 
 describe('renderTemplate', () => {
@@ -33,13 +34,67 @@ describe('kanaler & preferenser', () => {
     expect(defaultChannelEnabled('sms')).toBe(false)
     expect(defaultChannelEnabled('push')).toBe(false)
   })
-  it('obligatoriska in_app-notiser kan inte stängas av', () => {
+  it('obligatoriska notiser kan inte stängas av för in_app/email', () => {
     expect(canDisable('security_event', 'in_app')).toBe(false)
     expect(canDisable('permission_changed', 'in_app')).toBe(false)
+    expect(canDisable('security_event', 'email')).toBe(false) // tvångsskickas av systemet
     // icke-obligatoriska kan stängas
     expect(canDisable('kvitto_classified', 'in_app')).toBe(true)
-    // andra kanaler kan alltid stängas
-    expect(canDisable('security_event', 'email')).toBe(true)
+    expect(canDisable('kvitto_classified', 'email')).toBe(true)
+    // sms/push styrs alltid via opt-in (kan togglas)
+    expect(canDisable('security_event', 'sms')).toBe(true)
+  })
+})
+
+describe('preferens-UI: gruppering', () => {
+  it('varje event-typ ligger i exakt en grupp', () => {
+    const grouped = EVENT_GROUPS.flatMap(g => g.events)
+    const keys = EVENT_TYPES.map(e => e.key)
+    for (const k of keys) expect(grouped.filter(x => x === k)).toHaveLength(1)
+    expect(grouped).toHaveLength(keys.length) // inga extra/okända nycklar
+  })
+  it('har de sju logiska grupperna', () => {
+    expect(EVENT_GROUPS.map(g => g.label)).toEqual([
+      'Underlag & Inkorg', 'Fakturor', 'Bokföring', 'Moms', 'Bank', 'Säkerhet', 'System',
+    ])
+  })
+})
+
+describe('preferens-UI: provider & status', () => {
+  it('in_app/email har provider, sms/push saknar (Fas 2)', () => {
+    expect(providerAvailable('in_app')).toBe(true)
+    expect(providerAvailable('email')).toBe(true)
+    expect(providerAvailable('sms')).toBe(false)
+    expect(providerAvailable('push')).toBe(false)
+  })
+  it('channelStatus speglar de sex lägena', () => {
+    expect(channelStatus({ eventType: 'security_event', channel: 'in_app', enabled: true })).toBe('mandatory')
+    expect(channelStatus({ eventType: 'security_event', channel: 'email', enabled: false })).toBe('mandatory')
+    expect(channelStatus({ eventType: 'kvitto_classified', channel: 'email', enabled: true })).toBe('active')
+    expect(channelStatus({ eventType: 'kvitto_classified', channel: 'email', enabled: false })).toBe('off')
+    expect(channelStatus({ eventType: 'kvitto_classified', channel: 'sms', enabled: true })).toBe('provider_missing')
+    // om provider funnits men ingen opt-in skulle det bli needs_opt_in (testas via hasOptIn-grenen)
+    expect(channelStatus({ eventType: 'kvitto_classified', channel: 'sms', enabled: true, hasOptIn: true })).toBe('provider_missing')
+  })
+})
+
+describe('preferens-UI: resolvePref (laddning)', () => {
+  const rows = [
+    { event_type: 'kvitto_classified', channel: 'email', enabled: false },
+    { event_type: 'kvitto_classified', channel: 'in_app', enabled: true },
+  ]
+  it('läser sparat värde från DB-rader', () => {
+    expect(resolvePref(rows, 'kvitto_classified', 'email')).toBe(false)
+    expect(resolvePref(rows, 'kvitto_classified', 'in_app')).toBe(true)
+  })
+  it('faller tillbaka till standard när rad saknas', () => {
+    expect(resolvePref(rows, 'payment_overdue', 'email')).toBe(true) // email på som standard
+    expect(resolvePref(rows, 'payment_overdue', 'sms')).toBe(false)  // sms av som standard
+  })
+  it('obligatoriska in_app/email är alltid på, även om DB säger annat', () => {
+    const tampered = [{ event_type: 'security_event', channel: 'email', enabled: false }]
+    expect(resolvePref(tampered, 'security_event', 'email')).toBe(true)
+    expect(resolvePref(tampered, 'security_event', 'in_app')).toBe(true)
   })
 })
 
