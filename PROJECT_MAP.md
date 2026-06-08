@@ -209,6 +209,23 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   + **"Skicka uppgraderingsförslag"** (`admin_send_upgrade_suggestion` – notis `upgrade_suggestion` till kunden + audit,
   manuellt, ingen auto-spam) och "Ändra plan" (→ Abonnemang-fliken).
 
+**Betalning: Stripe-adapter** (`src/lib/stripeBilling.js`, edge functions, DB) – **adapterbaserad, billing-ready** (väntar på Stripe-credentials):
+- **Datamodell:** `company_subscriptions` + `payment_price_id/checkout_session_id/payment_status/last_payment_at/next_billing_at`;
+  `subscription_plans.stripe_price_monthly/yearly` (price→plan-mapping); `stripe_event_log` (idempotens på Stripe event id).
+- **Edge functions:** `stripe-checkout` (verify_jwt – kund startar checkout för eget företag via `stripe_checkout_context`-gate),
+  `stripe-portal` (billing portal), `stripe-webhook` (verify_jwt=false, **verifierar Stripe-signatur**, extraherar fält,
+  delegerar till RPC). Stripe-specifik parsning i edge, providerneutral logik i DB (`payment_provider`-struktur kvar).
+- **Webhook-brain `stripe_handle_event`** (service_role): idempotens (event-log), price→plan + `map_stripe_status`
+  (trialing→trial, active→active, past_due→past_due, canceled→cancelled, unpaid/incomplete→past_due), sync av subscription,
+  **okänt price → `report_system_error` + ingen ändring** (krav 10). Events: checkout.session.completed,
+  customer.subscription.created/updated/deleted, invoice.payment_succeeded/failed.
+- **Notiser:** `payment_succeeded`/`plan_changed`→kund; `payment_failed`/`subscription_cancelled`→kund + billing_admin (mallar).
+  Audit: checkout/sync/payment/cancel. **Checkout-knappen** på Abonnemang försöker Stripe; om ej konfigurerat → faller
+  tillbaka till supportärende (`request_subscription_change`). Billing-admin ser payment-ids/status/nästa debitering + Stripe-länk.
+- **Env (krav 1):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*_MONTHLY/YEARLY`, `STRIPE_SUCCESS_URL`,
+  `STRIPE_CANCEL_URL`. Sätt + fyll `subscription_plans.stripe_price_*` för att aktivera. Utan dessa: allt fungerar utom
+  faktisk checkout (returnerar `configured:false`).
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,

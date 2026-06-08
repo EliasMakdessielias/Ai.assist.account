@@ -165,3 +165,11 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- run_scheduled_plan_enforcement(): alla active/trial-företag x 6 limits -> notis till medlemmar (dedupe per
 --   event+metric+dag, warning->exceeded samma dag OK) + plan_usage_summary (in_app+email) till billing-admins vid exceeded.
 --   Audit plan_enforcement_run (counts/duration/errors). Integrerad i cron 'bokpilot-scheduled-notifications' (0 6 * * *).
+
+-- Stripe-adapter (migration stripe_adapter). Lib: src/lib/stripeBilling.js. Edge: stripe-checkout/portal/webhook.
+-- company_subscriptions + payment_price_id/checkout_session_id/payment_status/last_payment_at/next_billing_at.
+-- subscription_plans.stripe_price_monthly/yearly (price->plan). stripe_event_log (idempotens). map_stripe_status().
+-- stripe_handle_event(event_id,type,customer,subscription,price,status,period_start,period_end,client_ref): idempotens +
+--   price->plan + status-map + sync + notiser (payment_succeeded/failed, subscription_cancelled, plan_changed) + audit.
+--   Okänt price -> report_system_error + ingen ändring. stripe_checkout_context (kund-gate, price/kund-uppslag).
+-- Env: STRIPE_SECRET_KEY/WEBHOOK_SECRET/PRICE_*/SUCCESS_URL/CANCEL_URL. Billing-ready; checkout aktiveras när env+priser satta.
