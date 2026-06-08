@@ -101,11 +101,20 @@ Deno.serve(async (req) => {
     const { document_id } = await req.json()
     if (!document_id) throw new Error('document_id saknas')
 
-    // Verifiera att anroparen är inloggad.
+    // Verifiera att anroparen är inloggad. Vi validerar EXAKT den bearer-token som
+    // skickades (getUser(token)) i stället för att förlita oss på klientens auth-state –
+    // annars kan en giltig anon-nyckel passera plattformens verify_jwt men ge null user
+    // här ("Ej inloggad"). Debug-logg loggar ALDRIG token, endast om header finns + user-id.
     const authHeader = req.headers.get('Authorization') || ''
+    const bearer = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : ''
+    console.log(`[tolka-underlag] auth_header_present=${bearer ? 'yes' : 'no'}`)
     const userClient = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authHeader } } })
-    const { data: { user } } = await userClient.auth.getUser()
-    if (!user) return new Response(JSON.stringify({ error: 'Ej inloggad' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } })
+    const { data: { user }, error: userErr } = await userClient.auth.getUser(bearer || undefined)
+    if (userErr || !user) {
+      console.log(`[tolka-underlag] auth_failed reason=${userErr ? 'invalid_token' : 'no_user'}`)
+      return new Response(JSON.stringify({ error: 'Ej inloggad' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
+    console.log(`[tolka-underlag] authed user_id=${user.id}`)
 
     admin = createClient(SUPABASE_URL, SERVICE_KEY)
 
