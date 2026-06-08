@@ -8,8 +8,19 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 // - <canvas> (PDF): drawImage-utsnitt till en egen DPR-skarp lins-canvas.
 // - Linsen är position:fixed och följer musen; klampas till scroll-ytan så att
 //   toolbaren aldrig täcks. requestAnimationFrame-throttlad. Döljs när musen lämnar.
-const LENS = 210          // diameter px (krav 24: ~180–240)
-const MAG = 1.5           // +50% (krav 12/13)
+export const LENS = 240   // diameter px (större för läsning av små siffror)
+export const MAG = 1.75   // +75% utöver aktuell visningsskala
+
+// Klampa linsens box så den ALLTID ligger helt inom viewer-ytan (täcker ej toolbar,
+// hamnar ej utanför containern). Sampling sker fortfarande vid muspekaren.
+export function clampLensBox(cx, cy, rect, size = LENS) {
+  let left = cx - size / 2, top = cy - size / 2
+  if (rect) {
+    left = Math.min(Math.max(left, rect.left), Math.max(rect.left, rect.right - size))
+    top = Math.min(Math.max(top, rect.top), Math.max(rect.top, rect.bottom - size))
+  }
+  return { left, top }
+}
 
 export default function DocMagnifier({ enabled = true, scrollRef, className = '', children }) {
   const lensCanvasRef = useRef(null)
@@ -27,13 +38,9 @@ export default function DocMagnifier({ enabled = true, scrollRef, className = ''
     const rect = el.getBoundingClientRect()
     const mx = cx - rect.left, my = cy - rect.top
     if (mx < 0 || my < 0 || mx > rect.width || my > rect.height) { setLens(null); return }
-    // Klampa linsens box till scroll-ytan (täck inte toolbar); sampling sker fortf. vid muspekaren.
-    let boxL = cx - LENS / 2, boxT = cy - LENS / 2
+    // Klampa linsens box till scroll-ytan (täck inte toolbar, alltid helt synlig).
     const sr = scrollRef?.current?.getBoundingClientRect()
-    if (sr) {
-      boxL = Math.min(Math.max(boxL, sr.left), sr.right - LENS)
-      boxT = Math.min(Math.max(boxT, sr.top), sr.bottom - LENS)
-    }
+    const { left: boxL, top: boxT } = clampLensBox(cx, cy, sr)
     if (raf.current) cancelAnimationFrame(raf.current)
     raf.current = requestAnimationFrame(() => {
       if (tag === 'IMG') {
@@ -65,13 +72,14 @@ export default function DocMagnifier({ enabled = true, scrollRef, className = ''
   }, [lens])
 
   return (
-    <div className={className} onMouseMove={onMove} onMouseLeave={clear} style={{ cursor: enabled ? 'zoom-in' : undefined }}>
+    <div className={className} onMouseMove={onMove} onMouseLeave={clear}
+      title={enabled ? 'Förstoringsglas' : undefined} style={{ cursor: enabled ? 'zoom-in' : undefined }}>
       {children}
       {enabled && lens && (
         <div style={{
           position: 'fixed', left: lens.boxL, top: lens.boxT, width: LENS, height: LENS,
-          borderRadius: '50%', border: '2px solid rgba(255,255,255,0.9)', outline: '1px solid rgba(0,0,0,0.25)',
-          boxShadow: '0 6px 22px rgba(0,0,0,0.35)', overflow: 'hidden', pointerEvents: 'none', zIndex: 70, background: '#fff',
+          borderRadius: '50%', border: '1px solid rgba(0,0,0,0.25)',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.18)', overflow: 'hidden', pointerEvents: 'none', zIndex: 70, background: '#fff',
           ...(lens.kind === 'img' ? {
             backgroundImage: `url("${lens.src}")`, backgroundRepeat: 'no-repeat',
             backgroundSize: `${lens.bgW}px ${lens.bgH}px`, backgroundPosition: `${lens.bgX}px ${lens.bgY}px`,
