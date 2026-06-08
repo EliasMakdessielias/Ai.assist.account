@@ -78,3 +78,12 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- report_system_error(component, message, company?): system_error endast plattformsadmins, timme-bucket dedupe.
 -- notify_vat_report_ready(company, verifikation_id, period): anropas från Moms-sidan.
 -- notify_event har email-default-off för informativa events; obligatoriska tvångas på för in_app+email.
+
+-- system_error-rapportering (migration system_error_reporting). Helper: src/lib/systemError.js.
+-- notify_event(... p_channels text[]): kanal-restriktion för severity-routing.
+-- worker_health(component, last_success_at, last_failure_at, consecutive_failures, last_error) + record_worker_health().
+-- report_system_error(component, message, company?, severity?, errorCode?, metadata?, occurredAt?):
+--   warning->in_app, error/critical->in_app+email; dedupe system_error:{component}:{errorCode}:{hourBucket};
+--   eskalerar till critical efter >=3 consecutive. Endast plattformsadmins.
+-- Rapporterande komponenter: email-worker, inbound-email, tolka-underlag (service-role direkt) + imap-import via
+--   edge 'report-error' (HMAC ERROR_REPORT_SECRET). Metadata saneras (inga tokens/credentials/innehåll).

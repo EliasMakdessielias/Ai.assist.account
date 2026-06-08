@@ -38,8 +38,18 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   `payment_overdue` (kundfaktura `status=sent`+förfallen, leverantörsfaktura obetald saldo+förfallen,
   dedupe `payment_overdue:{invoiceId}:{dueDate}`) + `bank_reconciliation_action` (omatchade banktransaktioner,
   dedupe per företag+dag). Returnerar antal notifierade (loggas i `cron.job_run_details`).
-- `report_system_error(component, message, company?)` (RPC, anropas av workers/edge functions) →
-  `system_error` **endast plattformsadmins**, timme-bucket-dedupe (anti-spam). Email-worker rapporterar fatala fel.
+- `report_system_error(component, message, company?, severity?, errorCode?, metadata?, occurredAt?)` (RPC) →
+  `system_error` **endast plattformsadmins**. Severity-routing: `warning`→in_app, `error`/`critical`→in_app+email
+  (via `notify_event(... p_channels)`). Dedupe `system_error:{component}:{errorCode}:{hourBucket}` (anti-spam).
+  Eskalerar till `critical` efter ≥3 consecutive failures (`worker_health`). Canonical helper `src/lib/systemError.js`
+  (severity/routing/dedupe/sanering – tester). **Rapporterande komponenter:**
+  - `email-worker` (= kö-processor): RPC direkt (service-role) + health-ping vid lyckad körning.
+  - `inbound-email` edge: config-secret saknas, storage-upload, DB-insert, ohanterat pipeline-fel.
+  - `tolka-underlag` (OCR/Gemini) edge: gemini-API/rate-limit/timeout/file-extraction/malformed-svar (ej klientfel).
+  - `imap-import` (saknar service-role): rapporterar via **edge `report-error`** (HMAC `ERROR_REPORT_SECRET`) –
+    connection/auth/mailbox-read/webhook/parse/repeated. Inga IMAP/SMTP-credentials i metadata.
+  - **Sanering (krav 3):** `sanitizeMetadata` tar bort tokens/credentials/bodies/innehåll, trunkerar, begränsar storlek.
+  - **Health (`worker_health`):** last_success/last_failure/consecutive_failures per komponent (`record_worker_health`).
 - `notify_vat_report_ready(company, verifikationId, period)` (RPC) → anropas av Moms-sidan efter momsredovisning.
 - **Email-default-off** (`EMAIL_DEFAULT_OFF`): informativa events (underlag/kvitto/verifikation/förslag/kontoplanimport)
   default endast in_app; viktiga (faktura/moms/bank/import/säkerhet/system) default in_app+email. Obligatoriska låsta på (in_app+email).

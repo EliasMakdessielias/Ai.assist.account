@@ -66,6 +66,7 @@ function blobToBase64(buf: ArrayBuffer): string {
 // Klassificera ett OCR-fel -> {errorCode, severity}. Inga dokumentdata/secrets exponeras.
 function classifyOcrError(msg: string): { errorCode: string; severity: string } {
   const m = (msg || '').toLowerCase()
+  if (/gemini_api_key|api_key saknas|api-key saknas/.test(m)) return { errorCode: 'config_missing_gemini_key', severity: 'critical' }
   if (/\b429\b|rate limit|quota|resource_exhausted/.test(m)) return { errorCode: 'gemini_rate_limit', severity: 'warning' }
   if (/timeout|timed out|deadline|aborted/.test(m)) return { errorCode: 'ocr_timeout', severity: 'error' }
   if (/ladda ner|download|storage|hittades inte|extract/.test(m)) return { errorCode: 'file_extraction_failure', severity: 'error' }
@@ -87,6 +88,8 @@ async function reportOcrError(admin: any, errorCode: string, message: string, se
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
+  let admin: any = null
+  let companyId: string | null = null
   try {
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
     if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY saknas i Edge Function-secrets')
@@ -104,11 +107,12 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser()
     if (!user) return new Response(JSON.stringify({ error: 'Ej inloggad' }), { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } })
 
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+    admin = createClient(SUPABASE_URL, SERVICE_KEY)
 
     // Hämta dokumentet + kontrollera att användaren tillhör företaget.
     const { data: doc, error: docErr } = await admin.from('documents').select('*').eq('id', document_id).single()
     if (docErr || !doc) throw new Error('Underlaget hittades inte')
+    companyId = doc.company_id
 
     const { data: member } = await admin.from('user_companies')
       .select('id').eq('user_id', user.id).eq('company_id', doc.company_id).maybeSingle()
@@ -185,7 +189,14 @@ ${kontoplan}`
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err?.message || err) }), {
+    const msg = String((err as Error)?.message || err)
+    // Rapportera bara genuina systemfel – inte klient-/anroparfel (saknat id, ej inloggad, hittades inte).
+    const clientErr = /document_id saknas|hittades inte|ingen åtkomst|ej inloggad/i.test(msg)
+    if (!clientErr) {
+      const { errorCode, severity } = classifyOcrError(msg)
+      await reportOcrError(admin, errorCode, msg, severity, {}, companyId)
+    }
+    return new Response(JSON.stringify({ error: msg }), {
       status: 400,
       headers: { ...cors, 'Content-Type': 'application/json' },
     })
