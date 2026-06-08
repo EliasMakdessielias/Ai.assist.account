@@ -5,10 +5,12 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import PdfCanvas from '../components/PdfCanvas'
+import DocMagnifier from '../components/DocMagnifier'
 import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
 
 const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW'
 const PANEL_VISIBLE_KEY = 'bokpilot.visaLevfaktura.panelVisible'
+const MAG_KEY = 'bokpilot.viewer.magnifier'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -41,18 +43,24 @@ export default function VisaLeverantorsfaktura() {
   const [loading, setLoading] = useState(true)
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
+  // Höger panel = 40% av arbetsytan som standard; användarens sparade bredd (localStorage) respekteras.
   const [panelW, setPanelW] = useState(() => {
     const v = Number(localStorage.getItem(PANEL_KEY))
-    return v >= 360 ? v : Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.44)
+    return v >= 360 ? v : Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.40)
   })
+  const [dragging, setDragging] = useState(false)
+  const [magnifier, setMagnifier] = useState(() => { try { return localStorage.getItem(MAG_KEY) !== '0' } catch { return true } })
   useEffect(() => { try { localStorage.setItem(PANEL_KEY, String(panelW)) } catch { /* ignore */ } }, [panelW])
   useEffect(() => { try { localStorage.setItem(PANEL_VISIBLE_KEY, panelOpen ? '1' : '0') } catch { /* ignore */ } }, [panelOpen])
+  useEffect(() => { try { localStorage.setItem(MAG_KEY, magnifier ? '1' : '0') } catch { /* ignore */ } }, [magnifier])
   // Dragbar splitter (pointer = mus + touch + penna). Min 360px, max 75% av vyn.
+  // Förstoringsglaset stängs av under dragning (krav 19).
   function startResize(e) {
     e.preventDefault()
     const maxW = Math.round(window.innerWidth * 0.75)
+    setDragging(true)
     const move = ev => setPanelW(Math.min(maxW, Math.max(360, window.innerWidth - ev.clientX)))
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.style.userSelect = '' }
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.style.userSelect = ''; setDragging(false) }
     document.body.style.userSelect = 'none'
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
   }
@@ -237,6 +245,10 @@ export default function VisaLeverantorsfaktura() {
                     className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${mode === 'auto' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>
                     <i className="ti ti-aspect-ratio" /> Auto
                   </button>
+                  <button title={magnifier ? 'Förstoringsglas på (klicka för att stänga av)' : 'Förstoringsglas av'} onClick={() => setMagnifier(m => !m)}
+                    className={`px-1.5 py-0.5 rounded ${magnifier ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+                    <i className="ti ti-zoom-in" />
+                  </button>
                   <input type="range" min="0.4" max="2.5" step="0.05" value={sliderValue} aria-label="Zoom" title="Justera storlek"
                     className="w-20 accent-blue-600 cursor-pointer" onChange={e => setManual(parseFloat(e.target.value))} />
                   <span className="text-xs tabular-nums w-16 text-right" title={mode === 'auto' ? 'Anpassad till panelen' : 'Manuell zoom'}>{zoomLabel}</span>
@@ -246,6 +258,7 @@ export default function VisaLeverantorsfaktura() {
               </div>
 
               <div ref={previewRef} className="flex-1 overflow-auto bg-gray-100 p-4">
+                <DocMagnifier enabled={magnifier && !dragging && !!current?.url} scrollRef={previewRef} className="min-h-full">
                 {docs.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-center text-gray-400">
                     <div><i className="ti ti-photo-off text-4xl block mb-2 opacity-30" />Inga kopplade bilder</div>
@@ -263,6 +276,7 @@ export default function VisaLeverantorsfaktura() {
                     <PdfCanvas url={current.url} scale={effScale} onNaturalSize={setNatural} />
                   </div>
                 )}
+                </DocMagnifier>
               </div>
 
               {docs.length > 1 && (

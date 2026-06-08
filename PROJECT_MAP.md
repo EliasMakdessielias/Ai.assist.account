@@ -269,7 +269,11 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
 
 ## Övrigt (urval)
 - Dokumentvisare: `src/components/PdfCanvas.jsx` (pdf.js) + `src/lib/docPreview.js` (Auto/Manual fit-to-panel,
-  ResizeObserver) i UnderlagPanel / VisaLeverantorsfaktura / LeverantorEditor.
+  ResizeObserver) i UnderlagPanel / VisaLeverantorsfaktura / LeverantorEditor. Höger panel = **40%** som standard
+  (localStorage-override respekteras), dragbar splitter, Auto Fit räknas om vid panelstorlek.
+- **Hover-förstoringsglas** `src/components/DocMagnifier.jsx`: zoom-in-cursor över dokumentet, lins (~210px, rund)
+  som förstorar utsnittet under muspekaren 50% utöver aktuell skala (img via background, PDF-canvas via DPR-skarp
+  drawImage), följer musen (rAF-throttlad, klampad till ytan så toolbar ej täcks), av under splitter-drag, toggle i toolbar.
 - Layout: `Layout.jsx` + `Sidebar.jsx` (hopfällbar meny, `sidebarCollapsed` i localStorage).
 - Mottagningsadresser/arkivnummer: `src/lib/inboxAddresses.js`. Klassificering: `src/lib/classifyDocument.js`.
 - Bokföring/verifikationer, leverantörs-/kundfakturor, kontoplan, moms, bankavstämning – se respektive sida i `src/pages/`.

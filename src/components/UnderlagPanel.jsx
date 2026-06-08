@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
 import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
 import PdfCanvas from './PdfCanvas'
+import DocMagnifier from './DocMagnifier'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
@@ -21,6 +22,8 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
   const [w, setW] = useState(width)
+  const [magnifier, setMagnifier] = useState(() => { try { return localStorage.getItem('bokpilot.viewer.magnifier') !== '0' } catch { return true } })
+  useEffect(() => { try { localStorage.setItem('bokpilot.viewer.magnifier', magnifier ? '1' : '0') } catch { /* ignore */ } }, [magnifier])
   const fileRef = useRef()
 
   function startResize(e) {
@@ -190,6 +193,10 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
               className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${mode === 'auto' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}>
               <i className="ti ti-aspect-ratio" /> Auto
             </button>
+            <button title={magnifier ? 'Förstoringsglas på' : 'Förstoringsglas av'} onClick={() => setMagnifier(m => !m)}
+              className={`px-1.5 py-0.5 rounded ${magnifier ? 'bg-blue-100 text-blue-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+              <i className="ti ti-zoom-in" />
+            </button>
             <input type="range" min="0.4" max="2.5" step="0.05" value={sliderValue} aria-label="Zoom" title="Justera storlek på underlaget"
               className="w-24 accent-blue-600 cursor-pointer" onChange={e => setManual(parseFloat(e.target.value))} />
             <span className="text-xs tabular-nums w-20 text-right" title={mode === 'auto' ? 'Anpassad till panelen' : 'Manuell zoom'}>{zoomLabel}</span>
@@ -200,6 +207,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
       {/* Förhandsvisning */}
       <div className="flex-1 relative overflow-hidden">
         <div ref={previewRef} className="absolute inset-0 overflow-auto p-4">
+        <DocMagnifier enabled={magnifier && !!url} scrollRef={previewRef} className="min-h-full">
         {loading ? (
           <div className="h-full flex items-center justify-center text-gray-400">Laddar…</div>
         ) : !current ? (
@@ -230,6 +238,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
             </div>
           </div>
         )}
+        </DocMagnifier>
         </div>
 
         {/* Bläddringspilar */}
