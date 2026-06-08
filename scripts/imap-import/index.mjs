@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { pickRecipient } from './parse.mjs'
+import { buildErrorReport } from '../../src/lib/systemError.js'
 
 // Ladda .env från skriptets mapp (om den finns) – enkel parser, inga deps.
 try {
@@ -49,6 +50,24 @@ if (missing.length) { console.error('Saknar miljövariabler: ' + missing.join(',
 const MAILBOX = env('IMAP_MAILBOX', 'INBOX')
 const PROCESSED = env('IMAP_PROCESSED', 'Processed')
 const FAILED = env('IMAP_FAILED', 'Failed')
+
+// system_error-rapportering via säker edge-endpoint (HMAC). IMAP-importern saknar service-role
+// och får INTE ha en sådan – den rapporterar via report-error som kör server-side.
+const ERR_URL = env('ERROR_REPORT_URL')
+const ERR_SECRET = env('ERROR_REPORT_SECRET')
+async function postReport(payload) {
+  if (!ERR_URL || !ERR_SECRET) return
+  try {
+    const body = JSON.stringify(payload)
+    const sig = createHmac('sha256', ERR_SECRET).update(body).digest('hex')
+    await fetch(ERR_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bokpilot-Signature': `sha256=${sig}` }, body })
+  } catch { /* rapportering får aldrig kasta */ }
+}
+async function reportError({ errorCode, message, severity = 'error', metadata = {} }) {
+  const r = buildErrorReport({ component: 'imap-import', severity, errorCode, message, metadata })
+  await postReport({ ...r, ok: false })
+}
+async function pingHealth() { await postReport({ component: 'imap-import', ok: true }) }
 
 // Hitta/skapa en mapp och returnera dess fulla sökväg. Hanterar Hostingers
 // "INBOX."-hierarki (mappar ligger under INBOX med t.ex. "." som avskiljare).
@@ -88,7 +107,7 @@ async function run() {
   const processedPath = await ensureMailbox(client, PROCESSED)
   const failedPath = await ensureMailbox(client, FAILED)
 
-  let processed = 0, failed = 0, rejected = 0
+  let processed = 0, failed = 0, rejected = 0, webhookFail = 0, procFail = 0, lastWebhookStatus = 0
   const lock = await client.getMailboxLock(MAILBOX)
   try {
     // Bearbeta ALLA mejl i INBOX (Hostingers SEARCH UNSEEN är opålitlig). Säkert
@@ -136,12 +155,12 @@ async function run() {
             processed++
             console.log(`uid ${uid}: ${st} (${res.body?.created ?? 0} poster)`)
           } else {
-            failed++; target = failedPath
+            failed++; webhookFail++; lastWebhookStatus = res.status; target = failedPath
             console.log(`uid ${uid}: webhook ${res.status} ${st || ''} – flyttas till ${FAILED}`)
           }
         }
       } catch (e) {
-        failed++; target = failedPath
+        failed++; procFail++; target = failedPath
         console.error(`uid ${uid}: fel vid bearbetning – ${e?.message || e}`)
       }
       try {
@@ -154,6 +173,28 @@ async function run() {
   }
   await client.logout()
   console.log(`Klart: ${processed} importerade, ${rejected} ignorerade, ${failed} fel.`)
+
+  // Item-nivå-fel (icke-fatala) rapporteras som summering. Inga mailbodies/secrets i metadata.
+  if (webhookFail > 0) {
+    await reportError({ errorCode: 'webhook_failure', severity: webhookFail >= 3 ? 'error' : 'warning',
+      message: `${webhookFail} mejl kunde inte levereras till inbound-email`, metadata: { webhookFail, lastStatus: lastWebhookStatus, total: processed + failed + rejected } })
+  }
+  if (procFail > 0) {
+    await reportError({ errorCode: 'attachment_parse_failure', severity: procFail >= 3 ? 'error' : 'warning',
+      message: `${procFail} mejl kunde inte bearbetas (parsning)`, metadata: { procFail } })
+  }
+  // Lyckad körning utan fel -> health-ping (nollställer consecutive_failures).
+  if (webhookFail === 0 && procFail === 0) await pingHealth()
 }
 
-run().catch(e => { console.error('IMAP-import avbröts:', e?.message || e); process.exit(1) })
+run().catch(async e => {
+  const m = String(e?.message || e)
+  console.error('IMAP-import avbröts:', m)
+  // Klassificera fatalt fel (connection/auth/mailbox-read) -> errorCode. Upprepade fel eskaleras i DB.
+  const code = /auth|login|credential|invalid|denied|535|534/i.test(m) ? 'imap_auth_failure'
+    : /connect|econnrefused|etimedout|enotfound|getaddrinfo|tls|socket|handshake/i.test(m) ? 'imap_connection_failure'
+    : /fetch|mailbox|select|search|lock/i.test(m) ? 'mailbox_read_failure'
+    : 'imap_run_failure'
+  await reportError({ errorCode: code, message: m, severity: 'error', metadata: { host: env('IMAP_HOST'), mailbox: MAILBOX } })
+  process.exit(1)
+})

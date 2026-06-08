@@ -17,6 +17,7 @@ import {
   unsubscribeUrl, emailFooter, buildEmailHtml,
 } from '../../src/lib/emailDelivery.js'
 import { MANDATORY_EVENTS } from '../../src/lib/notifications.js'
+import { buildErrorReport, toRpcParams } from '../../src/lib/systemError.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -42,6 +43,17 @@ const BATCH = parseInt(process.env.EMAIL_BATCH_SIZE || '20', 10)
 const STUCK_MINUTES = 15
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } })
+
+// system_error-rapportering (har service-role -> RPC direkt). Rapportering får aldrig kasta.
+async function reportSystemError(errorCode, message, severity = 'error', metadata = {}) {
+  try {
+    const report = buildErrorReport({ component: 'email-worker', severity, errorCode, message, metadata })
+    await sb.rpc('report_system_error', toRpcParams(report, null))
+  } catch { /* noop */ }
+}
+async function pingHealth(ok, error) {
+  try { await sb.rpc('record_worker_health', { p_component: 'email-worker', p_ok: ok, p_error: error || null }) } catch { /* noop */ }
+}
 
 function transport() {
   return nodemailer.createTransport({
@@ -199,11 +211,13 @@ const args = process.argv.slice(2)
 try {
   if (args.includes('--verify')) await verifySmtp()
   else if (args.includes('--test')) await sendTest(args[args.indexOf('--test') + 1])
-  else await processQueue()
+  else { await processQueue(); await pingHealth(true) } // lyckad körning -> nollställ consecutive_failures
   process.exit(0)
 } catch (err) {
-  console.error('Fel:', err?.message || err)
-  // Rapportera produktionskritiskt fel i kö-processorn till plattformsadmins (dedupe per timme).
-  try { await sb.rpc('report_system_error', { p_component: 'email-worker', p_message: String(err?.message || err).slice(0, 300) }) } catch { /* rapportering får ej maskera ursprungsfelet */ }
+  const msg = String(err?.message || err)
+  console.error('Fel:', msg)
+  // Klassificera felet -> errorCode (dedupe per komponent:kod:timme). Upprepade fel eskaleras i DB.
+  const code = /smtp|econnrefused|etimedout|getaddrinfo|enotfound|5\d\d\b|auth/i.test(msg) ? 'smtp_failure' : 'queue_processor_failure'
+  await reportSystemError(code, msg, 'error', { mode: args.join(' ') || 'process' })
   process.exit(1)
 }

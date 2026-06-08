@@ -29,6 +29,16 @@ const BLOCKED_EXTENSIONS = ['exe', 'bat', 'cmd', 'com', 'scr', 'js', 'jar', 'msi
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
+// system_error-rapportering (har service-role). Aldrig bodies/secrets i metadata. Får aldrig kasta.
+async function reportErr(admin: any, errorCode: string, message: string, severity = 'error', metadata: Record<string, unknown> = {}, companyId: string | null = null) {
+  try {
+    await admin.rpc('report_system_error', {
+      p_component: 'inbound-email', p_message: String(message || '').slice(0, 300), p_company_id: companyId,
+      p_severity: ['warning', 'error', 'critical'].includes(severity) ? severity : 'error',
+      p_error_code: errorCode, p_metadata: metadata, p_occurred_at: new Date().toISOString(),
+    })
+  } catch { /* noop */ }
+}
 function extractEmail(raw: string): string {
   if (!raw) return ''
   const m = String(raw).match(/<([^>]+)>/)
@@ -120,7 +130,13 @@ Deno.serve(async (req) => {
   const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const SECRET = Deno.env.get('INBOUND_EMAIL_WEBHOOK_SECRET') || Deno.env.get('INBOUND_WEBHOOK_SECRET') || ''
   const admin = createClient(SUPABASE_URL, SERVICE_KEY)
-  if (!SECRET) return json({ error: 'server_misconfigured' }, 500)
+  if (!SECRET) {
+    // Saknad secret = konfigurationsfel (inte en vanlig felaktig signatur). Notifiera admins.
+    await reportErr(admin, 'config_missing_secret', 'INBOUND_EMAIL_WEBHOOK_SECRET saknas i edge-secrets', 'critical')
+    return json({ error: 'server_misconfigured' }, 500)
+  }
+
+  try {
 
   // 1) Autentisering: HMAC-signatur (egen Cloudflare-worker) ELLER ?token=<secret>
   //    (inbound-provider, t.ex. Postmark, som inte HMAC-signerar).
@@ -207,9 +223,11 @@ Deno.serve(async (req) => {
       const safe = filename.replace(/[^\w.\-]+/g, '_')
       const path = `${companyId}/${crypto.randomUUID()}-${safe}`
       const up = await admin.storage.from(BUCKET).upload(path, base64ToBytes(a.contentBase64), { contentType: a.contentType || 'application/octet-stream', upsert: false })
-      if (!up.error) storage_path = path
+      if (up.error) await reportErr(admin, 'storage_upload_failure', up.error.message, 'warning', { filename: safe }, companyId)
+      else storage_path = path
     }
-    await admin.from('documents').insert({ ...base, storage_path, file_name: filename, mime_type: a.contentType || null, file_size: size, kategori: cls.type, confidence: cls.confidence, status: cls.status })
+    const ins = await admin.from('documents').insert({ ...base, storage_path, file_name: filename, mime_type: a.contentType || null, file_size: size, kategori: cls.type, confidence: cls.confidence, status: cls.status })
+    if (ins.error) await reportErr(admin, 'db_insert_failure', ins.error.message, 'error', { table: 'documents' }, companyId)
     results.push({ filename, type: cls.type, confidence: cls.confidence, status: cls.status })
   }
 
@@ -223,4 +241,9 @@ Deno.serve(async (req) => {
   const created = results.filter(r => r.status).length
   await log(companyId, 'received', JSON.stringify(results).slice(0, 1000), created)
   return json({ status: 'received', created, results })
+  } catch (err) {
+    // Oväntat ohanterat fel i klassificerings-/lagringspipelinen -> notifiera admins.
+    await reportErr(admin, 'unhandled_error', (err as Error)?.message || String(err), 'critical')
+    return json({ error: 'internal_error' }, 500)
+  }
 })

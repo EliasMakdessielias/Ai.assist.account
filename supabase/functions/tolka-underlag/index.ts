@@ -63,6 +63,27 @@ function blobToBase64(buf: ArrayBuffer): string {
   return btoa(binary)
 }
 
+// Klassificera ett OCR-fel -> {errorCode, severity}. Inga dokumentdata/secrets exponeras.
+function classifyOcrError(msg: string): { errorCode: string; severity: string } {
+  const m = (msg || '').toLowerCase()
+  if (/\b429\b|rate limit|quota|resource_exhausted/.test(m)) return { errorCode: 'gemini_rate_limit', severity: 'warning' }
+  if (/timeout|timed out|deadline|aborted/.test(m)) return { errorCode: 'ocr_timeout', severity: 'error' }
+  if (/ladda ner|download|storage|hittades inte|extract/.test(m)) return { errorCode: 'file_extraction_failure', severity: 'error' }
+  if (/json|parse|tomt svar|unexpected|malformed/.test(m)) return { errorCode: 'malformed_model_response', severity: 'error' }
+  if (/gemini|generativelanguage|api/.test(m)) return { errorCode: 'gemini_api_failure', severity: 'error' }
+  return { errorCode: 'ocr_unhandled', severity: 'error' }
+}
+// system_error-rapportering (service-role). Får aldrig kasta. Inga underlagsdata i metadata.
+async function reportOcrError(admin: any, errorCode: string, message: string, severity: string, metadata: Record<string, unknown> = {}, companyId: string | null = null) {
+  try {
+    if (!admin) return
+    await admin.rpc('report_system_error', {
+      p_component: 'tolka-underlag', p_message: String(message || '').slice(0, 300), p_company_id: companyId,
+      p_severity: severity, p_error_code: errorCode, p_metadata: metadata, p_occurred_at: new Date().toISOString(),
+    })
+  } catch { /* noop */ }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
