@@ -293,14 +293,34 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
   `folioStatus`/`folioStatusMeta`/`folioRunOutcome`/`folioButtonDisabled`, testad). Superadmin ser Folio-konfigsektion
   (på/av + Base URL). Komponent `folio-ocr` i Systemövervakning. Doc: `docs/FOLIO_OCR.md`.
 
+## Gemensam dokumentvisare [DOCUMENT_VIEWER]
+Återanvändbart split-/dokumentvisarsystem (höger panel) – EN implementation delas av alla underlags-/fakturavyer.
+- **Komponenter** `src/components/viewer/`:
+  - `DocumentViewerPanel.jsx` – panelen: PDF (`PdfCanvas`, DPR-skarp) + bild, Auto = **fit-to-width**, manuell zoom,
+    rotation, förstoringsglas (`DocMagnifier`), bläddring mellan flera underlag, nedladdning, valfri `footer`.
+    Visar bara `url` som anroparen skapat (signerad URL från privat bucket `underlag`) – hämtar inga filer själv.
+    Exporterar även `docKind(doc)` (image/pdf/other via mime + filändelse).
+  - `DocumentSplitLayout.jsx` – arbetsyta (flex) + dragbar splitter + panel (fast px-bredd).
+- **Hooks** `src/lib/viewer/`:
+  - `useDocumentViewerLayout({ widthKey, openKey })` – panelbredd/öppen/splitter, **egen localStorage-nyckel per modul**
+    (krockar ej): `bokpilot.visaLevfaktura.panelW2`, `bokpilot.inkorg.viewerW`, `bokpilot.bokforing.viewerW`,
+    `bokpilot.levfaktura.inkomna.viewerW`. Standard 45% (`resolveViewerWidth`), ogiltig sparad bredd återställs.
+  - `useAutoFitToWidth(cw, ch, opts)` – Auto = `computeAutoScale` (fit-to-width; höjden begränsar ej), manuell zoom
+    bevaras vid resize, `zoomLabel` (Auto · X% / Manual · X%), `resetAuto`.
+  - `useMagnifier()` – delad på/av-pref (EN nyckel `bokpilot.viewer.magnifier` → konsekvent UX i alla vyer).
+- **Används i:** `VisaLeverantorsfaktura` (kopplade bilder, + coupling via UnderlagPanel), `Inkorg` (alla flikar – markera
+  underlag → förhandsvisning), `VisaVerifikation` (kopplade underlag + splitter), `InkomnaFakturor` (öga → panel).
+  Säkerhet: signed URLs + RLS, inga publika URL:er. Testat i `src/lib/viewer/viewer.test.jsx`.
+- **Saknar underlag i datamodellen (lämnade):** `Dagskassa.jsx` och `Kvitto.jsx` (registreringsformulär) har ingen
+  dokumentkoppling i `documents` – ingen viewer applicerad (krav 27).
+- **Hover-förstoringsglas** `src/components/DocMagnifier.jsx`: zoom-in-cursor, lins (**240px**, rund, 1px-kant + shadow)
+  som förstorar utsnittet **75%** (`MAG=1.75`) utöver aktuell skala (img via background, PDF-canvas via DPR-skarp
+  drawImage), följer musen (rAF-throttlad, `clampLensBox` håller linsen inom viewer-ytan; korrekt vid vertikal scroll),
+  av under splitter-drag.
+
 ## Övrigt (urval)
-- Dokumentvisare: `src/components/PdfCanvas.jsx` (pdf.js) + `src/lib/docPreview.js` (Auto/Manual fit-to-panel,
-  ResizeObserver) i UnderlagPanel / VisaLeverantorsfaktura / LeverantorEditor. Höger panel = **40%** som standard
-  (localStorage-override respekteras), dragbar splitter, Auto Fit räknas om vid panelstorlek.
-- **Hover-förstoringsglas** `src/components/DocMagnifier.jsx`: zoom-in-cursor över dokumentet, lins (**240px**, rund,
-  1px-kant + lätt shadow) som förstorar utsnittet under muspekaren **75%** (`MAG=1.75`) utöver aktuell skala
-  (img via background, PDF-canvas via DPR-skarp drawImage), följer musen (rAF-throttlad, `clampLensBox` håller
-  linsen helt inom viewer-ytan så toolbar ej täcks), av under splitter-drag, toggle i toolbar (tooltip "Förstoringsglas").
+- Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,
+  höjden begränsar ej → långa dokument scrollas vertikalt. Höger panel = **45%** standard (`resolveViewerWidth`).
 - Layout: `Layout.jsx` + `Sidebar.jsx` (hopfällbar meny, `sidebarCollapsed` i localStorage).
 - Mottagningsadresser/arkivnummer: `src/lib/inboxAddresses.js`. Klassificering: `src/lib/classifyDocument.js`.
 - Bokföring/verifikationer, leverantörs-/kundfakturor, kontoplan, moms, bankavstämning – se respektive sida i `src/pages/`.
