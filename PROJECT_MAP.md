@@ -115,9 +115,15 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   användare/senaste aktivitet/inkomna underlag/misslyckade importer – ingen bokföringsdata), `reply_support_ticket`,
   `add_internal_note`, `assign_support_ticket`, `update_support_ticket_status`, `update_support_ticket_priority`,
   `create_support_ticket`/`customer_reply_support_ticket` (kund), `list_support_admins`. Alla loggar i `platform_audit_log`.
-- **Notiser:** nytt ärende → support_admin/superadmin; admin svarar → kund; kund svarar → tilldelad+support;
-  urgent → hög/urgent prioritet (event types `support_ticket_created`/`_admin_reply`/`_customer_reply` + mallar).
+- **Notiser:** nytt ärende → support_admin/superadmin; **admin svarar → kund (in_app + email)**; kund svarar →
+  tilldelad+support; urgent → hög/urgent prioritet (event types `support_ticket_created`/`_admin_reply`/`_customer_reply`).
   Mottagare ser egna notiser via uppdaterad `nq_select` (`user_id=auth.uid() OR can_view_operations()`).
+- **`support_ticket_admin_reply` (email till kund):** `reply_support_ticket(ticket, body, attachment_count)` notifierar
+  endast ticketens skapare (aldrig support själv/andra företag). Mall: subject "BokPilot Support har svarat på ditt
+  ärende", body = ärendeämne + excerpt (max 300 tecken) + ev. "Svaret innehåller X bilagor." (aldrig filer/interna
+  notes) + länk `https://app.bokpilot.se/support/{ticketId}` (route `/support/:ticketId` öppnar ärendet). Respekterar
+  opt-out (`notification_preferences` → endast in_app om email avstängt; ej mandatory). Email går via queue → worker (retry/tracking).
+  Interna anteckningar och kundsvar skapar aldrig email till kunden själv.
 
 **Kund: Support** (`src/pages/Support.jsx`, route `/support`, sidebar Hjälp → Support – synlig för alla inloggade):
 - Kund skapar ärende (kategori + ämne + meddelande + prioritet **låg/normal/hög**, ingen urgent), ser **sitt

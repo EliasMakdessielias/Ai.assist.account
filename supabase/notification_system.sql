@@ -126,3 +126,8 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- add_support_attachment (validerar filtyp/storlek/path, sätter visibility), log_support_attachment_download (audit).
 -- Message-RPC:er returnerar nu message_id/note_id (för bilage-path). get_support_ticket returnerar attachments.
 -- RLS: support_attachments visibility+tenant; storage.objects insert (eget företag) + select (visibility+tenant -> signed URL).
+
+-- Email-notis till kund vid support-svar (migration support_admin_reply_email).
+-- reply_support_ticket(ticket, body, attachment_count): notifierar endast ticketens skapare (in_app + email enligt
+-- preferences; ej support själv). Mall support_ticket_admin_reply email: subject "BokPilot Support har svarat på ditt
+-- ärende" + ämne + excerpt(300) + ev. bilage-antal + länk /support/{ticketId}. Opt-out via notification_preferences.
