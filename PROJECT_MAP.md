@@ -70,9 +70,20 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
     befintlig modell (ingen ny parallell datamodell).
   - `apply_email_unsubscribe(user, event_type)` – bakom edge function `notif-unsubscribe` (se Email-leverans).
 
+**Plattformsroller** (`src/lib/platformRoles.js`, DB):
+- Roller: `superadmin` (högsta, = `platform_admins`-tabellen), `operations_admin`, `support_admin`, `billing_admin`
+  (i `platform_user_roles(email, role)`). Granulära helpers: `is_superadmin()`, `has_platform_role(role)`
+  (superadmin har alla), `can_view_operations()`, `can_manage_operations()`, `can_view_support()`, `can_manage_billing()`.
+- **Behörighetsmatris:** superadmin=allt · operations_admin=drift (se+retry/cancel/ack) · support_admin=support
+  (ej drift/billing) · billing_admin=billing (ej drift/secrets). Kunder nekas allt.
+- Roll-admin (superadmin): `admin_grant_platform_role`/`admin_revoke_platform_role` (UI: Superadmin-sidan).
+  `my_platform_access()` → frontend (`useAuth.platformAccess`). Alla rolländringar + drift-actions loggas i
+  `platform_audit_log` (actor, action, target, detail). superadmin tilldelas EJ via grant (via platform_admins).
+
 **Admin: Systemövervakning** (`src/pages/Systemovervakning.jsx`, `src/lib/systemStatus.js`):
-- Route `/admin/system` (Plattform → Systemövervakning), **endast plattformsadmins** (`isAdmin` + RPC-gating
-  `is_platform_admin()` + RLS). Självständig sida – kan flyttas till admin.bokpilot.se utan ändring.
+- Route `/admin/system` (Plattform → Systemövervakning), **superadmin + operations_admin** (`can_view_operations()`
+  RPC-gating + RLS). Actions kräver `can_manage_operations()` (döljs i läsläge). Forbidden-state för övriga.
+  Självständig sida – kan flyttas till admin.bokpilot.se utan ändring.
 - En RPC `admin_system_overview()` (admin-gated, en round-trip) returnerar: **worker_health** per komponent
   (imap-import, inbound-email, tolka-underlag, email-worker, scheduled-notifications) med status
   healthy/warning/failing/unknown; **queue-summary** (pending/processing/sent today/failed/skipped/cancelled/

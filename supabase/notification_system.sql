@@ -93,3 +93,12 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- admin_system_overview() (admin-gated): worker_health-status + queue-summary + system_errors + leveransfel.
 -- admin_retry_notification / admin_cancel_notification / admin_acknowledge_system_error (is_platform_admin-gated).
 -- record_worker_health rensar last_error vid lyckad körning. Cron pingar 'scheduled-notifications'.
+
+-- Plattformsroller (migration platform_roles). Modell: src/lib/platformRoles.js.
+-- platform_user_roles(email, role in operations_admin/support_admin/billing_admin) + platform_audit_log.
+-- superadmin = platform_admins (befintlig). Helpers: is_superadmin(), has_platform_role(role),
+--   can_view_operations(), can_manage_operations(), can_view_support(), can_manage_billing().
+-- Drift-RLS (worker_health, notification_events/queue/deliveries/provider_logs) + admin_system_overview
+--   gate:as nu på can_view_operations(); actions (retry/cancel/ack) på can_manage_operations() + audit.
+-- Roll-admin (superadmin): admin_grant_platform_role/admin_revoke_platform_role (+ audit). my_platform_access()
+--   -> frontend. admin_list_platform_roles() för UI. Alla actions loggas i platform_audit_log.
