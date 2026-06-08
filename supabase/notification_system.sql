@@ -131,3 +131,10 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- reply_support_ticket(ticket, body, attachment_count): notifierar endast ticketens skapare (in_app + email enligt
 -- preferences; ej support själv). Mall support_ticket_admin_reply email: subject "BokPilot Support har svarat på ditt
 -- ärende" + ämne + excerpt(300) + ev. bilage-antal + länk /support/{ticketId}. Opt-out via notification_preferences.
+
+-- Billing-admin (migrationer billing_data_model + billing_rpcs). UI: src/pages/BillingAdmin.jsx (/admin/billing).
+-- Tabeller: subscription_plans (limits/features/priser SEK) + company_subscriptions (status/period/datum + payment_*
+-- billing-readiness, ej kopplat till provider). RLS: planer läsbara, abonnemang per eget företag/billing-admin.
+-- RPC (can_manage_billing-gated, audit): admin_list_subscriptions/get/set_company_plan(vägrar inaktiv plan)/
+-- set_subscription_status/set_subscription_dates + admin_list_plans/upsert_plan/set_plan_active.
+-- Notiser: subscription_status_changed (statusbyte) + notify_subscription_lifecycle() i cron (trial_ending/expiring).

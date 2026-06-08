@@ -44,6 +44,7 @@ import Notiser from './pages/Notiser'
 import Systemovervakning from './pages/Systemovervakning'
 import SupportAdmin from './pages/SupportAdmin'
 import Support from './pages/Support'
+import BillingAdmin from './pages/BillingAdmin'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -95,6 +96,7 @@ export default function App() {
           <Route path="admin/support" element={<SupportAdmin />} />
           <Route path="support" element={<Support />} />
           <Route path="support/:ticketId" element={<Support />} />
+          <Route path="admin/billing" element={<BillingAdmin />} />
           <Route path="installningar/kassa-bankkonton" element={<KassaBankKonton />} />
           <Route path="installningar/import-export" element={<ImportExport />} />
           <Route path="installningar/sie" element={<Sie />} />

@@ -145,6 +145,26 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   Nedladdning via **signerad URL** (privat bucket) – gated av storage-RLS; `log_support_attachment_download` auditas.
   Notiser inkluderar bara antal/text, aldrig filinnehåll.
 
+**Admin: Billing** (`src/pages/BillingAdmin.jsx`, `src/lib/billing.js`):
+- Route `/admin/billing` (Plattform → Billing), **superadmin + billing_admin** (`can_manage_billing()` RPC-gating + RLS).
+  support_admin/operations_admin/kund nekas. Forbidden-state för övriga.
+- **Datamodell:** `subscription_plans` (namn, mån/års-pris SEK, limits: users/companies/invoices/documents/storage_mb/
+  ai_ops, support_level, features jsonb, is_active) + `company_subscriptions` (ett per företag: plan, status,
+  billing_period, period/trial-datum, cancelled/suspended_at, **payment_provider/customer_id/subscription_id =
+  billing-readiness, ej kopplat till provider**). Status: trial/active/past_due/suspended/cancelled/expired.
+  Billing period: monthly/yearly/trial. Seedade planer: Bas/Plus/Premium.
+- **UI:** flik **Abonnemang** (företagslista + filter status/plan/sök + detaljpanel: ändra plan, period, status
+  (= suspend/reactivate/cancel), trial/period-datum, billing-identifierare read-only) + flik **Planer** (lista,
+  skapa/redigera, aktivera/inaktivera, sätt limits/features/priser).
+- **RPC (gate `can_manage_billing`, alla audit-loggade):** `admin_list_subscriptions`, `admin_get_subscription`,
+  `admin_set_company_plan` (vägrar inaktiv plan), `admin_set_subscription_status`, `admin_set_subscription_dates`,
+  `admin_list_plans`, `admin_upsert_plan`, `admin_set_plan_active`. RLS: planer läsbara (katalog), abonnemang
+  per eget företag eller billing-admin; skrivning endast via RPC.
+- **Notiser:** statusbyte (past_due/suspended/cancelled) → kund (`subscription_status_changed`). Cron
+  `notify_subscription_lifecycle()` (dagligen): trial slutar ≤3 dagar (`subscription_trial_ending`), period slutar
+  ≤7 dagar (`subscription_expiring`) → kund (stabil källa: subscription-datum). Mallar för alla tre. **Ingen provider-
+  integration ännu** – strukturen är adaptervänlig (payment_*-fält) för framtida Stripe e.d.
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,
