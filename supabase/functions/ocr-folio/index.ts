@@ -11,7 +11,7 @@ const ENABLED = (Deno.env.get('ENABLE_FOLIO_OCR') || 'false').toLowerCase() === 
 const BASE = (Deno.env.get('FOLIO_OCR_BASE_URL') || '').replace(/\/$/, '')
 const TIMEOUT = parseInt(Deno.env.get('FOLIO_OCR_TIMEOUT_MS') || '20000', 10)
 const API_SECRET = Deno.env.get('FOLIO_OCR_API_SECRET') || ''
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } })
 
 function normalize(folio: any, processingTimeMs: number) {
