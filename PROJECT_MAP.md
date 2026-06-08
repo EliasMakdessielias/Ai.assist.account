@@ -267,6 +267,23 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
   POSTar till edge function `inbound-email` (HMAC/token-auth), idempotens via Message-ID.
 - Edge function `inbound-email`: validerar, klassificerar (`classifyDocument`), lagrar bilaga, skapar Inkorg-post.
 
+## OCR-providers (Gemini primär, Folio valfri)
+- **[OCR_PROVIDER_ARCHITECTURE]** `src/lib/ocr/ocrProviders.js`: modulär provider-modell – PRIMARY=`gemini`
+  (befintligt `tolka-underlag`-flöde, oförändrat), valfri SECONDARY=`folio_ocr`. Normaliserat resultatformat
+  `{ providerName, rawText, pages, layoutBlocks, confidence, processingTimeMs, errors, fallbackUsed }`
+  (`normalizeOcrResult`/`normalizeFolioResult`), flaggor (`ocrConfig`), körplan (`resolveOcrPlan`). Ren/testbar
+  (`ocrProviders.test.js`). Äger ingen bokföringslogik.
+- **[OCR_FALLBACK]** `runOcrWithFallback({plan, providers})`: kör sekundär först om aktiv, faller tillbaka till
+  primär vid fel/timeout om `ENABLE_OCR_FALLBACK=true`. Skapar aldrig trasiga poster (`{failed:true}` vid total miss).
+  Flaggor: `OCR_PROVIDER_PRIMARY=gemini`, `OCR_PROVIDER_SECONDARY=folio_ocr`, `ENABLE_OCR_FALLBACK=true`.
+- **[FOLIO_OCR_EXPERIMENTAL_PROVIDER]** edge function `ocr-folio` (verify_jwt, ops-gated via `my_platform_access`):
+  isolerad proxy mot SEPARAT Folio-tjänst. **Default AV** (`ENABLE_FOLIO_OCR=false` ⇒ `{available:false}`,
+  safe uninstall). Laddar dokument från Storage (service-role), POSTar `{filename,mimeType,contentBase64,persist:false}`
+  till `{FOLIO_OCR_BASE_URL}/ocr` med timeout, normaliserar svaret. `record_worker_health('folio-ocr',…)` +
+  `report_system_error` vid kritiskt fel. Secrets (`FOLIO_OCR_*`) endast server-side, loggas aldrig.
+  Testverktyg `src/pages/OcrTest.jsx` (`/admin/ocr-test`, canViewOperations): Gemini vs Folio sida-vid-sida
+  (processtid, fält, confidence, fallback, health). Komponent `folio-ocr` i Systemövervakning. Doc: `docs/FOLIO_OCR.md`.
+
 ## Övrigt (urval)
 - Dokumentvisare: `src/components/PdfCanvas.jsx` (pdf.js) + `src/lib/docPreview.js` (Auto/Manual fit-to-panel,
   ResizeObserver) i UnderlagPanel / VisaLeverantorsfaktura / LeverantorEditor. Höger panel = **40%** som standard

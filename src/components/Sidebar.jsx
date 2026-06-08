@@ -103,6 +103,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             <>
               {isAdmin && <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>}
               {canViewOps && <NavLink to="/admin/system" className={linkClass} title="Systemövervakning"><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" /></NavLink>}
+              {canViewOps && <NavLink to="/admin/ocr-test" className={linkClass} title="OCR-test"><i className="ti ti-scan text-[17px] w-5 text-center" /></NavLink>}
               {canViewSupport && <NavLink to="/admin/support" className={linkClass} title="Support"><i className="ti ti-headset text-[17px] w-5 text-center" /></NavLink>}
               {canManageBilling && <NavLink to="/admin/billing" className={linkClass} title="Billing"><i className="ti ti-credit-card text-[17px] w-5 text-center" /></NavLink>}
             </>
@@ -111,6 +112,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
               <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
               {isAdmin && <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>}
               {canViewOps && <NavLink to="/admin/system" className={linkClass}><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" />Systemövervakning</NavLink>}
+              {canViewOps && <NavLink to="/admin/ocr-test" className={linkClass}><i className="ti ti-scan text-[17px] w-5 text-center" />OCR-test</NavLink>}
               {canViewSupport && <NavLink to="/admin/support" className={linkClass}><i className="ti ti-headset text-[17px] w-5 text-center" />Support</NavLink>}
               {canManageBilling && <NavLink to="/admin/billing" className={linkClass}><i className="ti ti-credit-card text-[17px] w-5 text-center" />Billing</NavLink>}
             </>

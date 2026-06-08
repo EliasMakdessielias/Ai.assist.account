@@ -10,7 +10,7 @@ const ago = h => new Date(NOW.getTime() - h * 3600 * 1000).toISOString()
 describe('worker-komponenter', () => {
   it('täcker alla kärn-workers (krav 1)', () => {
     expect(WORKER_COMPONENTS.map(c => c.key)).toEqual([
-      'imap-import', 'inbound-email', 'tolka-underlag', 'email-worker', 'scheduled-notifications',
+      'imap-import', 'inbound-email', 'tolka-underlag', 'folio-ocr', 'email-worker', 'scheduled-notifications',
     ])
   })
 })

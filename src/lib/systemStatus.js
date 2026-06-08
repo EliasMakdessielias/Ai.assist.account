@@ -5,6 +5,7 @@ export const WORKER_COMPONENTS = [
   { key: 'imap-import', label: 'IMAP-importer', icon: 'ti-mail-down', mode: 'schemalagd (5 min)' },
   { key: 'inbound-email', label: 'Inkommande e-post (webhook)', icon: 'ti-inbox', mode: 'on-demand' },
   { key: 'tolka-underlag', label: 'OCR / Gemini-tolkning', icon: 'ti-robot', mode: 'on-demand' },
+  { key: 'folio-ocr', label: 'Folio-OCR (experimentell)', icon: 'ti-flask', mode: 'on-demand (valfri)' },
   { key: 'email-worker', label: 'E-postutskick & köprocessor', icon: 'ti-send', mode: 'schemalagd (5 min)' },
   { key: 'scheduled-notifications', label: 'Schemalagda notiser (cron)', icon: 'ti-clock', mode: 'dagligen 06:00' },
 ]
