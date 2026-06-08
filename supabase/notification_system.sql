@@ -39,3 +39,26 @@ end $$ language plpgsql security definer;
 drop trigger if exists trg_notify_inbound_document on public.documents;
 create trigger trg_notify_inbound_document after insert on public.documents
   for each row execute function public.notify_on_inbound_document();
+
+-- Email-leverans (Fas 2). Migrationer:
+--   notification_deliveries_unique_queue  (en leveransrad per köpost, för worker-upsert)
+--   apply_email_unsubscribe_fn            (RPC bakom edge function notif-unsubscribe)
+-- alter table public.notification_deliveries add constraint notification_deliveries_queue_id_key unique (queue_id);
+
+-- Avregistrera email-notiser för ett event (alla användarens företag). Obligatoriska vägras (-1).
+-- Anropas av edge function notif-unsubscribe (service role). Kö-processor: scripts/email-worker/.
+create or replace function public.apply_email_unsubscribe(p_user_id uuid, p_event_type text)
+returns int as $$
+declare n int;
+begin
+  if p_event_type = any (array['security_event','permission_changed','system_error','locked_account_blocked','user_invited']) then
+    return -1; -- vägras: obligatoriskt event
+  end if;
+  insert into public.notification_preferences (user_id, company_id, event_type, channel, enabled)
+  select p_user_id, uc.company_id, p_event_type, 'email', false
+  from public.user_companies uc where uc.user_id = p_user_id
+  on conflict (user_id, company_id, event_type, channel) do update set enabled = false, updated_at = now();
+  get diagnostics n = row_count;
+  return n;
+end $$ language plpgsql security definer set search_path = public;
+revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, authenticated;
