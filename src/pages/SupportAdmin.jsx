@@ -7,6 +7,8 @@ import {
   STATUS_META, PRIORITY_META, TONE_CLASS, isOpenForReply,
 } from '../lib/support'
 import toast from 'react-hot-toast'
+import { AttachmentPicker, AttachmentList } from '../components/SupportAttachments'
+import { uploadSupportAttachments } from '../lib/supportAttachments'
 
 const Pill = ({ tone, children }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${TONE_CLASS[tone] || TONE_CLASS.gray}`}>{children}</span>

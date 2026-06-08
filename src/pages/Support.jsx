@@ -6,6 +6,8 @@ import {
   CUSTOMER_STATUS_LABELS, customerStatusLabel, STATUS_META, PRIORITY_META, TONE_CLASS, isOpenForReply,
 } from '../lib/support'
 import toast from 'react-hot-toast'
+import { AttachmentPicker, AttachmentList } from '../components/SupportAttachments'
+import { uploadSupportAttachments } from '../lib/supportAttachments'
 
 const Pill = ({ tone, children }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${TONE_CLASS[tone] || TONE_CLASS.gray}`}>{children}</span>
@@ -22,6 +24,8 @@ export default function Support() {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState(emptyForm())
   const [reply, setReply] = useState('')
+  const [createFiles, setCreateFiles] = useState([])
+  const [replyFiles, setReplyFiles] = useState([])
 
   const loadList = useCallback(async () => {
     if (!company) return
@@ -36,11 +40,12 @@ export default function Support() {
   useEffect(() => { loadList() }, [loadList])
 
   async function openTicket(id) {
-    const [{ data: t }, { data: msgs }] = await Promise.all([
+    const [{ data: t }, { data: msgs }, { data: atts }] = await Promise.all([
       supabase.from('support_tickets').select('id, subject, category, priority, status, created_at').eq('id', id).single(),
       supabase.from('support_messages').select('id, is_admin, body, created_at').eq('ticket_id', id).order('created_at'),
+      supabase.from('support_attachments').select('id, message_id, file_name, mime_type, file_size, storage_path, created_at').eq('ticket_id', id),
     ])
-    setSel({ ticket: t, messages: msgs || [] }); setReply('')
+    setSel({ ticket: t, messages: msgs || [], attachments: atts || [] }); setReply(''); setReplyFiles([])
   }
 
   async function createTicket() {
@@ -49,18 +54,24 @@ export default function Support() {
     const { data, error } = await supabase.rpc('create_support_ticket', {
       p_company_id: company.id, p_subject: form.subject, p_category: form.category, p_priority: form.priority, p_body: form.body,
     })
+    if (error) { setBusy(false); return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skapa ärende') }
+    try {
+      if (createFiles.length) await uploadSupportAttachments(supabase, { files: createFiles, companyId: company.id, ticketId: data.ticket_id, messageId: data.message_id })
+    } catch (e) { toast.error(e.message) }
     setBusy(false)
-    if (error) return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skapa ärende')
-    toast.success('Supportärende skapat'); setCreating(false); setForm(emptyForm())
-    await loadList(); if (data) openTicket(data)
+    toast.success('Supportärende skapat'); setCreating(false); setForm(emptyForm()); setCreateFiles([])
+    await loadList(); if (data?.ticket_id) openTicket(data.ticket_id)
   }
   async function sendReply() {
-    if (!reply.trim()) return
+    if (!reply.trim() && !replyFiles.length) return
     setBusy(true)
-    const { error } = await supabase.rpc('customer_reply_support_ticket', { p_ticket_id: sel.ticket.id, p_body: reply })
+    const { data: msgId, error } = await supabase.rpc('customer_reply_support_ticket', { p_ticket_id: sel.ticket.id, p_body: reply || '(bifogad fil)' })
+    if (error) { setBusy(false); return toast.error('Kunde inte skicka svar') }
+    try {
+      if (replyFiles.length) await uploadSupportAttachments(supabase, { files: replyFiles, companyId: company.id, ticketId: sel.ticket.id, messageId: msgId })
+    } catch (e) { toast.error(e.message) }
     setBusy(false)
-    if (error) return toast.error('Kunde inte skicka svar')
-    setReply(''); await loadList(); await openTicket(sel.ticket.id)
+    setReply(''); setReplyFiles([]); await loadList(); await openTicket(sel.ticket.id)
   }
   async function closeTicket() {
     if (!confirm('Markera ärendet som löst och stäng det?')) return
@@ -120,6 +131,7 @@ export default function Support() {
                 </div>
                 <div><label className="block text-xs font-medium text-gray-500 mb-1">Meddelande</label>
                   <textarea className="input" rows={5} value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))} placeholder="Beskriv ditt ärende…" /></div>
+                <AttachmentPicker files={createFiles} onChange={setCreateFiles} disabled={busy} />
                 <div className="flex justify-end gap-2">
                   <button className="btn" onClick={() => setCreating(false)}>Avbryt</button>
                   <button className="btn btn-primary" disabled={busy} onClick={createTicket}><i className="ti ti-send" /> Skicka</button>
@@ -144,6 +156,7 @@ export default function Support() {
                     <div className={`max-w-[80%] rounded-xl px-3 py-2 ${m.is_admin ? 'bg-gray-100 text-gray-800' : 'bg-blue-600 text-white'}`}>
                       <div className="text-[10px] opacity-70 mb-0.5">{m.is_admin ? 'BokPilot support' : 'Du'} · {fmt(m.created_at)}</div>
                       <div className="text-sm whitespace-pre-wrap">{m.body}</div>
+                      <AttachmentList items={(sel.attachments || []).filter(a => a.message_id === m.id)} onTone={m.is_admin ? 'light' : 'dark'} />
                     </div>
                   </div>
                 ))}
@@ -153,8 +166,9 @@ export default function Support() {
                 <>
                   <div className="flex gap-2">
                     <textarea className="input text-sm flex-1" rows={2} placeholder="Skriv ett svar…" value={reply} onChange={e => setReply(e.target.value)} />
-                    <button className="btn btn-primary self-end" disabled={busy || !reply.trim()} onClick={sendReply}><i className="ti ti-send" /> Skicka</button>
+                    <button className="btn btn-primary self-end" disabled={busy || (!reply.trim() && !replyFiles.length)} onClick={sendReply}><i className="ti ti-send" /> Skicka</button>
                   </div>
+                  <div className="mt-1.5"><AttachmentPicker files={replyFiles} onChange={setReplyFiles} disabled={busy} /></div>
                   <div className="mt-3 text-right">
                     <button className="text-xs text-gray-500 hover:text-gray-800" onClick={closeTicket}><i className="ti ti-circle-check" /> Markera som löst & stäng</button>
                   </div>
