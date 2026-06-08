@@ -2,7 +2,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useRef } from 'react'
 import { render, act, cleanup } from '@testing-library/react'
-import { previewWidthPx, previewHeightPx, useContainerSize, computeAutoScale, clampScale } from './docPreview'
+import { previewWidthPx, previewHeightPx, useContainerSize, computeAutoScale, clampScale, resolveViewerWidth } from './docPreview'
+
+describe('resolveViewerWidth – dokumentvisarens standardbredd (45%) + validering', () => {
+  it('utan sparat värde: 45% av fönstret (krav 1/2)', () => {
+    expect(resolveViewerWidth(null, 2000)).toBe(900)
+    expect(resolveViewerWidth(undefined, 1440)).toBe(648)
+  })
+  it('respekterar giltig sparad bredd (krav 3)', () => {
+    expect(resolveViewerWidth('700', 2000)).toBe(700)
+    expect(resolveViewerWidth(1100, 2000)).toBe(1100)
+  })
+  it('ogiltig sparad bredd återställs till 45% (krav 4)', () => {
+    expect(resolveViewerWidth('abc', 2000)).toBe(900)   // NaN
+    expect(resolveViewerWidth('100', 2000)).toBe(900)   // < minPx 360
+    expect(resolveViewerWidth('1900', 2000)).toBe(900)  // > 75% (1500)
+    expect(resolveViewerWidth('', 2000)).toBe(900)      // tomt -> NaN-aktigt
+  })
+  it('respekterar gränserna min 360 / max 75%', () => {
+    expect(resolveViewerWidth('360', 2000)).toBe(360)   // exakt min ok
+    expect(resolveViewerWidth('1500', 2000)).toBe(1500) // exakt max ok
+    expect(resolveViewerWidth('359', 2000)).toBe(900)   // strax under min
+  })
+  it('faller tillbaka på 1200px-fönster om viewport saknas', () => {
+    expect(resolveViewerWidth(null, 0)).toBe(540)       // 1200*0.45
+    expect(resolveViewerWidth(null, NaN)).toBe(540)
+  })
+})
 
 describe('computeAutoScale – fit-to-panel (Auto)', () => {
   it('returnerar null innan container/dokument mätts', () => {

@@ -57,7 +57,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
     }`
 
   return (
-    <aside className={`sidebar ${collapsed ? 'w-16' : 'w-[230px]'} bg-white border-r fixed top-0 left-0 h-screen flex flex-col z-50 transition-[width] duration-150`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+    <aside className="sidebar bg-white border-r fixed top-0 left-0 h-screen flex flex-col z-50 transition-[width] duration-150" style={{ borderColor: 'rgba(0,0,0,0.10)', width: collapsed ? 72 : 'max(220px, 10vw)' }}>
       {/* Logotyp + fäll-knapp */}
       <div className={`border-b flex items-center ${collapsed ? 'justify-center py-4' : 'justify-between px-5 pt-5 pb-4'}`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         {collapsed ? (

@@ -33,7 +33,7 @@ export default function Layout() {
   return (
     <div className="flex min-h-screen">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
-      <main className="flex-1 min-w-0 transition-[margin] duration-150" style={{ marginLeft: collapsed ? 64 : 230 }}>
+      <main className="flex-1 min-w-0 transition-[margin] duration-150" style={{ marginLeft: collapsed ? 72 : 'max(220px, 10vw)' }}>
         <Outlet />
       </main>
     </div>

@@ -47,6 +47,19 @@ export function computeAutoScale(containerW, containerH, naturalW, naturalH, opt
   return Math.max(min, Math.min(max, Math.round(s * 1000) / 1000))
 }
 
+// Resolverar dokumentvisarens bredd (px) för split-vyer (t.ex. leverantörsfaktura).
+// Standard = `fraction` av total fönsterbredd (45% → ger ~10/45/45 med sidomenyn).
+// Ett sparat localStorage-värde respekteras OM det är giltigt: ett ändligt tal inom
+// [minPx, maxFraction*viewportW]. Ogiltigt (NaN, för smalt, för brett) → standard.
+export function resolveViewerWidth(savedRaw, viewportW, opts = {}) {
+  const { fraction = 0.45, minPx = 360, maxFraction = 0.75 } = opts
+  const vw = Number.isFinite(viewportW) && viewportW > 0 ? viewportW : 1200
+  const def = Math.round(vw * fraction)
+  const maxPx = Math.round(vw * maxFraction)
+  const v = Number(savedRaw)
+  return (Number.isFinite(v) && v >= minPx && v <= maxPx) ? Math.round(v) : def
+}
+
 // Klampar en manuell zoomnivå till tillåtet intervall.
 export function clampScale(scale, min = 0.4, max = 2.5) {
   const s = Number(scale)

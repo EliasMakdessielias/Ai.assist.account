@@ -6,9 +6,11 @@ import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import PdfCanvas from '../components/PdfCanvas'
 import DocMagnifier from '../components/DocMagnifier'
-import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
+import { useContainerSize, previewWidthPx, computeAutoScale, clampScale, resolveViewerWidth } from '../lib/docPreview'
 
-const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW'
+// v2: ny standardproportion (45%). Gör att tidigare sparad 40% inte låser fast användare
+// på gamla layouten – nya drag sparas under denna nyckel och respekteras framåt.
+const PANEL_KEY = 'bokpilot.visaLevfaktura.panelW2'
 const PANEL_VISIBLE_KEY = 'bokpilot.visaLevfaktura.panelVisible'
 const MAG_KEY = 'bokpilot.viewer.magnifier'
 
@@ -43,10 +45,11 @@ export default function VisaLeverantorsfaktura() {
   const [loading, setLoading] = useState(true)
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
-  // Höger panel = 40% av arbetsytan som standard; användarens sparade bredd (localStorage) respekteras.
+  // Dokumentvisare = 45% av fönstret som standard (ger ~10/45/45 med sidomenyn).
+  // Giltig sparad bredd i localStorage respekteras; ogiltig återställs till 45%.
   const [panelW, setPanelW] = useState(() => {
-    const v = Number(localStorage.getItem(PANEL_KEY))
-    return v >= 360 ? v : Math.round((typeof window !== 'undefined' ? window.innerWidth : 1200) * 0.40)
+    try { return resolveViewerWidth(localStorage.getItem(PANEL_KEY), typeof window !== 'undefined' ? window.innerWidth : 1200) }
+    catch { return resolveViewerWidth(null, 1200) }
   })
   const [dragging, setDragging] = useState(false)
   const [magnifier, setMagnifier] = useState(() => { try { return localStorage.getItem(MAG_KEY) !== '0' } catch { return true } })
@@ -225,7 +228,7 @@ export default function VisaLeverantorsfaktura() {
       {/* Höger: KOPPLADE BILDER */}
       {panelOpen && (
         coupling ? (
-          <div className="w-[44%] border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          <div className="border-l bg-white flex flex-col" style={{ borderColor: 'rgba(0,0,0,0.10)', width: panelW, flexShrink: 0 }}>
             <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
               <span className="text-sm font-semibold">KOPPLA BILD</span>
               <button className="btn text-xs py-1 px-2" onClick={() => setCoupling(false)}>Stäng</button>
