@@ -26,6 +26,8 @@ export default function SupportAdmin() {
   const [busy, setBusy] = useState(false)
   const [reply, setReply] = useState('')
   const [note, setNote] = useState('')
+  const [replyFiles, setReplyFiles] = useState([])
+  const [noteFiles, setNoteFiles] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,7 +44,23 @@ export default function SupportAdmin() {
   async function openTicket(id) {
     const { data, error } = await supabase.rpc('get_support_ticket', { p_id: id })
     if (error) return toast.error('Kunde inte öppna ärendet')
-    setSel(data); setReply(''); setNote('')
+    setSel(data); setReply(''); setNote(''); setReplyFiles([]); setNoteFiles([])
+  }
+  async function sendReply() {
+    if (!reply.trim() && !replyFiles.length) return
+    setBusy(true)
+    const { data: msgId, error } = await supabase.rpc('reply_support_ticket', { p_ticket_id: sel.ticket.id, p_body: reply || '(bifogad fil)' })
+    if (error) { setBusy(false); return toast.error('Kunde inte skicka svar') }
+    try { if (replyFiles.length) await uploadSupportAttachments(supabase, { files: replyFiles, companyId: sel.ticket.company_id, ticketId: sel.ticket.id, messageId: msgId }) } catch (e) { toast.error(e.message) }
+    setBusy(false); toast.success('Svar skickat'); await load(); await openTicket(sel.ticket.id)
+  }
+  async function sendNote() {
+    if (!note.trim() && !noteFiles.length) return
+    setBusy(true)
+    const { data: noteId, error } = await supabase.rpc('add_internal_note', { p_ticket_id: sel.ticket.id, p_body: note || '(bifogad fil)' })
+    if (error) { setBusy(false); return toast.error('Kunde inte spara anteckning') }
+    try { if (noteFiles.length) await uploadSupportAttachments(supabase, { files: noteFiles, companyId: sel.ticket.company_id, ticketId: sel.ticket.id, noteId }) } catch (e) { toast.error(e.message) }
+    setBusy(false); toast.success('Anteckning sparad'); await openTicket(sel.ticket.id)
   }
   async function act(rpc, params, okMsg, keepOpen = true) {
     setBusy(true)
@@ -161,15 +179,18 @@ export default function SupportAdmin() {
                       <div className={`max-w-[80%] rounded-xl px-3 py-2 ${m.is_admin ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                         <div className="text-[10px] opacity-70 mb-0.5">{m.is_admin ? 'Support' : (m.sender_email || 'Kund')} · {fmt(m.created_at)}</div>
                         <div className="text-sm whitespace-pre-wrap">{m.body}</div>
+                        <AttachmentList items={(sel.attachments || []).filter(a => a.message_id === m.id)} onTone={m.is_admin ? 'dark' : 'light'} />
                       </div>
                     </div>
                   ))}
                 </div>
                 {isOpenForReply(t.status) && (
-                  <div className="mt-3 flex gap-2">
-                    <textarea className="input text-sm flex-1" rows={2} placeholder="Svara kunden…" value={reply} onChange={e => setReply(e.target.value)} />
-                    <button className="btn btn-primary self-end" disabled={busy || !reply.trim()}
-                      onClick={() => { act('reply_support_ticket', { p_ticket_id: t.id, p_body: reply }, 'Svar skickat'); }}><i className="ti ti-send" /> Skicka</button>
+                  <div className="mt-3">
+                    <div className="flex gap-2">
+                      <textarea className="input text-sm flex-1" rows={2} placeholder="Svara kunden…" value={reply} onChange={e => setReply(e.target.value)} />
+                      <button className="btn btn-primary self-end" disabled={busy || (!reply.trim() && !replyFiles.length)} onClick={sendReply}><i className="ti ti-send" /> Skicka</button>
+                    </div>
+                    <div className="mt-1.5"><AttachmentPicker files={replyFiles} onChange={setReplyFiles} disabled={busy} /></div>
                   </div>
                 )}
               </div>
@@ -183,14 +204,15 @@ export default function SupportAdmin() {
                       <div key={n.id} className="text-sm bg-white/70 rounded px-2 py-1.5">
                         <div className="text-[10px] text-amber-700/70">{n.author_email || 'Admin'} · {fmt(n.created_at)}</div>
                         <div className="whitespace-pre-wrap">{n.body}</div>
+                        <AttachmentList items={(sel.attachments || []).filter(a => a.note_id === n.id)} onTone="light" />
                       </div>
                     ))}
                 </div>
                 <div className="flex gap-2">
                   <textarea className="input text-sm flex-1 bg-white" rows={2} placeholder="Lägg till intern anteckning…" value={note} onChange={e => setNote(e.target.value)} />
-                  <button className="btn self-end" disabled={busy || !note.trim()}
-                    onClick={() => { act('add_internal_note', { p_ticket_id: t.id, p_body: note }, 'Anteckning sparad'); }}><i className="ti ti-plus" /> Spara</button>
+                  <button className="btn self-end" disabled={busy || (!note.trim() && !noteFiles.length)} onClick={sendNote}><i className="ti ti-plus" /> Spara</button>
                 </div>
+                <div className="mt-1.5"><AttachmentPicker files={noteFiles} onChange={setNoteFiles} disabled={busy} /></div>
               </div>
             </div>
           )}

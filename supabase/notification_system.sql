@@ -120,3 +120,9 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- Kund-support (migration customer_support). UI: src/pages/Support.jsx (/support).
 -- create_support_ticket clampar urgent->high (kund får max high) + audit. customer_reply_support_ticket + audit.
 -- customer_close_support_ticket (kund stänger eget ärende -> closed) + audit. Kund läser via RLS-SELECT (ej admin-RPC).
+
+-- Support-bilagor (migrationer support_attachments_storage + support_attachment_rpcs). Lib: src/lib/supportAttachments.js.
+-- Privat bucket 'support' (10MB/fil, mime-allowlist). support_attachments: + company_id/uploaded_by/visibility/note_id.
+-- add_support_attachment (validerar filtyp/storlek/path, sätter visibility), log_support_attachment_download (audit).
+-- Message-RPC:er returnerar nu message_id/note_id (för bilage-path). get_support_ticket returnerar attachments.
+-- RLS: support_attachments visibility+tenant; storage.objects insert (eget företag) + select (visibility+tenant -> signed URL).

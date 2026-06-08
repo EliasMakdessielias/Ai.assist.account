@@ -128,6 +128,17 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   (status→waiting_for_support), `customer_close_support_ticket` (→closed). Alla loggar i `platform_audit_log`
   (utan meddelandeinnehåll). Admin-RPC (`list/get_support_ticket` m.fl.) är `can_view_support()`-gated → ej åtkomliga för kund.
 
+**Support-bilagor** (`src/lib/supportAttachments.js`, `src/components/SupportAttachments.jsx`):
+- Kund + admin kan bifoga filer vid nytt ärende/svar; admin även på interna anteckningar. Privat storage-bucket
+  **`support`**, nyckel `{companyId}/{ticketId}/{messageId|noteId}/{säkert filnamn}`. **Max 10 MB/fil, 5 filer/meddelande**.
+  Tillåtna: pdf/png/jpg/jpeg/webp/txt/csv/xlsx/docx/json. Blockerade: exe/bat/cmd/js/msi/ps1/sh/html m.fl.
+- **Validering i både frontend och backend** (`add_support_attachment`-RPC + bucket `file_size_limit`/`allowed_mime_types`).
+  Filnamn saneras (anti path-traversal), path valideras mot ärendets company/ticket.
+- **Visibility:** meddelande-bilagor `customer_visible`; interna anteckningars bilagor `internal_only` (kund ser dem aldrig).
+  RLS på `support_attachments` + storage.objects (insert: eget företags mapp/support; select: visibility+tenant).
+  Nedladdning via **signerad URL** (privat bucket) – gated av storage-RLS; `log_support_attachment_download` auditas.
+  Notiser inkluderar bara antal/text, aldrig filinnehåll.
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,
