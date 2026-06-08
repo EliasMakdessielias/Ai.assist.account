@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -17,6 +18,7 @@ const emptyForm = () => ({ subject: '', category: 'invoice_import', priority: 'n
 
 export default function Support() {
   const { company, user } = useAuth()
+  const { ticketId } = useParams()
   const [tickets, setTickets] = useState([])
   const [sel, setSel] = useState(null)         // { ticket, messages }
   const [loading, setLoading] = useState(true)
@@ -38,6 +40,8 @@ export default function Support() {
   }, [company?.id])
 
   useEffect(() => { loadList() }, [loadList])
+  // Djuplänk från notis: /support/{ticketId} öppnar ärendet direkt.
+  useEffect(() => { if (ticketId) { setCreating(false); openTicket(ticketId) } }, [ticketId])
 
   async function openTicket(id) {
     const [{ data: t }, { data: msgs }, { data: atts }] = await Promise.all([

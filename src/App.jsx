@@ -94,6 +94,7 @@ export default function App() {
           <Route path="admin/system" element={<Systemovervakning />} />
           <Route path="admin/support" element={<SupportAdmin />} />
           <Route path="support" element={<Support />} />
+          <Route path="support/:ticketId" element={<Support />} />
           <Route path="installningar/kassa-bankkonton" element={<KassaBankKonton />} />
           <Route path="installningar/import-export" element={<ImportExport />} />
           <Route path="installningar/sie" element={<Sie />} />

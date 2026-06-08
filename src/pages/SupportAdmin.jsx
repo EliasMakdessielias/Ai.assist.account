@@ -49,7 +49,7 @@ export default function SupportAdmin() {
   async function sendReply() {
     if (!reply.trim() && !replyFiles.length) return
     setBusy(true)
-    const { data: msgId, error } = await supabase.rpc('reply_support_ticket', { p_ticket_id: sel.ticket.id, p_body: reply || '(bifogad fil)' })
+    const { data: msgId, error } = await supabase.rpc('reply_support_ticket', { p_ticket_id: sel.ticket.id, p_body: reply || '(bifogad fil)', p_attachment_count: replyFiles.length })
     if (error) { setBusy(false); return toast.error('Kunde inte skicka svar') }
     try { if (replyFiles.length) await uploadSupportAttachments(supabase, { files: replyFiles, companyId: sel.ticket.company_id, ticketId: sel.ticket.id, messageId: msgId }) } catch (e) { toast.error(e.message) }
     setBusy(false); toast.success('Svar skickat'); await load(); await openTicket(sel.ticket.id)
