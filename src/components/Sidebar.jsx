@@ -3,6 +3,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { BRAND } from '../lib/brand'
 import { SETTINGS_ITEMS, isSettingsItemActive, isSettingsSection } from '../lib/settingsNav'
+import NotificationCenter from './NotificationCenter'
 import toast from 'react-hot-toast'
 
 const navItems = [
@@ -55,19 +56,25 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       {/* Logotyp + fäll-knapp */}
       <div className={`border-b flex items-center ${collapsed ? 'justify-center py-4' : 'justify-between px-5 pt-5 pb-4'}`} style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         {collapsed ? (
-          <button onClick={onToggle} title="Expandera meny" aria-label="Expandera meny"
-            className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-white text-xs font-bold hover:bg-blue-800">
-            {BRAND.appName.slice(0, 2)}
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            <button onClick={onToggle} title="Expandera meny" aria-label="Expandera meny"
+              className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-white text-xs font-bold hover:bg-blue-800">
+              {BRAND.appName.slice(0, 2)}
+            </button>
+            <NotificationCenter collapsed />
+          </div>
         ) : (
           <>
             <div className="min-w-0">
               <div className="text-xl font-semibold tracking-tight truncate">{BRAND.appName}</div>
               <div className="text-[11px] text-gray-400 mt-0.5 truncate">{BRAND.tagline}</div>
             </div>
-            <button onClick={onToggle} title="Fäll ihop meny" aria-label="Fäll ihop meny" className="text-gray-400 hover:text-gray-700 p-1 shrink-0">
-              <i className="ti ti-layout-sidebar-left-collapse text-xl" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <NotificationCenter />
+              <button onClick={onToggle} title="Fäll ihop meny" aria-label="Fäll ihop meny" className="text-gray-400 hover:text-gray-700 p-1">
+                <i className="ti ti-layout-sidebar-left-collapse text-xl" />
+              </button>
+            </div>
           </>
         )}
       </div>
