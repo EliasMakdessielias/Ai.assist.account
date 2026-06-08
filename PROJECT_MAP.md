@@ -190,6 +190,14 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   företagsskapande (`useAuth.createCompany`) via `enforceAndToast` (kundvänlig varning). AI/OCR tillåts vid exceeded
   (soft warning, ingen hard block – krav 9).
 - **UI (Abonnemang-sidan):** progress bars per limit (grön/gul/röd), varningsbanner vid warning/exceeded, "Begär uppgradering".
+- **Refaktorerat (central logik, ingen duplicering):** `_plan_limit_status` (calc, utan gate) + `_notify_plan_limit`
+  (notis + dedupe + kanaler, utan gate). `check_plan_limit`/`enforce_plan_limit` = gate + dessa. `enforce_plan_limit`
+  tillåter service_role (edge-flöden). Kanaler: **warning→in_app, exceeded→in_app+email**.
+- **Schemalagd plan-enforcement** `run_scheduled_plan_enforcement()` (i cron `bokpilot-scheduled-notifications`,
+  dagligen 06:00): kontrollerar alla active/trial-företag × 6 limits, notiser till företagets medlemmar (dedupe per
+  event+metric+dag → warning→exceeded samma dag tillåts), + **plan_usage_summary** (in_app+email) till
+  billing_admin/superadmin när något är över gräns. Audit `plan_enforcement_run` (companies_checked/warnings/exceeded/
+  errors/duration_ms). Klient-kontrakt `channelsForStatus`/`planLimitDedupeKey` (testat).
 
 **Admin: Plananvändning** (`src/components/UsageOverview.jsx`, flik i Billing-vyn, `src/lib/planLimits.js`):
 - **superadmin + billing_admin** (`can_manage_billing()`). Översikt över alla företag: namn/org, plan, abonnemangsstatus,

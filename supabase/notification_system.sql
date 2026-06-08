@@ -157,3 +157,11 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 -- admin_company_usage_detail(company): limits + senaste plan_limit-notiser + billing-ärenden (drawer).
 -- admin_send_upgrade_suggestion(company, plan, message): notis upgrade_suggestion till kund + audit (manuellt).
 -- Alla gate:ade på can_manage_billing(). Mall upgrade_suggestion (in_app + email).
+
+-- Schemalagd plan-enforcement (migration scheduled_plan_enforcement).
+-- Refaktor: _plan_limit_status (calc utan gate) + _notify_plan_limit (notis+dedupe+kanaler utan gate).
+--   check_plan_limit/enforce_plan_limit = gate + dessa. enforce tillåter service_role (edge-flöden).
+--   Kanaler: warning->in_app, exceeded->in_app+email. Ingen logikduplicering.
+-- run_scheduled_plan_enforcement(): alla active/trial-företag x 6 limits -> notis till medlemmar (dedupe per
+--   event+metric+dag, warning->exceeded samma dag OK) + plan_usage_summary (in_app+email) till billing-admins vid exceeded.
+--   Audit plan_enforcement_run (counts/duration/errors). Integrerad i cron 'bokpilot-scheduled-notifications' (0 6 * * *).
