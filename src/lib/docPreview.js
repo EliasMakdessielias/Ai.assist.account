@@ -33,16 +33,20 @@ export function previewHeightPx(containerHeight, scale) {
   return Math.max(1, Math.round(containerHeight * Math.max(1, s)))
 }
 
-// "Fit-to-panel"-zoom (Auto-läge): beräknar den skala som gör att hela
-// dokumentet (naturlig storlek naturalW×naturalH) ryms i containern, begränsad
-// till [min, max]. Skalan är NATURLIG-relativ (1 = dokumentets pixlar i 1:1).
-// Returnerar null innan container/dokument har mätts (då används fallback i UI:t).
+// "Fit-to-width"-zoom (Auto-läge): anpassar dokumentet efter panelens BREDD, inte höjden.
+//   scale = (containerW - horizontalPadding) / naturalW
+// Höjden begränsar INTE skalan – dokumentet får bli högre än panelen och läses med vertikal
+// scroll, medan horisontell scroll undviks (bredden ryms). Skalan är NATURLIG-relativ
+// (1 = dokumentets pixlar i 1:1) och klampas till [min, max]. Returnerar null innan
+// container/dokument har mätts (då används fallback i UI:t).
 //   - Bredare panel  => större skala (växer)
 //   - Smalare panel  => mindre skala (krymper)
-export function computeAutoScale(containerW, containerH, naturalW, naturalH, opts = {}) {
+// `containerH`/`naturalH` tas emot för bakåtkompatibel signatur men används inte (fit-to-width).
+// `padding` = horisontell padding så dokumentet inte klistrar mot kanterna.
+export function computeAutoScale(containerW, _containerH, naturalW, _naturalH, opts = {}) {
   const { min = 0.4, max = 2.5, padding = 24 } = opts
-  if (!containerW || !containerH || !naturalW || !naturalH) return null
-  const s = Math.min((containerW - padding) / naturalW, (containerH - padding) / naturalH)
+  if (!containerW || !naturalW) return null
+  const s = (containerW - padding) / naturalW
   if (!Number.isFinite(s) || s <= 0) return null
   return Math.max(min, Math.min(max, Math.round(s * 1000) / 1000))
 }

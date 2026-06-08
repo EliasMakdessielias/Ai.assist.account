@@ -30,21 +30,31 @@ describe('resolveViewerWidth – dokumentvisarens standardbredd (45%) + valideri
   })
 })
 
-describe('computeAutoScale – fit-to-panel (Auto)', () => {
+describe('computeAutoScale – fit-to-width (Auto)', () => {
   it('returnerar null innan container/dokument mätts', () => {
     expect(computeAutoScale(0, 800, 1000, 1400)).toBeNull()
     expect(computeAutoScale(600, 800, 0, 0)).toBeNull()
   })
-  it('passar in hela dokumentet (min av bredd-/höjdkvot)', () => {
-    // bredd-bunden: (1000-0)/2000=0.5, (800-0)/1000=0.8 -> 0.5
+  it('skalar efter bredden: scale = (containerW - padding) / naturalW (krav 1)', () => {
     expect(computeAutoScale(1000, 800, 2000, 1000, { padding: 0 })).toBe(0.5)
-    // höjd-bunden (min:0 för att se den rena kvoten): min(1, 0.25) = 0.25
-    expect(computeAutoScale(1000, 500, 1000, 2000, { padding: 0, min: 0 })).toBe(0.25)
+    // horisontell padding dras av (krav 6): (1000-24)/2000 = 0.488
+    expect(computeAutoScale(1000, 800, 2000, 1000)).toBe(0.488)
   })
-  it('växer när panelen blir bredare, krymper när den blir smalare', () => {
+  it('höjden begränsar INTE skalan – höga dokument blir inte små (krav 2/3/10)', () => {
+    // Tidigare (fit-to-page) hade höjden bundit detta till 0.25; nu rent breddbaserat = 1.
+    expect(computeAutoScale(1000, 500, 1000, 2000, { padding: 0 })).toBe(1)
+    // Mycket högt dokument, smal panel: fortfarande breddstyrt.
+    expect(computeAutoScale(800, 300, 800, 4000, { padding: 0 })).toBe(1)
+  })
+  it('växer när panelen blir bredare, krymper när den blir smalare (krav 8/9)', () => {
     const narrow = computeAutoScale(600, 800, 1200, 800, { padding: 0 })
     const wide = computeAutoScale(1000, 800, 1200, 800, { padding: 0 })
+    expect(narrow).toBe(0.5)
     expect(wide).toBeGreaterThan(narrow)
+  })
+  it('mycket brett dokument klampas så det passar bredden (krav 7)', () => {
+    // brett dok (naturalW 5000) i smal panel -> liten skala (men ej under min)
+    expect(computeAutoScale(900, 800, 5000, 1000, { padding: 0, min: 0.1 })).toBe(0.18)
   })
   it('respekterar min/max', () => {
     expect(computeAutoScale(100, 100, 5000, 5000, { padding: 0, min: 0.4, max: 2.5 })).toBe(0.4) // klampas upp
