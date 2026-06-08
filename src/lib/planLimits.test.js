@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { limitStatus, LIMIT_METRICS, hasWarnings, worstStatus, isBlockingStatus } from './planLimits'
+import { limitStatus, LIMIT_METRICS, hasWarnings, worstStatus, isBlockingStatus, USAGE_SORT_OPTIONS, OVERALL_STATUS_FILTERS } from './planLimits'
 
 describe('limitStatus (krav 4/5)', () => {
   it('ok < 80%', () => {
@@ -43,5 +43,14 @@ describe('aggregat', () => {
 describe('metrics (krav 2)', () => {
   it('täcker de sex limit-typerna', () => {
     expect(LIMIT_METRICS.map(m => m.key)).toEqual(['users', 'companies', 'invoices', 'documents', 'storage', 'ai'])
+  })
+})
+
+describe('admin-översikt sort/filter (krav 4/5)', () => {
+  it('sorteringsalternativ täcker specen', () => {
+    expect(USAGE_SORT_OPTIONS.map(o => o.value)).toEqual(['percent_desc', 'exceeded', 'storage', 'ai', 'newest', 'oldest_active'])
+  })
+  it('statusfilter ok/warning/exceeded + alla', () => {
+    expect(OVERALL_STATUS_FILTERS.map(o => o.value)).toEqual(['', 'ok', 'warning', 'exceeded'])
   })
 })

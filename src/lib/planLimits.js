@@ -31,6 +31,20 @@ export function limitStatus(used, limit) {
   return { status, limit: l, used: u, remaining: Math.max(0, l - u), percentUsed }
 }
 
+// Admin plan-usage-översikt: sorterings- och filteralternativ.
+export const USAGE_SORT_OPTIONS = [
+  { value: 'percent_desc', label: 'Högst förbrukning' },
+  { value: 'exceeded', label: 'Flest överskridna' },
+  { value: 'storage', label: 'Mest lagring' },
+  { value: 'ai', label: 'Mest AI/OCR' },
+  { value: 'newest', label: 'Nyaste kund' },
+  { value: 'oldest_active', label: 'Äldst aktiv' },
+]
+export const OVERALL_STATUS_FILTERS = [
+  { value: '', label: 'Alla' }, { value: 'ok', label: 'OK' },
+  { value: 'warning', label: 'Nära gränsen' }, { value: 'exceeded', label: 'Gräns nådd' },
+]
+
 export const isBlockingStatus = s => s === 'exceeded'
 export const hasWarnings = limits => (limits || []).some(l => l.status === 'warning' || l.status === 'exceeded')
 export const worstStatus = limits => {

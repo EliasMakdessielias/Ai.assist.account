@@ -6,6 +6,7 @@ import {
   SUB_STATUSES, BILLING_PERIODS, STATUS_LABELS, PERIOD_LABELS, STATUS_META, TONE_CLASS,
   formatPrice, formatLimit,
 } from '../lib/billing'
+import UsageOverview from '../components/UsageOverview'
 import toast from 'react-hot-toast'
 
 const Pill = ({ tone, children }) => (
@@ -85,13 +86,14 @@ export default function BillingAdmin() {
         <div className="flex items-center gap-2">
           <div className="flex bg-gray-100 rounded-lg p-0.5 text-sm">
             <button className={`px-3 py-1 rounded-md ${tab === 'subs' ? 'bg-white shadow-sm' : 'text-gray-500'}`} onClick={() => setTab('subs')}>Abonnemang</button>
+            <button className={`px-3 py-1 rounded-md ${tab === 'usage' ? 'bg-white shadow-sm' : 'text-gray-500'}`} onClick={() => setTab('usage')}>Plananvändning</button>
             <button className={`px-3 py-1 rounded-md ${tab === 'plans' ? 'bg-white shadow-sm' : 'text-gray-500'}`} onClick={() => setTab('plans')}>Planer</button>
           </div>
           <Link to="/admin" className="btn text-sm"><i className="ti ti-arrow-left" /> Superadmin</Link>
         </div>
       </div>
 
-      {tab === 'subs' ? (
+      {tab === 'subs' && (
         <div className="flex" style={{ minHeight: 'calc(100vh - 56px)' }}>
           <div className="w-[400px] border-r" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
             <div className="p-3 border-b space-y-2" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
@@ -164,7 +166,11 @@ export default function BillingAdmin() {
             )}
           </div>
         </div>
-      ) : (
+      )}
+
+      {tab === 'usage' && <UsageOverview plans={plans} goToCompany={(id) => { setTab('subs'); openCompany(id) }} />}
+
+      {tab === 'plans' && (
         <div className="p-7 max-w-4xl">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-sm font-semibold text-gray-700">Planer</h2>
