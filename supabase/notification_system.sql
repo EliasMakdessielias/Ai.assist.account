@@ -150,3 +150,10 @@ revoke all on function public.apply_email_unsubscribe(uuid, text) from anon, aut
 --   status ok<80% / warning 80-99% / exceeded>=100% / unlimited(null/-1). Åtkomst: eget företag/can_manage_billing.
 -- enforce_plan_limit: check + in_app-notis (plan_limit_warning/exceeded) dedupe per metric+status+företag+dag.
 -- Inkopplat soft i: tolka-underlag (ai), inbound-email (documents), NyFaktura, Team-invite, createCompany. Blockerar ej.
+
+-- Admin plan-usage-översikt (migration admin_plan_usage). UI: src/components/UsageOverview.jsx (Billing-flik).
+-- admin_plan_usage_overview(search,plan,sub_status,status,limit_type,sort,limit,offset): aggregerad usage per företag
+--   (overall risk ok/warning/exceeded, max_pct, exceeded_count) + filter/sort/paginering. Index documents/invoices(company_id,created_at).
+-- admin_company_usage_detail(company): limits + senaste plan_limit-notiser + billing-ärenden (drawer).
+-- admin_send_upgrade_suggestion(company, plan, message): notis upgrade_suggestion till kund + audit (manuellt).
+-- Alla gate:ade på can_manage_billing(). Mall upgrade_suggestion (in_app + email).

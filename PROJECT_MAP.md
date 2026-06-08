@@ -191,6 +191,16 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   (soft warning, ingen hard block – krav 9).
 - **UI (Abonnemang-sidan):** progress bars per limit (grön/gul/röd), varningsbanner vid warning/exceeded, "Begär uppgradering".
 
+**Admin: Plananvändning** (`src/components/UsageOverview.jsx`, flik i Billing-vyn, `src/lib/planLimits.js`):
+- **superadmin + billing_admin** (`can_manage_billing()`). Översikt över alla företag: namn/org, plan, abonnemangsstatus,
+  **overall risk (ok/warning/exceeded)**, högsta förbrukning (%), antal överskridna, senaste aktivitet.
+- RPC `admin_plan_usage_overview(search, plan, sub_status, status, limit_type, sort, limit, offset)` – aggregerar usage
+  per företag effektivt (index på documents/invoices(company_id,created_at)), filter (status/plan/sub_status/limitType/sök)
+  + sortering (högst förbrukning/flest överskridna/mest lagring/mest AI/nyaste/äldst aktiv) + paginering.
+- **Detalj-drawer** (`admin_company_usage_detail`): per-limit progress bars, senaste warning/exceeded-notiser, billing-ärenden,
+  + **"Skicka uppgraderingsförslag"** (`admin_send_upgrade_suggestion` – notis `upgrade_suggestion` till kunden + audit,
+  manuellt, ingen auto-spam) och "Ändra plan" (→ Abonnemang-fliken).
+
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,
 vat_report_ready, bank_reconciliation_action, import_failed, user_invited, security_event,
