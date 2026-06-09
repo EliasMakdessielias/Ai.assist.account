@@ -318,6 +318,22 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
   drawImage), följer musen (rAF-throttlad, `clampLensBox` håller linsen inom viewer-ytan; korrekt vid vertikal scroll),
   av under splitter-drag.
 
+## Inkorg-nedladdning [INBOX_DOWNLOAD]
+Ladda ner underlag från Inkorgen: enskild fil, valda som ZIP, eller hela fliken som ZIP.
+- **Ren logik** `src/lib/inboxDownload.js` (testad i `inboxDownload.test.js`): `sectionSlug` (kategori→slug:
+  kvitton/leverantorsfakturor/kundfakturor/dokument/avtal/behover_granskas), `sanitizeFilename` (blockerar path
+  traversal `../ / \`, null/styrtecken, allowlist `[A-Za-z0-9._-]`, behåller ändelse), `dedupeNames`
+  (faktura.pdf→faktura_2.pdf…), `zipFileName` (`{slug}_{YYYY-MM-DD}.zip`, valda: `{slug}_valda_…`),
+  `checkZipLimits` (max **50 filer / 150 MB**, dokumenterad client-side-gräns), `partialSummary`.
+- **UI** `src/pages/Inkorg.jsx`: per-rad nedladdningsikon, bulk **"Ladda ner valda (N)"**, header **"Ladda ner alla (N)"**
+  (disabled på tom flik). Progress-toasts (Förbereder/Hämtar/Skapar ZIP/Laddar ner), partiell sammanfattning
+  ("4 laddades ner, 1 kunde inte hämtas"). ZIP byggs client-side med **jszip** (lazy-importerad), filer hämtas via
+  signerade URL:er (TTL 120s).
+- **Säkerhet:** signerade URL:er (kort TTL) via storage-RLS (`underlag_select`: foldern = company_id) → endast eget
+  företags filer, cross-tenant nekas i backend; inga permanenta publika URL:er. Audit: RPC `log_inbox_download
+  (p_company_id,p_section,p_kind,p_file_count)` → tabell `download_audit_log` (user/company/section/kind/antal/tid –
+  aldrig filinnehåll; insert endast via SECURITY DEFINER + medlemskapskontroll).
+
 ## Övrigt (urval)
 - Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,
   höjden begränsar ej → långa dokument scrollas vertikalt. Höger panel = **45%** standard (`resolveViewerWidth`).

@@ -131,9 +131,10 @@ export default function Inkorg() {
     document.body.appendChild(a); a.click(); a.remove()
     setTimeout(() => URL.revokeObjectURL(u), 4000)
   }
-  // Fire-and-forget audit (krav F.5) – loggar metadata, aldrig filinnehåll.
+  // Fire-and-forget audit (krav F.5) – loggar metadata, aldrig filinnehåll. .then() krävs
+  // för att supabase-js (lat query-builder) faktiskt ska skicka anropet.
   function auditDownload(kind, count) {
-    try { supabase.rpc('log_inbox_download', { p_company_id: company.id, p_section: sectionSlug(kat), p_kind: kind, p_file_count: count }) } catch { /* ignore */ }
+    supabase.rpc('log_inbox_download', { p_company_id: company.id, p_section: sectionSlug(kat), p_kind: kind, p_file_count: count }).then(() => {}, () => {})
   }
   // Enskild fil: signerad URL (kort TTL, RLS-skyddad) med Content-Disposition (saneras filnamn).
   async function downloadSingle(doc) {
