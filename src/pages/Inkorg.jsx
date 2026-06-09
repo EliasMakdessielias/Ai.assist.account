@@ -8,6 +8,7 @@ import { INBOX_CATEGORIES as KATS } from '../lib/inboxAddresses'
 import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
 import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
+import { sectionSlug, sanitizeFilename, dedupeNames, zipFileName, checkZipLimits, partialSummary } from '../lib/inboxDownload'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -23,6 +24,7 @@ export default function Inkorg() {
   const [busyId, setBusyId] = useState(null)
   const [sel, setSel] = useState(new Set())
   const [addrs, setAddrs] = useState({})
+  const [downloading, setDownloading] = useState(false)
   const fileRef = useRef()
   // Gemensam dokumentvisare till höger – egen layout-nyckel (krockar ej med andra moduler).
   const { panelW, dragging, startResize } = useDocumentViewerLayout({ widthKey: 'bokpilot.inkorg.viewerW' })
@@ -121,6 +123,74 @@ export default function Inkorg() {
     else navigate(`/bokforing/ny?underlag=${doc.id}&tolka=1`)
   }
 
+  // ---- Nedladdning (krav A–F) ----
+  function triggerBlobDownload(blob, filename) {
+    const u = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = u; a.download = filename
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(u), 4000)
+  }
+  // Fire-and-forget audit (krav F.5) – loggar metadata, aldrig filinnehåll.
+  function auditDownload(kind, count) {
+    try { supabase.rpc('log_inbox_download', { p_company_id: company.id, p_section: sectionSlug(kat), p_kind: kind, p_file_count: count }) } catch { /* ignore */ }
+  }
+  // Enskild fil: signerad URL (kort TTL, RLS-skyddad) med Content-Disposition (saneras filnamn).
+  async function downloadSingle(doc) {
+    if (!doc?.storage_path) return toast.error('Filen saknas i lagringen')
+    const name = sanitizeFilename(doc.file_name)
+    const { data, error } = await supabase.storage.from('underlag').createSignedUrl(doc.storage_path, 120, { download: name })
+    if (error || !data?.signedUrl) return toast.error('Kunde inte ladda ner filen')
+    const a = document.createElement('a'); a.href = data.signedUrl; a.rel = 'noreferrer'
+    document.body.appendChild(a); a.click(); a.remove()
+    auditDownload('single', 1)
+  }
+  // ZIP av en lista underlag. selected=true för "Ladda ner valda" (annat filnamn).
+  async function downloadZip(list, { selected }) {
+    const slug = sectionSlug(kat)
+    const withFile = (list || []).filter(d => d.storage_path)
+    let fail = (list || []).length - withFile.length          // saknar fil -> hoppa över (krav 6)
+    const lim = checkZipLimits(withFile.map(d => ({ size: d.file_size })))
+    if (!lim.ok) {
+      if (lim.reason === 'empty') return toast.error('Inga filer att ladda ner')
+      if (lim.reason === 'too_many') return toast.error(`För många filer (max ${lim.limit}). Markera färre.`)
+      if (lim.reason === 'too_large') return toast.error('Filpaketet är för stort (max 150 MB). Markera färre.')
+      return toast.error('Kunde inte skapa ZIP')
+    }
+    setDownloading(true)
+    const id = toast.loading('Förbereder ZIP…')
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      const paths = withFile.map(d => d.storage_path)
+      const { data: signed } = await supabase.storage.from('underlag').createSignedUrls(paths, 120)
+      const urlByPath = Object.fromEntries((signed || []).map(s => [s.path, s.signedUrl]))
+      const names = dedupeNames(withFile.map(d => sanitizeFilename(d.file_name)))   // unika namn (krav D.3)
+      let ok = 0
+      for (let i = 0; i < withFile.length; i++) {
+        toast.loading(`Hämtar filer (${i + 1}/${withFile.length})…`, { id })
+        try {
+          const url = urlByPath[withFile[i].storage_path]
+          if (!url) throw new Error('no url')
+          const res = await fetch(url); if (!res.ok) throw new Error('http ' + res.status)
+          zip.file(names[i], await res.blob())
+          ok++
+        } catch { fail++ }
+      }
+      if (ok === 0) { toast.error('Inga filer kunde hämtas', { id }); return }
+      toast.loading('Skapar ZIP…', { id })
+      const blob = await zip.generateAsync({ type: 'blob' })
+      toast.loading('Laddar ner…', { id })
+      triggerBlobDownload(blob, zipFileName(slug, { selected }))
+      auditDownload(selected ? 'selected' : 'section', ok)
+      toast.success(partialSummary(ok, fail), { id })
+    } catch {
+      toast.error('Kunde inte skapa ZIP', { id })
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const summary = t => {
     if (!t) return null
     const lev = t.leverantor || t.leverantör || t.supplier
@@ -182,9 +252,15 @@ export default function Inkorg() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           <span className="text-base font-medium">Inkorg</span>
-          <button className="btn btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
-            <i className="ti ti-upload" /> {uploading ? 'Laddar upp…' : `Ladda upp till ${cur.label}`}
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button className="btn" onClick={() => downloadZip(visible, { selected: false })} disabled={downloading || visible.length === 0}
+              title={visible.length === 0 ? 'Inga filer i fliken' : `Ladda ner alla ${cur.label.toLowerCase()} som ZIP`}>
+              <i className="ti ti-download" /> Ladda ner alla{visible.length ? ` (${visible.length})` : ''}
+            </button>
+            <button className="btn btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <i className="ti ti-upload" /> {uploading ? 'Laddar upp…' : `Ladda upp till ${cur.label}`}
+            </button>
+          </div>
           <input ref={fileRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleUpload} />
         </div>
 
@@ -222,6 +298,9 @@ export default function Inkorg() {
             {selVisible.length > 0 && (
               <div className="flex items-center gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 mb-3 text-sm flex-wrap">
                 <span className="font-medium">{selVisible.length} markerade</span>
+                <button className="btn text-xs py-1 px-3" onClick={() => downloadZip(selVisible, { selected: true })} disabled={downloading}>
+                  <i className="ti ti-download" /> Ladda ner valda ({selVisible.length})
+                </button>
                 {cur.tolka && <button className="btn btn-green text-xs py-1 px-3" onClick={tolkaMarkerade}><i className="ti ti-sparkles" /> Tolka markerade</button>}
                 <span className="text-gray-500 ml-1">Flytta till:</span>
                 <select className="input text-xs py-1 w-auto" value="" onChange={e => flyttaMarkerade(e.target.value)}>
@@ -272,6 +351,7 @@ export default function Inkorg() {
                               <i className="ti ti-file-plus" /> {cur.create === 'lev' ? 'Skapa faktura' : 'Skapa ver.'}
                             </button>
                           )}
+                          <button className="text-gray-300 hover:text-blue-600 px-1 disabled:opacity-40" title="Ladda ner fil" onClick={() => downloadSingle(d)} disabled={!d.storage_path}><i className="ti ti-download" /></button>
                           <button className="text-gray-300 hover:text-red-600 px-1" title="Radera" onClick={() => handleDelete(d)}><i className="ti ti-trash" /></button>
                         </div>
                       </td>
