@@ -71,7 +71,11 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         ) : (
           <>
             <div className="min-w-0">
-              <div className="text-xl font-semibold tracking-tight truncate">{BRAND.appName}</div>
+              <div className="text-xl font-semibold tracking-tight truncate">
+                {BRAND.appName.split('').map((ch, i) =>
+                  /[A-ZÅÄÖ]/.test(ch) ? <span key={i} className="font-extrabold">{ch}</span> : ch
+                )}
+              </div>
               <div className="text-[11px] text-gray-400 mt-0.5 truncate">{BRAND.tagline}</div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
