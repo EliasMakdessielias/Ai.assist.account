@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
-import AccountingUnderlagPanel, { safeName, isAllowedFile } from './AccountingUnderlagPanel'
+import AccountingUnderlagPanel, { safeName, isAllowedFile, validateUnderlagFile } from './AccountingUnderlagPanel'
 import DocumentSplitLayout from './viewer/DocumentSplitLayout'
+import { MAX_ATTACHMENT_BYTES } from '../lib/inboxAddresses'
 
 // Mocka tunga/extern-beroenden så testet fokuserar på panelens egen logik.
 const h = vi.hoisted(() => {
@@ -11,7 +12,8 @@ const h = vi.hoisted(() => {
   const insert = vi.fn(arg => { state.insertArg = arg; return { select: () => ({ single }) } })
   const upload = vi.fn(async path => { state.uploadPath = path; return { error: null } })
   const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://signed/x' }, error: null }))
-  return { state, single, insert, upload, createSignedUrl }
+  const toast = Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() })
+  return { state, single, insert, upload, createSignedUrl, toast }
 })
 
 vi.mock('../lib/supabase', () => ({
@@ -20,7 +22,7 @@ vi.mock('../lib/supabase', () => ({
     from: () => ({ insert: h.insert }),
   },
 }))
-vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('react-hot-toast', () => ({ default: h.toast }))
 // Stubba den gemensamma visaren (drar annars in pdf.js m.m.) – vi verifierar bara att den får underlaget.
 vi.mock('./viewer/DocumentViewerPanel', () => ({
   default: ({ docs, footer }) => (
@@ -105,6 +107,108 @@ describe('AccountingUnderlagPanel – uppladdning + filkoppling + tenant (krav 1
     await Promise.resolve()
     expect(h.upload).not.toHaveBeenCalled()
     expect(onSelected).not.toHaveBeenCalled()
+    expect(h.toast.error).toHaveBeenCalledWith('Filtypen stöds inte. Ladda upp PDF eller bild.')
+  })
+})
+
+describe('validateUnderlagFile – typ + storlek (krav 12-17)', () => {
+  it('godkänner PDF/JPG/PNG/WEBP inom storleksgränsen', () => {
+    expect(validateUnderlagFile({ type: 'application/pdf', name: 'a.pdf', size: 1000 })).toBeNull()
+    expect(validateUnderlagFile({ type: 'image/jpeg', name: 'b.jpg', size: 1000 })).toBeNull()
+    expect(validateUnderlagFile({ type: 'image/webp', name: 'c.webp', size: 1000 })).toBeNull()
+  })
+  it('blockerar otillåtna typer (exe/html/zip) med tydligt fel (krav 14/16)', () => {
+    expect(validateUnderlagFile({ type: 'application/x-msdownload', name: 'x.exe', size: 1 })).toBe('Filtypen stöds inte. Ladda upp PDF eller bild.')
+    expect(validateUnderlagFile({ type: 'text/html', name: 'x.html', size: 1 })).toBe('Filtypen stöds inte. Ladda upp PDF eller bild.')
+    expect(validateUnderlagFile({ type: 'application/zip', name: 'x.zip', size: 1 })).toBe('Filtypen stöds inte. Ladda upp PDF eller bild.')
+  })
+  it('blockerar för stor fil (krav 15/17)', () => {
+    expect(validateUnderlagFile({ type: 'application/pdf', name: 'big.pdf', size: MAX_ATTACHMENT_BYTES + 1 })).toBe('Filen är för stor.')
+  })
+})
+
+// Hjälpare: gör input.click spårbar och hämta dropzonen (role=button med aria-label).
+const getDropzone = () => screen.getByRole('button', { name: /Ladda upp underlag/i })
+const spyPicker = container => {
+  const input = container.querySelector('input[type=file]')
+  input.click = vi.fn()
+  return input
+}
+
+describe('AccountingUnderlagPanel – dropzone & filväljare (krav 1-9/18-20)', () => {
+  it('klick på tom-ytan öppnar filväljaren', () => {
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={() => {}} />)
+    const input = spyPicker(container)
+    fireEvent.click(getDropzone())
+    expect(input.click).toHaveBeenCalled()
+  })
+
+  it('klick på toolbar-knappen "Ladda upp" öppnar samma filväljare', () => {
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={() => {}} />)
+    const input = spyPicker(container)
+    const toolbarBtn = screen.getAllByText('Ladda upp').map(n => n.closest('button')).find(Boolean)
+    fireEvent.click(toolbarBtn)
+    expect(input.click).toHaveBeenCalled()
+  })
+
+  it('Enter och Space öppnar filväljaren när dropzonen har fokus (krav 19)', () => {
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={() => {}} />)
+    const input = spyPicker(container)
+    fireEvent.keyDown(getDropzone(), { key: 'Enter' })
+    fireEvent.keyDown(getDropzone(), { key: ' ' })
+    expect(input.click).toHaveBeenCalledTimes(2)
+  })
+
+  it('dragover visar aktivt drop-läge ("Släpp filen här")', () => {
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={() => {}} />)
+    expect(screen.queryByText('Släpp filen här')).toBeNull()
+    fireEvent.dragOver(container.firstChild)
+    expect(screen.getByText('Släpp filen här')).toBeTruthy()
+  })
+
+  it('drop med PDF triggar upload', async () => {
+    const onSelected = vi.fn()
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={onSelected} />)
+    const file = new File(['x'], 'kvitto.pdf', { type: 'application/pdf' })
+    fireEvent.drop(container.firstChild, { dataTransfer: { files: [file] } })
+    await waitFor(() => expect(h.upload).toHaveBeenCalled())
+    expect(onSelected).toHaveBeenCalled()
+  })
+
+  it('drop med bild triggar upload', async () => {
+    const onSelected = vi.fn()
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={onSelected} />)
+    const file = new File(['x'], 'foto.png', { type: 'image/png' })
+    fireEvent.drop(container.firstChild, { dataTransfer: { files: [file] } })
+    await waitFor(() => expect(h.upload).toHaveBeenCalled())
+  })
+
+  it('drop med otillåten filtyp blockeras (ingen upload, fel visas)', async () => {
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={() => {}} />)
+    fireEvent.drop(container.firstChild, { dataTransfer: { files: [new File(['x'], 'a.zip', { type: 'application/zip' })] } })
+    await Promise.resolve()
+    expect(h.upload).not.toHaveBeenCalled()
+    expect(h.toast.error).toHaveBeenCalledWith('Filtypen stöds inte. Ladda upp PDF eller bild.')
+  })
+
+  it('drop med för stor fil blockeras', async () => {
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={() => {}} />)
+    const big = new File(['x'], 'big.pdf', { type: 'application/pdf' })
+    Object.defineProperty(big, 'size', { value: MAX_ATTACHMENT_BYTES + 1 })
+    fireEvent.drop(container.firstChild, { dataTransfer: { files: [big] } })
+    await Promise.resolve()
+    expect(h.upload).not.toHaveBeenCalled()
+    expect(h.toast.error).toHaveBeenCalledWith('Filen är för stor.')
+  })
+
+  it('flera filer: tar första och informerar (krav 11)', async () => {
+    const onSelected = vi.fn()
+    const { container } = render(<AccountingUnderlagPanel company={company} doc={null} onSelected={onSelected} />)
+    const f1 = new File(['x'], 'ett.pdf', { type: 'application/pdf' })
+    const f2 = new File(['y'], 'tva.pdf', { type: 'application/pdf' })
+    fireEvent.drop(container.firstChild, { dataTransfer: { files: [f1, f2] } })
+    await waitFor(() => expect(h.upload).toHaveBeenCalledTimes(1))
+    expect(h.toast).toHaveBeenCalledWith('Endast en fil i taget – tar den första.')
   })
 })
 
