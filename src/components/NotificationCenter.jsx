@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { eventLabel, eventIcon } from '../lib/notifications'
+import { computeDropdownPos } from '../lib/dropdownPosition'
 import toast from 'react-hot-toast'
 
 const fmtTime = ts => {
@@ -20,7 +21,9 @@ export default function NotificationCenter({ collapsed = false }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState([])
+  const [pos, setPos] = useState(null)
   const ref = useRef(null)
+  const btnRef = useRef(null)
 
   async function load() {
     if (!user) return
@@ -41,6 +44,20 @@ export default function NotificationCenter({ collapsed = false }) {
     const onClick = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  // Beräkna fixed-position med kollisionsdetektering (öppnar inåt mot arbetsytan).
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    const recompute = () => {
+      const btn = btnRef.current
+      if (!btn) return
+      setPos(computeDropdownPos(btn.getBoundingClientRect(), window.innerWidth, window.innerHeight))
+    }
+    recompute()
+    window.addEventListener('resize', recompute)
+    window.addEventListener('scroll', recompute, true)
+    return () => { window.removeEventListener('resize', recompute); window.removeEventListener('scroll', recompute, true) }
   }, [open])
 
   const unread = items.filter(n => !n.read_at).length
@@ -66,7 +83,7 @@ export default function NotificationCenter({ collapsed = false }) {
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => { setOpen(o => !o); if (!open) load() }} title="Notiser" aria-label="Notiser"
+      <button ref={btnRef} onClick={() => { setOpen(o => !o); if (!open) load() }} title="Notiser" aria-label="Notiser"
         className="relative text-gray-400 hover:text-gray-700 p-1">
         <i className="ti ti-bell text-xl" />
         {unread > 0 && (
@@ -76,14 +93,14 @@ export default function NotificationCenter({ collapsed = false }) {
         )}
       </button>
 
-      {open && (
-        <div className={`absolute z-[60] bg-white rounded-lg shadow-xl overflow-hidden ${collapsed ? 'left-full ml-2 bottom-0' : 'right-0 mt-2'}`}
-          style={{ border: '0.5px solid rgba(0,0,0,0.12)', width: 340, maxWidth: '90vw' }}>
-          <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+      {open && pos && (
+        <div className="fixed z-[60] bg-white rounded-lg shadow-xl flex flex-col"
+          style={{ border: '0.5px solid rgba(0,0,0,0.12)', left: pos.left, top: pos.top, width: pos.width, maxWidth: 'calc(100vw - 16px)', maxHeight: pos.maxHeight }}>
+          <div className="px-4 py-2.5 border-b flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
             <span className="text-sm font-semibold">Notiser</span>
             {unread > 0 && <button className="text-xs text-blue-700 hover:underline" onClick={markAll}>Markera alla som lästa</button>}
           </div>
-          <div className="max-h-[420px] overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
             {items.length === 0 ? (
               <div className="px-4 py-10 text-center text-gray-400 text-sm">
                 <i className="ti ti-bell-off text-3xl block mb-2 opacity-40" />Inga notiser
