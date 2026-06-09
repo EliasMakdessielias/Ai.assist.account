@@ -43,9 +43,9 @@ node index.mjs        # läser olästa, importerar, flyttar till Processed/Faile
 ```
 
 ## 4. Schemalägg (var 5:e minut)
-**Windows (samma mönster som BockerAutoSync):**
+**Windows (samma mönster som BokPilotAutoSync):**
 ```powershell
-$action  = New-ScheduledTaskAction -Execute 'node' -Argument 'C:\Projekt\bocker-app\scripts\imap-import\index.mjs' -WorkingDirectory 'C:\Projekt\bocker-app\scripts\imap-import'
+$action  = New-ScheduledTaskAction -Execute 'node' -Argument 'C:\Projekt\bokpilot-app\scripts\imap-import\index.mjs' -WorkingDirectory 'C:\Projekt\bokpilot-app\scripts\imap-import'
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
 Register-ScheduledTask -TaskName 'BokPilotUnderlagImport' -Action $action -Trigger $trigger -Description 'IMAP-import av underlag'
 ```

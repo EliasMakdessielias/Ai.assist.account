@@ -48,7 +48,7 @@ const TEMPLATES = {
   },
 }
 
-export default function Kvitto() {
+export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
   const { company, user } = useAuth()
   const today = new Date().toISOString().slice(0, 10)
   const [mallKey, setMallKey] = useState('utlagg')
@@ -127,6 +127,10 @@ export default function Kvitto() {
       if (e2) throw e2
       const used = [...new Set(rows.map(r => r.nr))]
       await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', used).eq('is_active', false)
+      if (underlagDoc?.id) {
+        await supabase.from('documents').update({ verifikation_id: ver.id, kategori: 'kvitto' }).eq('id', underlagDoc.id).eq('company_id', company.id)
+        onUnderlagLinked?.()
+      }
       toast.success(`Kvitto ${ver.ver_nr} bokfört!`)
       rensa()
       focusId('kv-c0')

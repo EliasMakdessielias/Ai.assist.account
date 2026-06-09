@@ -7,6 +7,9 @@ import Dagskassa from '../components/Dagskassa'
 import Kvitto from '../components/Kvitto'
 import StamAvKonto from '../components/StamAvKonto'
 import SokBelopp from '../components/SokBelopp'
+import AccountingUnderlagPanel from '../components/AccountingUnderlagPanel'
+import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
+import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
 const verNum = v => parseInt((v.ver_nr || '').replace(/\D/g, ''), 10) || 0
 const toAmt = s => { const n = parseFloat(String(s).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n }
@@ -27,6 +30,12 @@ export default function Bokforing() {
   const [serie, setSerie] = useState('Alla')
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [dagskassaDoc, setDagskassaDoc] = useState(null)
+  const [kvittoDoc, setKvittoDoc] = useState(null)
+  const { panelW, open, setOpen, dragging, startResize } = useDocumentViewerLayout({
+    widthKey: 'bokpilot.bokforing.registrera.viewerW',
+    openKey: 'bokpilot.bokforing.registrera.viewerOpen',
+  })
 
   useEffect(() => { if (company) loadVerifikationer() }, [company])
 
@@ -83,11 +92,33 @@ export default function Bokforing() {
     </div>
   )
 
-  return (
+  const registrationViewer = tabs[activeTab] === 'Registrera dagskassa' || tabs[activeTab] === 'Registrera kvitto'
+  const activeDoc = tabs[activeTab] === 'Registrera dagskassa' ? dagskassaDoc : tabs[activeTab] === 'Registrera kvitto' ? kvittoDoc : null
+  const setActiveDoc = tabs[activeTab] === 'Registrera dagskassa' ? setDagskassaDoc : setKvittoDoc
+  const activeKategori = tabs[activeTab] === 'Registrera kvitto' ? 'kvitto' : 'dokument'
+  const viewerPanel = registrationViewer ? (
+    <AccountingUnderlagPanel
+      company={company}
+      kategori={activeKategori}
+      doc={activeDoc}
+      dragging={dragging}
+      onSelected={setActiveDoc}
+      onRemove={() => setActiveDoc(null)}
+    />
+  ) : null
+
+  const content = (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-base font-medium">Bokföring</span>
-        <Link to="/bokforing/ny" className="btn btn-primary"><i className="ti ti-plus" /> Skapa verifikation</Link>
+        <div className="flex items-center gap-2">
+          {registrationViewer && (
+            <button type="button" className="btn" onClick={() => setOpen(o => !o)} title={open ? 'Dölj bildpanelen' : 'Visa bildpanelen'}>
+              <i className={`ti ${open ? 'ti-layout-sidebar-right-collapse' : 'ti-layout-sidebar-right-expand'}`} /> {open ? 'Dölj bild' : 'Visa bild'}
+            </button>
+          )}
+          <Link to="/bokforing/ny" className="btn btn-primary"><i className="ti ti-plus" /> Skapa verifikation</Link>
+        </div>
       </div>
 
       <div className="bg-white border-b flex gap-0 px-7 overflow-x-auto" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -190,8 +221,8 @@ export default function Bokforing() {
             </div>
           </>
         )}
-        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa />}
-        {tabs[activeTab] === 'Registrera kvitto' && <Kvitto />}
+        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa underlagDoc={dagskassaDoc} onUnderlagLinked={() => setDagskassaDoc(null)} />}
+        {tabs[activeTab] === 'Registrera kvitto' && <Kvitto underlagDoc={kvittoDoc} onUnderlagLinked={() => setKvittoDoc(null)} />}
         {tabs[activeTab] === 'Stäm av konto' && <StamAvKonto />}
         {tabs[activeTab] === 'Sök belopp' && <SokBelopp />}
         {activeTab !== 0 && !['Registrera dagskassa', 'Registrera kvitto', 'Stäm av konto', 'Sök belopp'].includes(tabs[activeTab]) && (
@@ -202,5 +233,15 @@ export default function Bokforing() {
         )}
       </div>
     </div>
+  )
+
+  if (!registrationViewer) return content
+
+  return (
+    <DocumentSplitLayout open={open} panelW={panelW} startResize={startResize} panel={viewerPanel} onToggle={() => setOpen(o => !o)}>
+      <div className="flex-1 overflow-hidden">
+        {content}
+      </div>
+    </DocumentSplitLayout>
   )
 }

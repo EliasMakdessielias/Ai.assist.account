@@ -32,7 +32,7 @@ function normalizeDate(str) {
   return `${y}-${m}-${d}`
 }
 
-export default function Dagskassa() {
+export default function Dagskassa({ underlagDoc, onUnderlagLinked }) {
   const { company, user } = useAuth()
   const today = new Date().toISOString().slice(0, 10)
   const [mall, setMall] = useState('exkl')
@@ -119,6 +119,10 @@ export default function Dagskassa() {
       if (e2) throw e2
       const used = [...new Set(rows.map(r => r.nr))]
       await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', used).eq('is_active', false)
+      if (underlagDoc?.id) {
+        await supabase.from('documents').update({ verifikation_id: ver.id, kategori: 'dokument' }).eq('id', underlagDoc.id).eq('company_id', company.id)
+        onUnderlagLinked?.()
+      }
       toast.success(`Dagskassa ${ver.ver_nr} bokförd!`)
       rensa()
       setTimeout(() => document.getElementById('ds-vg25')?.focus(), 50)

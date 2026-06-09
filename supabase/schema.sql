@@ -1,5 +1,5 @@
 -- =============================================
--- BÖCKER - Bokföringsapp Databasschema
+-- BOKPILOT - Bokföringsapp Databasschema
 -- Supabase (PostgreSQL)
 -- =============================================
 

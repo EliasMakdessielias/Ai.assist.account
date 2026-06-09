@@ -27,7 +27,7 @@ En modern bokföringsapp byggd med React + Supabase, inspirerad av Fortnox.
 
 1. Gå till [supabase.com](https://supabase.com) och skapa ett konto (gratis)
 2. Klicka **New project**
-3. Välj namn (t.ex. "bocker"), lösenord och region (EU West)
+3. Välj namn (t.ex. "bokpilot"), lösenord och region (EU West)
 4. Vänta tills projektet skapats
 
 ### 2. Kör databasschema
@@ -45,7 +45,7 @@ En modern bokföringsapp byggd med React + Supabase, inspirerad av Fortnox.
 
 ```bash
 # Klona/ladda ner projektet
-cd bocker-app
+cd bokpilot-app
 
 # Installera beroenden
 npm install
@@ -91,7 +91,7 @@ Eller:
 ## Projektstruktur
 
 ```
-bocker-app/
+bokpilot-app/
 ├── index.html              # Vite entry
 ├── package.json
 ├── vite.config.js

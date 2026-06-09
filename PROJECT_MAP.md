@@ -304,15 +304,25 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
 - **Hooks** `src/lib/viewer/`:
   - `useDocumentViewerLayout({ widthKey, openKey })` – panelbredd/öppen/splitter, **egen localStorage-nyckel per modul**
     (krockar ej): `bokpilot.visaLevfaktura.panelW2`, `bokpilot.inkorg.viewerW`, `bokpilot.bokforing.viewerW`,
-    `bokpilot.levfaktura.inkomna.viewerW`. Standard 45% (`resolveViewerWidth`), ogiltig sparad bredd återställs.
+    `bokpilot.levfaktura.inkomna.viewerW`, `bokpilot.bokforing.registrera.viewerW` (+ öppen/dölj via
+    `openKey` `bokpilot.bokforing.registrera.viewerOpen`). Standard 45% (`resolveViewerWidth`), ogiltig sparad bredd återställs.
   - `useAutoFitToWidth(cw, ch, opts)` – Auto = `computeAutoScale` (fit-to-width; höjden begränsar ej), manuell zoom
     bevaras vid resize, `zoomLabel` (Auto · X% / Manual · X%), `resetAuto`.
   - `useMagnifier()` – delad på/av-pref (EN nyckel `bokpilot.viewer.magnifier` → konsekvent UX i alla vyer).
 - **Används i:** `VisaLeverantorsfaktura` (kopplade bilder, + coupling via UnderlagPanel), `Inkorg` (alla flikar – markera
-  underlag → förhandsvisning), `VisaVerifikation` (kopplade underlag + splitter), `InkomnaFakturor` (öga → panel).
+  underlag → förhandsvisning), `VisaVerifikation` (kopplade underlag + splitter), `InkomnaFakturor` (öga → panel),
+  **Bokföring → Registrera dagskassa / Registrera kvitto** (`AccountingUnderlagPanel`, se nedan).
   Säkerhet: signed URLs + RLS, inga publika URL:er. Testat i `src/lib/viewer/viewer.test.jsx`.
-- **Saknar underlag i datamodellen (lämnade):** `Dagskassa.jsx` och `Kvitto.jsx` (registreringsformulär) har ingen
-  dokumentkoppling i `documents` – ingen viewer applicerad (krav 27).
+- **Registrera dagskassa/kvitto – underlagspanel** `src/components/AccountingUnderlagPanel.jsx` (i `Bokforing.jsx`):
+  höger panel "VÄLJ BILD" (toolbar: Saknas text?/refresh/E-posta = disabled tills stöd finns, **Ladda upp**), drag & drop,
+  lugnt tomt läge (rubrik + hjälptext + infodruta "sparat och arkiverat digitalt") och `DocumentViewerPanel` när underlag
+  valts + **Ta bort underlag**. **Visa/dölj** panelen via `useDocumentViewerLayout({ openKey })` + `DocumentSplitLayout
+  onToggle` (gul kantflik) och knapp i Bokförings-headern; bredd/öppet sparas i localStorage. Uppladdning → bucket
+  `underlag` under `{company_id}/…` + `documents`-rad (kategori `kvitto` för kvitto, annars `dokument`), signerad URL.
+  Vid bokföring kopplas underlaget (`documents.verifikation_id`, scopat på `company_id`). Filtyper: PDF/JPG/PNG/WEBP;
+  `safeName` (basename + allowlist, blockerar path traversal). Återanvänder all viewer-logik (ingen duplicering).
+  Testat i `src/components/AccountingUnderlagPanel.test.jsx`, `src/pages/Bokforing.test.jsx`,
+  `src/components/registreraUnderlag.link.test.jsx`.
 - **Hover-förstoringsglas** `src/components/DocMagnifier.jsx`: zoom-in-cursor, lins (**240px**, rund, 1px-kant + shadow)
   som förstorar utsnittet **75%** (`MAG=1.75`) utöver aktuell skala (img via background, PDF-canvas via DPR-skarp
   drawImage), följer musen (rAF-throttlad, `clampLensBox` håller linsen inom viewer-ytan; korrekt vid vertikal scroll),
