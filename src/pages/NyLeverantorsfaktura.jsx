@@ -44,20 +44,11 @@ export default function NyLeverantorsfaktura() {
   const [saving, setSaving] = useState(false)
   const [attachIds, setAttachIds] = useState(docId ? [docId] : [])
   const [panelOpen, setPanelOpen] = useState(true)
-  const [panelWidth, setPanelWidth] = useState(560)
   const [levForslag, setLevForslag] = useState(null)
   const [levEditor, setLevEditor] = useState(null)
   const [levOpen, setLevOpen] = useState(false)
   const [levQuery, setLevQuery] = useState('')
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-
-  function startResize(e) {
-    e.preventDefault()
-    const move = ev => setPanelWidth(Math.min(window.innerWidth - 360, Math.max(380, window.innerWidth - ev.clientX)))
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.userSelect = '' }
-    document.body.style.userSelect = 'none'
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
-  }
 
   useEffect(() => { if (company) init() }, [company?.id])
 
@@ -588,7 +579,7 @@ export default function NyLeverantorsfaktura() {
       </div>
 
       {panelOpen && (
-        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" width={panelWidth} onClose={() => setPanelOpen(false)} />
+        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" widthKey="bokpilot.levfaktura.ny.viewerW" onClose={() => setPanelOpen(false)} />
       )}
 
       {levEditor && (

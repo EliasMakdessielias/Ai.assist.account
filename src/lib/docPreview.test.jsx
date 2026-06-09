@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useRef } from 'react'
 import { render, act, cleanup } from '@testing-library/react'
-import { previewWidthPx, previewHeightPx, useContainerSize, computeAutoScale, clampScale, resolveViewerWidth } from './docPreview'
+import { previewWidthPx, previewHeightPx, useContainerSize, computeAutoScale, clampScale, resolveViewerWidth, sidebarWidth } from './docPreview'
 
 describe('resolveViewerWidth – dokumentvisarens standardbredd (45%) + validering', () => {
   it('utan sparat värde: 45% av fönstret (krav 1/2)', () => {
@@ -27,6 +27,47 @@ describe('resolveViewerWidth – dokumentvisarens standardbredd (45%) + valideri
   it('faller tillbaka på 1200px-fönster om viewport saknas', () => {
     expect(resolveViewerWidth(null, 0)).toBe(540)       // 1200*0.45
     expect(resolveViewerWidth(null, NaN)).toBe(540)
+  })
+})
+
+describe('sidebarWidth – sidomenyns bredd (≈10%, min 220, hopfälld 72)', () => {
+  it('utfälld = max(220, 10% av fönstret)', () => {
+    expect(sidebarWidth(3000)).toBe(300)        // 10% > 220
+    expect(sidebarWidth(1440)).toBe(220)        // 10% (144) < 220 → 220
+  })
+  it('hopfälld = 72', () => {
+    expect(sidebarWidth(1920, true)).toBe(72)
+  })
+})
+
+// Leverantörsfaktura → Ny: dokumentvisaren ska ta 50% av ytan EFTER sidomenyn (≈45% av
+// hela fönstret) så layouten blir ~10/45/45. Bredden räknas via resolveViewerWidth med
+// fraction 0.5 av (fönster − sidomeny) och minsta panelbredd 420.
+describe('Ny leverantörsfaktura – panelbredd ~45% av fönstret (krav 1-8/16)', () => {
+  const panelDefault = (vw, collapsed = false) =>
+    resolveViewerWidth(null, vw - sidebarWidth(vw, collapsed), { fraction: 0.5, minPx: 420 })
+
+  it('default ≈ 50% efter sidomeny ≈ 45% av hela fönstret', () => {
+    // 1920: sidomeny 220 → avail 1700 → 50% = 850. 850/1920 = 44% (≈45%).
+    expect(panelDefault(1920)).toBe(850)
+    // arbetsytan = avail − panel ≈ lika stor som panelen (50/50 efter sidomeny)
+    const avail = 1920 - sidebarWidth(1920)
+    expect(avail - panelDefault(1920)).toBe(850)        // 850 vs 850 → 50/50
+    // 2560: sidomeny 256 → avail 2304 → 50% = 1152 (45% av 2560)
+    expect(panelDefault(2560)).toBe(1152)
+  })
+
+  it('giltig sparad bredd respekteras (krav 4/10/12)', () => {
+    const avail = 1920 - sidebarWidth(1920)             // 1700
+    expect(resolveViewerWidth('1000', avail, { fraction: 0.5, minPx: 420 })).toBe(1000)
+  })
+
+  it('för liten/ogiltig sparad bredd återställs till standard (krav 4)', () => {
+    const avail = 1920 - sidebarWidth(1920)             // 1700, default 850
+    expect(resolveViewerWidth('380', avail, { fraction: 0.5, minPx: 420 })).toBe(850)   // < 420
+    expect(resolveViewerWidth('abc', avail, { fraction: 0.5, minPx: 420 })).toBe(850)   // NaN
+    expect(resolveViewerWidth('419', avail, { fraction: 0.5, minPx: 420 })).toBe(850)   // strax under min
+    expect(resolveViewerWidth('420', avail, { fraction: 0.5, minPx: 420 })).toBe(420)   // exakt min ok
   })
 })
 

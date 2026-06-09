@@ -64,6 +64,15 @@ export function resolveViewerWidth(savedRaw, viewportW, opts = {}) {
   return (Number.isFinite(v) && v >= minPx && v <= maxPx) ? Math.round(v) : def
 }
 
+// Sidomenyns bredd (px) – speglar Layout.jsx: utfälld = max(220, 10% av fönstret),
+// hopfälld = 72. Används för att räkna ut den tillgängliga arbetsytan (fönster − sidomeny)
+// så att dokumentvisaren kan ta ~50% av ytan EFTER sidomenyn (≈ 45% av hela fönstret).
+export function sidebarWidth(viewportW, collapsed = false) {
+  if (collapsed) return 72
+  const vw = Number.isFinite(viewportW) && viewportW > 0 ? viewportW : 1200
+  return Math.max(220, Math.round(vw * 0.10))
+}
+
 // Klampar en manuell zoomnivå till tillåtet intervall.
 export function clampScale(scale, min = 0.4, max = 2.5) {
   const s = Number(scale)

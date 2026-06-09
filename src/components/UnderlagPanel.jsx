@@ -2,13 +2,31 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
-import { useContainerSize, previewWidthPx, computeAutoScale, clampScale } from '../lib/docPreview'
+import { useContainerSize, previewWidthPx, computeAutoScale, clampScale, resolveViewerWidth, sidebarWidth } from '../lib/docPreview'
 import PdfCanvas from './PdfCanvas'
 import DocMagnifier from './DocMagnifier'
 
 // Höger panel: företagets Inkorg av underlag (ej kopplade dokument).
 // Ladda upp, bläddra (1 av N), förhandsvisa bild/PDF och Koppla till verifikationen.
-export default function UnderlagPanel({ company, attachIds = [], onToggleAttach, onTolkat, onCouple, selectDocId, title = 'VÄLJ UNDERLAG', reloadSignal, onClose, width = 520 }) {
+// Layout: när `widthKey` anges äger panelen sin bredd via localStorage med 45%-standard
+// (50% av ytan EFTER sidomenyn ≈ 45% av hela fönstret → ~10/45/45). Utan `widthKey`
+// behålls tidigare beteende (initial bredd = `width`-propen), så övriga anropare påverkas ej.
+const MIN_PANEL = 420       // krav 8: minsta panelbredd
+const MIN_WORKSPACE = 520   // krav 7: arbetsytan får inte kollapsa
+
+function sidebarCollapsedNow() {
+  try { return localStorage.getItem('sidebarCollapsed') === '1' } catch { return false }
+}
+// Standardbredd för split-panelen: 50% av (fönster − sidomeny), respekterar giltig sparad bredd.
+function defaultSplitWidth(widthKey) {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const avail = Math.max(MIN_PANEL, vw - sidebarWidth(vw, sidebarCollapsedNow()))
+  let saved = null
+  try { saved = widthKey ? localStorage.getItem(widthKey) : null } catch { /* ignore */ }
+  return resolveViewerWidth(saved, avail, { fraction: 0.5, minPx: MIN_PANEL })
+}
+
+export default function UnderlagPanel({ company, attachIds = [], onToggleAttach, onTolkat, onCouple, selectDocId, title = 'VÄLJ UNDERLAG', reloadSignal, onClose, width = 520, widthKey }) {
   const [docs, setDocs] = useState([])
   const [idx, setIdx] = useState(0)
   const [url, setUrl] = useState(null)
@@ -21,14 +39,21 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [natural, setNatural] = useState({ w: 0, h: 0 }) // bildens naturliga storlek (för fit-beräkning)
   const previewRef = useRef(null)
   const { width: cw, height: ch } = useContainerSize(previewRef)
-  const [w, setW] = useState(width)
+  const [w, setW] = useState(() => widthKey ? defaultSplitWidth(widthKey) : width)
+  // Spara användarens panelbredd per vy (krav 10) – bara när vyn äger en widthKey.
+  useEffect(() => { if (widthKey) try { localStorage.setItem(widthKey, String(w)) } catch { /* ignore */ } }, [w, widthKey])
   const [magnifier, setMagnifier] = useState(() => { try { return localStorage.getItem('bokpilot.viewer.magnifier') !== '0' } catch { return true } })
   useEffect(() => { try { localStorage.setItem('bokpilot.viewer.magnifier', magnifier ? '1' : '0') } catch { /* ignore */ } }, [magnifier])
   const fileRef = useRef()
 
+  // Dragbar splitter: panel ∈ [420, min(75% av fönstret, fönster − sidomeny − 520)]
+  // så arbetsytan aldrig kollapsar (krav 7/8/9).
   function startResize(e) {
     e.preventDefault()
-    const move = ev => setW(Math.min(window.innerWidth - 340, Math.max(360, window.innerWidth - ev.clientX)))
+    const vw = window.innerWidth
+    const sb = sidebarWidth(vw, sidebarCollapsedNow())
+    const max = Math.max(MIN_PANEL, Math.min(Math.round(vw * 0.75), vw - sb - MIN_WORKSPACE))
+    const move = ev => setW(Math.min(max, Math.max(MIN_PANEL, vw - ev.clientX)))
     const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.style.userSelect = '' }
     document.body.style.userSelect = 'none'
     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)

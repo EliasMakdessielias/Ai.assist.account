@@ -347,6 +347,11 @@ Ladda ner underlag från Inkorgen: enskild fil, valda som ZIP, eller hela fliken
 ## Övrigt (urval)
 - Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,
   höjden begränsar ej → långa dokument scrollas vertikalt. Höger panel = **45%** standard (`resolveViewerWidth`).
+- **Split-layout ~10/45/45:** dokumentpanelen tar **50% av ytan EFTER sidomenyn** (≈45% av fönstret). `sidebarWidth()`
+  speglar `Layout.jsx` (utfälld `max(220, 10vw)`, hopfälld 72). `UnderlagPanel` med prop **`widthKey`** äger sin bredd
+  via localStorage (default `resolveViewerWidth(saved, fönster−sidomeny, {fraction:0.5, minPx:420})`; splitter klampar
+  panel ∈ [420, min(75% fönster, fönster−sidomeny−520)] så arbetsytan ≥520 ej kollapsar). `NyLeverantorsfaktura`
+  använder key `bokpilot.levfaktura.ny.viewerW`. Utan `widthKey` behåller UnderlagPanel tidigare beteende (övriga anropare).
 - Layout: `Layout.jsx` + `Sidebar.jsx` (hopfällbar meny, `sidebarCollapsed` i localStorage).
 - Mottagningsadresser/arkivnummer: `src/lib/inboxAddresses.js`. Klassificering: `src/lib/classifyDocument.js`.
 - Bokföring/verifikationer, leverantörs-/kundfakturor, kontoplan, moms, bankavstämning – se respektive sida i `src/pages/`.
