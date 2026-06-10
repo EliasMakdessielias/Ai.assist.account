@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 
 function isQuota(e) { return /\b429\b|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(e?.message || '') }
+// Service-lås (företaget pausat/blockerat) – kontrollerad affärsavvisning, gör INGET omförsök.
+function isServiceLocked(e) { return e?.code === 'service_locked' || /Tjänsten är pausad/.test(e?.message || '') }
 function friendly() {
   return new Error('AI-tolkningens kvot är tillfälligt slut (Google Gemini). Vänta en stund och försök igen, eller aktivera fakturering på din Gemini-nyckel för högre gränser.')
 }
@@ -28,13 +30,13 @@ async function callOnce(id, accessToken) {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (error) {
-    let m = error.message
-    try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ }
+    let m = error.message, code
+    try { const b = await error.context.json(); if (b?.error) m = b.error; if (b?.code) code = b.code } catch { /* ignore */ }
     // Om edge-funktionen ändå nekar p.g.a. auth -> visa åtgärdbart sessionsfel.
     if (/ej inloggad|not authenticated|jwt/i.test(m)) throw sessionExpired()
-    throw new Error(m)
+    const e = new Error(m); if (code) e.code = code; throw e
   }
-  if (data?.error) throw new Error(data.error)
+  if (data?.error) { const e = new Error(data.error); if (data.code === 'service_locked') e.code = 'service_locked'; throw e }
   return data.result
 }
 
@@ -47,6 +49,7 @@ export async function tolkaDocument(id) {
   catch (e) {
     if (isQuota(e)) throw friendly()
     if (e?.code === 'session_expired') throw e
+    if (isServiceLocked(e)) throw e   // affärsavvisning – inget omförsök
     try { return await callOnce(id, token) }
     catch (e2) {
       if (isQuota(e2)) throw friendly()

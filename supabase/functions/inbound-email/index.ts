@@ -15,6 +15,7 @@
 // eget JSON-format { to, from, subject, text, attachments:[{filename,contentType,contentBase64,size}] }.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getCompanyServiceState, isServiceLocked } from '../_shared/serviceState.ts'
 
 const BUCKET = 'underlag'
 const INBOX_DOMAIN = 'bokpilot.se'
@@ -198,6 +199,18 @@ Deno.serve(async (req) => {
   if (!inbox.is_active) { await log(inbox.company_id, 'rejected', 'adress_inaktiverad'); return json({ status: 'rejected', reason: 'inactive' }) }
 
   const companyId = inbox.company_id
+
+  // Service-lås (Fas 2-härdning): pausat/blockerat företag får INGA nya affärsdokument via
+  // bakgrundsflöden. Kontrollerad affärsavvisning (ej systemfel): logga utan mailbody/base64,
+  // skapa inga documents/storage, räkna körningen som lyckad (worker_health ok), svara 200.
+  // Genuint DB-läsfel kastar → fångas av yttre catch → system_error (tekniskt fel).
+  const serviceState = await getCompanyServiceState(admin, companyId)
+  if (isServiceLocked(serviceState)) {
+    await log(companyId, 'rejected', `service_${serviceState}`, attachments.length)   // audit, ingen body
+    await admin.rpc('record_worker_health', { p_component: 'inbound-email', p_ok: true, p_error: null })
+    return json({ status: 'rejected', reason: 'service_locked', state: serviceState })
+  }
+
   const base = {
     company_id: companyId, source: sourceTag, email_from: sender, email_to: parsed.email,
     email_subject: subject, email_body: bodyText, received_at: now, inbound_message_id: messageId,

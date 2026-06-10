@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRecipient, pickRecipient } from './parse.mjs'
+import { parseRecipient, pickRecipient, classifyWebhookOutcome } from './parse.mjs'
 
 describe('IMAP-mottagar-parser', () => {
   it('accepterar 8063151underlag@bokpilot.se och extraherar 8063151', () => {
@@ -29,5 +29,21 @@ describe('IMAP-mottagar-parser', () => {
   })
   it('hanterar kommaseparerade header-värden', () => {
     expect(pickRecipient(['x@y.se, 9999999underlag@bokpilot.se'])).toBe('9999999underlag@bokpilot.se')
+  })
+})
+
+describe('classifyWebhookOutcome – service-lock = business rejection, ej system_error (krav 4)', () => {
+  it('mottaget/needs_review/dubblett → processed', () => {
+    expect(classifyWebhookOutcome({ ok: true, status: 200, body: { status: 'received', created: 1 } })).toBe('processed')
+    expect(classifyWebhookOutcome({ ok: true, status: 200, body: { status: 'needs_review' } })).toBe('processed')
+    expect(classifyWebhookOutcome({ ok: true, status: 200, body: { status: 'duplicate' } })).toBe('processed')
+  })
+  it('pausat/blockerat företag → service_locked (INTE failed)', () => {
+    expect(classifyWebhookOutcome({ ok: true, status: 200, body: { status: 'rejected', reason: 'service_locked', state: 'paused' } })).toBe('service_locked')
+    expect(classifyWebhookOutcome({ ok: true, status: 200, body: { status: 'rejected', reason: 'service_locked', state: 'blocked' } })).toBe('service_locked')
+  })
+  it('tekniska fel → failed (rapporteras som system_error vid upprepning)', () => {
+    expect(classifyWebhookOutcome({ ok: false, status: 500, body: {} })).toBe('failed')
+    expect(classifyWebhookOutcome({ ok: true, status: 200, body: { status: 'rejected', reason: 'unknown_recipient' } })).toBe('failed')
   })
 })

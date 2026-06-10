@@ -2,6 +2,7 @@
 // Tar emot ett document_id, hämtar filen, skickar den till Gemini för
 // fakturatolkning och returnerar strukturerad data + förslag på kontering.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getCompanyServiceState, isServiceLocked, SERVICE_PAUSED_MESSAGE } from '../_shared/serviceState.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -126,6 +127,14 @@ Deno.serve(async (req) => {
     const { data: member } = await admin.from('user_companies')
       .select('id').eq('user_id', user.id).eq('company_id', doc.company_id).maybeSingle()
     if (!member) return new Response(JSON.stringify({ error: 'Ingen åtkomst' }), { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+
+    // Service-lås (Fas 2-härdning): pausat/blockerat företag → kör INTE Gemini och skriv ingen
+    // tolkning. Kontrollerad affärsavvisning (ej system_error). Klienten visar ren svensk text.
+    const serviceState = await getCompanyServiceState(admin, companyId)
+    if (isServiceLocked(serviceState)) {
+      return new Response(JSON.stringify({ error: SERVICE_PAUSED_MESSAGE, code: 'service_locked', state: serviceState }),
+        { status: 403, headers: { ...cors, 'Content-Type': 'application/json' } })
+    }
 
     // Ladda ner filen.
     const { data: fileData, error: dlErr } = await admin.storage.from('underlag').download(doc.storage_path)

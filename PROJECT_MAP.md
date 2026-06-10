@@ -58,6 +58,17 @@ till i Vercel + DNS (CNAME, som app-subdomänen) – koden är klar, domänen pr
   `serviceLock.js` `canCompanyWrite`/`friendlyWriteError`/`LOCKED_WRITE_TABLES`/`WRITE_LOCK_EXEMPT_TABLES` (testade).
   **Undantag (medvetna):** support_*, notification_*, audit-loggar, company_subscriptions, user_companies/company_invites,
   worker_health, system/katalog – får aldrig låsas (support/drift/billing/notiser måste fungera).
+- **Bakgrundsflöden respekterar service_state (Fas 2-härdning steg 2)** – service_role bypassar RLS+triggern, så
+  edge/workers självkollar via gemensam helper `supabase/functions/_shared/serviceState.ts`
+  (`getCompanyServiceState`/`isServiceLocked`/`assertCompanyAcceptsUnderlag`, svensk orsak). **Pausat/blockerat företag:**
+  - `inbound-email`: skapar INGA document/storage; loggar `inbound_email_log` status `service_{state}` (utan mailbody/base64);
+    `record_worker_health(ok)`; svarar 200 `{status:'rejected',reason:'service_locked'}` (ej 500). DB-läsfel = tekniskt → system_error.
+  - `imap-import`: `classifyWebhookOutcome` (`parse.mjs`) → `service_locked` behandlas som **affärsavvisning** (flyttas undan,
+    ingen retry-loop, INGET system_error). Tekniska webhookfel = system_error vid upprepning (krav 4).
+  - `tolka-underlag` & `ocr-folio`: kontroll efter medlemskapskoll, FÖRE Gemini/Folio → kör inte, skriver ingen tolkning,
+    returnerar 403 med svensk orsak (`code:'service_locked'`), inget system_error. `ocr-folio` disabled/not_configured bevaras.
+  - Klient `tolka.js`: fångar `service_locked` → ren svensk text, INGET omförsök. Tester:
+    `supabase/functions/_shared/serviceState.test.js`, `parse.test.mjs` (classifyWebhookOutcome), `tolka.test.js`.
 
 ## Notification system (`src/lib/notifications.js`, DB, `src/components/NotificationCenter.jsx`)
 Centralt notissystem som hela appen kan använda utan duplicerad logik.

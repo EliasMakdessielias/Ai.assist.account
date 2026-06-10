@@ -67,6 +67,13 @@ describe('tolkaDocument – auth (Tolka-flödet)', () => {
     expect(invoke).toHaveBeenCalledTimes(1)
   })
 
+  it('service-lås: svensk låsorsak, INGET omförsök (Fas 2-härdning)', async () => {
+    withSession()
+    invoke.mockResolvedValue({ data: null, error: { message: 'edge', context: { json: async () => ({ error: 'Tjänsten är pausad för detta företag. Kontakta BokPilot support.', code: 'service_locked' }) } } })
+    await expect(tolkaDocument('doc-1')).rejects.toThrow(/Tjänsten är pausad/)
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
   it('övergående fel: gör ETT omförsök och lyckas', async () => {
     withSession()
     invoke

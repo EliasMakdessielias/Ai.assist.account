@@ -23,7 +23,7 @@ import { createHmac } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { pickRecipient } from './parse.mjs'
+import { pickRecipient, classifyWebhookOutcome } from './parse.mjs'
 import { buildErrorReport } from '../../src/lib/systemError.js'
 
 // Ladda .env från skriptets mapp (om den finns) – enkel parser, inga deps.
@@ -151,9 +151,15 @@ async function run() {
           })
           const res = await postToWebhook(body)
           const st = res.body?.status
-          if (res.ok && (st === 'received' || st === 'needs_review' || st === 'duplicate')) {
+          const outcome = classifyWebhookOutcome(res)
+          if (outcome === 'processed') {
             processed++
             console.log(`uid ${uid}: ${st} (${res.body?.created ?? 0} poster)`)
+          } else if (outcome === 'service_locked') {
+            // Affärsavvisning (företaget pausat/blockerat) – INTE ett systemfel. Flytta undan
+            // (Processed), ingen retry-loop, ingen webhookFail/system_error.
+            rejected++
+            console.log(`uid ${uid}: service_locked (${res.body?.state || ''}) – företaget pausat/blockerat, avvisat kontrollerat`)
           } else {
             failed++; webhookFail++; lastWebhookStatus = res.status; target = failedPath
             console.log(`uid ${uid}: webhook ${res.status} ${st || ''} – flyttas till ${FAILED}`)

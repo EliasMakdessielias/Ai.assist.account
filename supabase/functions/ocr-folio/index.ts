@@ -12,6 +12,7 @@
 // Säkerhet (krav 12): verify_jwt=true, inloggad krävs, company-åtkomst krävs, CORS innehåller
 //   authorization/x-client-info/apikey/content-type. Loggar aldrig secrets/dokumentinnehåll.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getCompanyServiceState, isServiceLocked, SERVICE_PAUSED_MESSAGE } from '../_shared/serviceState.ts'
 
 const TIMEOUT = parseInt(Deno.env.get('FOLIO_OCR_TIMEOUT_MS') || '20000', 10)
 const API_SECRET = Deno.env.get('FOLIO_OCR_API_SECRET') || '' // ENDAST env – exponeras aldrig
@@ -91,6 +92,14 @@ Deno.serve(async (req) => {
   // Verifiera att anroparen tillhör företaget (krav 12).
   const { data: member } = await admin.from('user_companies').select('id').eq('company_id', doc.company_id).eq('user_id', user.id).maybeSingle()
   if (!member && !access?.isSuperadmin) return json({ error: 'forbidden' }, 403)
+
+  // Service-lås (Fas 2-härdning) prioriteras över OCR-körning: pausat/blockerat företag → kör inte
+  // Folio. Kontrollerad affärsavvisning, inget system_error, ingen dokumentmutation. (disabled/
+  // not_configured har redan returnerats ovan och bevaras.)
+  const serviceState = await getCompanyServiceState(admin, doc.company_id)
+  if (isServiceLocked(serviceState)) {
+    return json({ available: true, status: 'service_locked', error: SERVICE_PAUSED_MESSAGE, state: serviceState, result: null }, 403)
+  }
 
   const start = Date.now()
   try {

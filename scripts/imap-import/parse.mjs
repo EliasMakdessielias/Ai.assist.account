@@ -27,3 +27,19 @@ export function pickRecipient(values) {
   }
   return null
 }
+
+// Klassificera inbound-email-webhookens svar (Fas 2-härdning). Avgör hur IMAP-importern
+// ska behandla mejlet:
+//   'processed'      – mottaget/needs_review/dubblett → flytta till Processed, räkna som klart
+//   'service_locked' – företaget pausat/blockerat → AFFÄRSAVVISNING (ej systemfel): flytta undan,
+//                      ingen retry-loop, INGET system_error
+//   'failed'         – tekniskt fel (webhook 5xx/oväntat) → flytta till Failed, rapportera som
+//                      system_error vid upprepade fel
+// Princip (krav 4): service-lock = business rejection; upprepade tekniska webhookfel = system_error.
+export function classifyWebhookOutcome(res) {
+  const st = res?.body?.status
+  const reason = res?.body?.reason
+  if (res?.ok && (st === 'received' || st === 'needs_review' || st === 'duplicate')) return 'processed'
+  if (res?.ok && st === 'rejected' && reason === 'service_locked') return 'service_locked'
+  return 'failed'
+}
