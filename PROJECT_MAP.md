@@ -24,7 +24,26 @@ till i Vercel + DNS (CNAME, som app-subdomänen) – koden är klar, domänen pr
   `platform_user_roles`-CHECK, `is_read_only_admin()`, läs-gates (`can_view_operations/support` + ny
   `can_view_billing`) inkluderar read_only, manage-gates oförändrade, `admin_list_subscriptions` gate:ad på
   `can_view_billing`, grant/revoke accepterar rollen, `my_platform_access` exponerar `isReadOnly`+`canViewBilling`.
-  Additivt & icke-brytande. **Leverans hittills: Fas 1** (shell, roller, RLS-migration, dashboard).
+  Additivt & icke-brytande.
+- **Företagshantering + tjänstelås (Fas 2)** `src/admin/Foretag.jsx` (lista: sök namn/org.nr/e-post/arkivnr +
+  statusfilter, riskindikator → profil) och `src/admin/ForetagProfil.jsx` (grunddata/användare/abonnemang/usage/
+  inkommande underlag/support/audit + admin actions). **Service-state** på `companies` (`service_state`
+  active/paused/blocked + `service_reason`/`service_note`(intern)/`service_changed_at`/`service_changed_by`) –
+  **låser kundappen utan att radera data**. Kund (authenticated) har `REVOKE UPDATE` på service-kolumnerna →
+  kan aldrig låsa upp sig själv; mutation endast via RPC. Ren logik: `src/lib/serviceLock.js`
+  (`isCompanyLocked`/`lockAllowsPath`/`serviceStateMeta`) + `src/lib/adminCompanies.js`
+  (`filterCompanies`/`canMutateServiceState`/`riskMeta`) – testade.
+  - **Kundapp-låsvy** `Layout.jsx` (`ServiceLockView`): paused/blocked → svensk låsvy ("Ditt BokPilot-konto är
+    tillfälligt pausat." + status/orsak/datum + **Kontakta support** / **Logga ut**). Supportflödet (`/support`)
+    förblir nåbart (`lockAllowsPath`); allt annat blockeras. Plattformsadmin släpps förbi. Kontrolleras före legacy-`suspended`.
+  - **RPC:er (`supabase/admin_company_service_state.sql`, ej applicerad – körs av admin):**
+    `admin_set_company_service_state(company,state,reason,note,notify)` (gate **can_manage_operations** =
+    superadmin/operations_admin; read_only/support/billing nekas) → uppdaterar state + `suspended`-sync, **audit**
+    (`log_platform_audit('company_service_state_changed', …)` med previous/new/reason) + **notis** via befintliga
+    `notify_event` (event `service_paused`/`service_blocked`/`service_reactivated`, in_app+email till företagets
+    admins, nya `notification_templates`-rader). `admin_list_companies(search,state)` + `admin_get_company(id)`
+    (gate **can_view_operations**, inkl. read_only). Inga parallella modeller. Routes `/foretag`, `/foretag/:id`.
+  **Leverans hittills: Fas 1–2.** Tester: `serviceLock.test.js`, `adminCompanies.test.js`, `Layout.test.jsx`.
 
 ## Notification system (`src/lib/notifications.js`, DB, `src/components/NotificationCenter.jsx`)
 Centralt notissystem som hela appen kan använda utan duplicerad logik.

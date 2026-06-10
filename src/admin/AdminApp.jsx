@@ -5,6 +5,8 @@ import { APP_ORIGIN } from '../lib/host'
 import Login from '../pages/Login'
 import AdminLayout from './AdminLayout'
 import ControlCenter from './ControlCenter'
+import Foretag from './Foretag'
+import ForetagProfil from './ForetagProfil'
 import Systemovervakning from '../pages/Systemovervakning'
 import SupportAdmin from '../pages/SupportAdmin'
 import BillingAdmin from '../pages/BillingAdmin'
@@ -58,6 +60,8 @@ export default function AdminApp() {
       <Routes>
         <Route path="/" element={<AdminLayout access={access} />}>
           <Route index element={<ControlCenter access={access} />} />
+          <Route path="foretag" element={<Foretag />} />
+          <Route path="foretag/:id" element={<ForetagProfil access={access} />} />
           {access.canViewBilling && <Route path="billing" element={<BillingAdmin />} />}
           {access.canViewSupport && <Route path="support" element={<SupportAdmin />} />}
           {access.canViewOperations && <Route path="system" element={<Systemovervakning />} />}

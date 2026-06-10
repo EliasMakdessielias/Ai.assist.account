@@ -6,6 +6,7 @@ import { APP_ORIGIN } from '../lib/host'
 // Separat skal från kundappen; återanvänder useAuth + befintliga admin-sidor.
 const NAV = [
   { to: '/', label: 'Control Center', icon: 'ti-layout-dashboard', end: true, need: 'any' },
+  { to: '/foretag', label: 'Företag', icon: 'ti-building', need: 'ops' },
   { to: '/billing', label: 'Abonnemang', icon: 'ti-credit-card', need: 'billing' },
   { to: '/support', label: 'Support', icon: 'ti-lifebuoy', need: 'support' },
   { to: '/system', label: 'Systemövervakning', icon: 'ti-activity', need: 'ops' },
