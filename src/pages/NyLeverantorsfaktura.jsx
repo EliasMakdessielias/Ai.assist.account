@@ -7,6 +7,7 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
+import { missingKonteringAccounts, reactivatableAccounts } from '../lib/leverantorsfaktura'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -54,7 +55,7 @@ export default function NyLeverantorsfaktura() {
 
   async function init() {
     const [{ data: acc }, { data: sup }, { data: inv }] = await Promise.all([
-      supabase.from('accounts').select('account_nr, name, is_active').eq('company_id', company.id).order('account_nr'),
+      supabase.from('accounts').select('account_nr, name, is_active, is_locked').eq('company_id', company.id).order('account_nr'),
       supabase.from('suppliers').select('id, name, org_nr, bankgiro, default_motkonto').eq('company_id', company.id).order('name'),
       supabase.from('supplier_invoices').select('lopnr').eq('company_id', company.id),
     ])
@@ -307,6 +308,10 @@ export default function NyLeverantorsfaktura() {
     }
     if (bokfor && Math.abs(diff) > 0.005) return toast.error('Konteringen måste balansera (differens 0)')
     if (bokfor && krows.length < 2) return toast.error('Lägg till kontering')
+    // Alla konteringskonton måste finnas i kontoplanen innan vi bokför (annars
+    // skapas verifikationsrader mot konton som inte existerar).
+    const saknade = missingKonteringAccounts(krows, accounts.map(a => a.account_nr))
+    if (bokfor && saknade.length) return toast.error(`Konto saknas i kontoplanen: ${saknade.join(', ')}. Lägg till kontot innan du bokför.`)
     const td = krows.reduce((s, r) => s + r.debet, 0), tk = krows.reduce((s, r) => s + r.kredit, 0)
 
     setSaving(true)
@@ -327,19 +332,29 @@ export default function NyLeverantorsfaktura() {
 
       if (bokfor) {
         const ser = serie(company, 'leverantorsfakturor')
-        const { data: nr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
+        const { data: nr, error: eNr } = await supabase.rpc('next_ver_nr', { p_company_id: company.id, p_serie: ser })
+        if (eNr) throw eNr
         const { data: ver, error: e1 } = await supabase.from('verifikationer').insert({
           company_id: company.id, ver_nr: nr || 'L' + Date.now(), ver_serie: ser,
           datum: fakturadatum, beskrivning: `${kreditfaktura ? 'Lev.kreditfaktura' : 'Lev.faktura'} ${supplier?.name || ''} ${fakturanummer || ''}`.trim(),
           total_debet: td, total_kredit: tk, created_by: user.id,
         }).select().single()
         if (e1) throw e1
-        await supabase.from('verifikation_rows').insert(krows.map((r, ix) => ({
+        // Allt-eller-inget: misslyckas något steg efter att verifikationshuvudet skapats
+        // raderas det (verifikation_rows tas via CASCADE, faktura/underlag återställs via
+        // SET NULL + revert-triggern) så ingen halv-bokförd verifikation lämnas kvar.
+        const rollbackVer = async (err) => { await supabase.from('verifikationer').delete().eq('id', ver.id); throw err }
+        const { error: e2 } = await supabase.from('verifikation_rows').insert(krows.map((r, ix) => ({
           verifikation_id: ver.id, account_nr: r.nr, account_name: r.name, transaction_info: r.info || null, debet: r.debet, kredit: r.kredit, sort_order: ix,
         })))
-        await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', [...new Set(krows.map(r => r.nr))]).eq('is_active', false)
-        if (attachIds.length) await supabase.from('documents').update({ verifikation_id: ver.id }).in('id', attachIds)
-        await supabase.from('supplier_invoices').update({ bokford: true, verifikation_id: ver.id }).eq('id', inv.id)
+        if (e2) await rollbackVer(e2)
+        // Återaktivera endast inaktiva, ICKE-låsta konton. Låsta standardkonton (2440/2640)
+        // skyddas av protect_locked_account-triggern och får aldrig uppdateras här. Best-effort.
+        const react = reactivatableAccounts(krows, accounts)
+        if (react.length) await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', react)
+        if (attachIds.length) { const { error: e4 } = await supabase.from('documents').update({ verifikation_id: ver.id }).in('id', attachIds); if (e4) await rollbackVer(e4) }
+        const { error: e5 } = await supabase.from('supplier_invoices').update({ bokford: true, verifikation_id: ver.id }).eq('id', inv.id)
+        if (e5) await rollbackVer(e5)
         toast.success(`Leverantörsfaktura bokförd (${ver.ver_nr})`)
       } else {
         if (attachIds.length) toast('Sparad – bilden kopplas när fakturan bokförs', { icon: 'ℹ️' })

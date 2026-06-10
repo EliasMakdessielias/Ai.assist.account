@@ -469,3 +469,31 @@ Ladda ner underlag från Inkorgen: enskild fil, valda som ZIP, eller hela fliken
 - Layout: `Layout.jsx` + `Sidebar.jsx` (hopfällbar meny, `sidebarCollapsed` i localStorage).
 - Mottagningsadresser/arkivnummer: `src/lib/inboxAddresses.js`. Klassificering: `src/lib/classifyDocument.js`.
 - Bokföring/verifikationer, leverantörs-/kundfakturor, kontoplan, moms, bankavstämning – se respektive sida i `src/pages/`.
+
+## Bokföringskärna – verifierade flöden
+Stegvis verifiering av de verkliga bokföringsflödena (ett flöde i taget: testscenario → kör → hitta fel →
+fixa endast det → tester → verifiera → dokumentera).
+
+### Flöde B – Leverantörsfaktura → bokförd verifikation  *(verifierat 2026-06-10)*
+Sida `src/pages/NyLeverantorsfaktura.jsx` (`/leverantorsfakturor/ny`), 10/45/45-layout via `UnderlagPanel`
+(`widthKey=bokpilot.levfaktura.ny.viewerW`). Bokför skapar `verifikationer` + `verifikation_rows`, kopplar
+`documents.verifikation_id`, sätter `supplier_invoices.bokford/verifikation_id`. Verifikationsnr via RPC `next_ver_nr`
+(prefix från serie, t.ex. `L4`). Revert-trigger `trg_verifikation_delete` återställer fakturan om verifikationen tas bort;
+`verifikation_rows` raderas via CASCADE, `documents.verifikation_id` via SET NULL.
+- **Datamodell-bevis (rollback-säker simulering mot prod, BokPilot AB):** balanserad lev.faktura (1000+250 moms)
+  → 3 rader, ΣDebet=ΣKredit=1250, faktura bokförd + verid-match, underlag kopplat; delete → faktura `bokford=false`,
+  rader=0, underlag avkopplat. Inget persisterades (RAISE-rollback); företaget orört.
+- **Bugg som hittades & fixades (svald DB-fel + risk för halv-bokföring):**
+  - Standardkonton `2440`/`2640` är `is_blocked_for_manual_booking=true` **och** `is_locked=true` (57 låsta BAS-konton).
+    DB-triggern `protect_locked_account()` blockerar all UPDATE på låsta konton utom `opening_balance`. Gamla rad 340
+    (`update accounts set is_active=true … is_active=false`) träffade låsta `2640` (inaktivt) → `KONTO_LAST`-fel som
+    **revs tyst** (felet fångades aldrig) vid i princip varje momsfaktura. Fix: återaktivera **endast inaktiva,
+    icke-låsta** konton (ren `reactivatableAccounts` i `src/lib/leverantorsfaktura.js`).
+  - Bokför-skrivningarna efter verifikationshuvudet saknade felkontroll → vid fel kunde ett tomt/halvt
+    verifikationshuvud bli kvar med fakturan märkt bokförd. Fix: **allt-eller-inget** – fel på rader/underlag/faktura
+    raderar verifikationshuvudet (CASCADE + SET NULL + revert-trigger städar) och felet visas på svenska.
+  - Ny förkontroll: alla konteringskonton måste finnas i kontoplanen (`missingKonteringAccounts`) – tydligt svenskt
+    fel innan bokföring annars. **Låsta standardkonton blockeras INTE** (flödet måste få bokföra på 2440/2640).
+- **Ren logik + tester:** `src/lib/leverantorsfaktura.js` (`missingKonteringAccounts`, `reactivatableAccounts`),
+  `src/lib/leverantorsfaktura.test.js` (9 tester). Begränsning: själva UI-körningen (upload/tolka i webbläsaren)
+  kräver inloggad session och kördes inte här – datalager + logik är bevisade; UI-genomgång görs av användaren.
