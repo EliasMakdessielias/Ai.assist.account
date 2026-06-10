@@ -5,6 +5,31 @@
 > Storage, Edge Functions) · Vercel (app.bokpilot.se) · Gemini (AI edge functions).
 
 ## BokPilot Control Center (admin.bokpilot.se) – [ADMIN_PLATFORM]
+
+> ### ⏸️ PAUSAT: Control Center / Stripe (frys 2026-06-10)
+> Admin/Stripe-arbetet är **fryst i säkert läge** på beslut av Tech Lead. **Inga nya admin/billing-faser
+> (Fas 4 Support, Fas 5 Notiser/erbjudanden, Fas 6+) ska påbörjas** förrän Stripe-kontot är klart och
+> arbetet återupptas uttryckligen. Fokus flyttat till **bokföringskärnan** (se nedan, slutet av filen).
+>
+> **Klart & live i prod (rör ej om inget är trasigt):**
+> - Admin shell (host-gated `AdminApp`, auth-guard, roller inkl. `read_only_admin`) – Fas 1
+> - Företagshantering (`Foretag.jsx`/`ForetagProfil.jsx`, sök/filter/profil/actions) – Fas 2
+> - `service_state` (active/paused/blocked) + kundapp-låsvy + RPC:er – **applicerat & live**
+> - Server-side write-lock (17 triggers + `can_company_write`) – **applicerat & live**
+> - Edge-function service-lock hardening (inbound-email v9, tolka-underlag v18, ocr-folio v4) – **live**
+> - Stripe Phase 3: kod + migration `supabase/stripe_billing_phase3.sql` (applicerad) + webhook v2 (deployad) +
+>   grace-cron `bokpilot-subscription-grace` + admin-skydd (`service_state_manual`) + klientlogik/tester
+>
+> **Saknas (blockerar avslut – ej kod, utan konto/konfig):**
+> - Riktiga **Stripe test-secrets** i prod: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `APP_URL`,
+>   `ADMIN_URL`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL` (webhook svarar nu `503 stripe_not_configured`).
+> - **price-id per plan**: Bas/Plus/Premium saknar `stripe_product_id`/`stripe_price_monthly`/`stripe_price_yearly`.
+> - **Stripe end-to-end-test** (checkout→webhook→subscription→service_state→audit/notis→admin) – kan ej köras
+>   utan secrets; kräver Stripe CLI/dashboard (signering kräver webhook-secret som inte ska hanteras i kod/agent).
+> - **Fortsatt Fas 4+** (Support, Notiser/erbjudanden, monitoring, rapporter/churn, GDPR/export).
+>
+> Verifierat vid frys: `main` i synk med `origin/main` (0/0), allt admin/Stripe committat (senast `0f16bce`).
+
 Separat admin-skal, **host-gated i samma deploy** (samma mönster som bokpilot.se/app.bokpilot.se).
 `src/lib/host.js` `isAdminHost()` (= värd `admin.bokpilot.se`, lokalt via `?admin`); `App.jsx` renderar
 `<AdminApp/>` istället för kundappen på admin-värden. **Infra:** domänen `admin.bokpilot.se` måste läggas
