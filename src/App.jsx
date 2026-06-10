@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAuth } from './hooks/useAuth'
-import { isMarketingHost } from './lib/host'
+import { isMarketingHost, isAdminHost } from './lib/host'
+import AdminApp from './admin/AdminApp'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
 import ComingSoon from './pages/ComingSoon'
@@ -65,6 +66,8 @@ export default function App() {
   if (params.has('landing')) return <Landing />
   if (params.has('soon')) return <ComingSoon />
   if (isMarketingHost()) return <ComingSoon />
+  // admin.bokpilot.se (eller ?admin lokalt) → separat Control Center-skal, ej kundappen.
+  if (isAdminHost()) return <AdminApp />
 
   return (
     <>

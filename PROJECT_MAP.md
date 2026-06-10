@@ -4,6 +4,28 @@
 > Stack: React 18 + Vite + Tailwind + React Router · Supabase (Postgres, RLS,
 > Storage, Edge Functions) · Vercel (app.bokpilot.se) · Gemini (AI edge functions).
 
+## BokPilot Control Center (admin.bokpilot.se) – [ADMIN_PLATFORM]
+Separat admin-skal, **host-gated i samma deploy** (samma mönster som bokpilot.se/app.bokpilot.se).
+`src/lib/host.js` `isAdminHost()` (= värd `admin.bokpilot.se`, lokalt via `?admin`); `App.jsx` renderar
+`<AdminApp/>` istället för kundappen på admin-värden. **Infra:** domänen `admin.bokpilot.se` måste läggas
+till i Vercel + DNS (CNAME, som app-subdomänen) – koden är klar, domänen provisioneras separat.
+- **Skal** `src/admin/`: `AdminApp.jsx` (auth-guard via `useAuth.platformAccess` → forbidden-vy om ingen
+  plattformsroll; återanvänder `Login`), `AdminLayout.jsx` (egen sidomeny, rollbadge, länk till kundappen),
+  `ControlCenter.jsx` (dashboard). Återanvänder befintliga admin-sidor (Systemövervakning/Support/Billing/OCR)
+  i admin-skalets routes – ingen duplicering. Routes gate:as per `access`-flagga.
+- **Dashboard (Fas 1)** komponerar BEFINTLIGA RPC:er (inga nya datamodeller): `admin_list_subscriptions` +
+  `subscription_plans` (RLS-katalog) → MRR/ARR/ARPC + status- & företagsräkning; `admin_system_overview` →
+  worker health + kö; `list_support_tickets` → öppna ärenden. Ren aggregering i `src/lib/adminMetrics.js`
+  (`computeBillingMetrics`/`summarizeWorkerHealth`/`countOpenTickets`, testad). Varje sektion laddas oberoende
+  och visar ärlig "ingen åtkomst"-not om rollen saknar gate. Churn/trial-conversion/health-score = Fas 7.
+- **Femte rollen `read_only_admin`** (ser allt, muterar inget). Frontend-modell: `src/lib/platformRoles.js`
+  (`isReadOnlyAdmin`, `canViewBilling`, `canAccessAdmin`, uppdaterad `CAPABILITY_MATRIX`/`accessFromRoles`).
+  **DB-migration (ej applicerad – körs av admin):** `supabase/admin_read_only_role.sql` – utökar
+  `platform_user_roles`-CHECK, `is_read_only_admin()`, läs-gates (`can_view_operations/support` + ny
+  `can_view_billing`) inkluderar read_only, manage-gates oförändrade, `admin_list_subscriptions` gate:ad på
+  `can_view_billing`, grant/revoke accepterar rollen, `my_platform_access` exponerar `isReadOnly`+`canViewBilling`.
+  Additivt & icke-brytande. **Leverans hittills: Fas 1** (shell, roller, RLS-migration, dashboard).
+
 ## Notification system (`src/lib/notifications.js`, DB, `src/components/NotificationCenter.jsx`)
 Centralt notissystem som hela appen kan använda utan duplicerad logik.
 
