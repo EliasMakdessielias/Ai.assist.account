@@ -22,6 +22,10 @@ const SCHEMA = {
     moms_belopp: { type: 'number' },
     momssats: { type: 'number', description: '25, 12, 6 eller 0' },
     fakturanummer: { type: 'string', description: 'fakturans nummer/Faktnr' },
+    invoice_type: { type: 'string', description: '"debit" för vanlig faktura, "credit" för kreditfaktura/kreditnota' },
+    is_credit_invoice: { type: 'boolean', description: 'true om underlaget är en kreditfaktura/kreditnota' },
+    credit_reason: { type: 'string', description: 'kort motivering om det är en kreditfaktura' },
+    credit_evidence: { type: 'string', description: 'ordet/uttrycket som avgjorde, t.ex. "Kreditnota" eller "Att erhålla"' },
     ocr: { type: 'string', description: 'OCR-referens som anges vid betalning (ofta längre sifferföljd)' },
     org_nr: { type: 'string', description: 'leverantörens (avsändarens) organisationsnummer' },
     bankgiro: { type: 'string', description: 'leverantörens bankgiro' },
@@ -51,7 +55,7 @@ const SCHEMA = {
       },
     },
   },
-  required: ['beskrivning', 'konteringsrader'],
+  required: ['beskrivning', 'konteringsrader', 'invoice_type'],
 }
 
 function blobToBase64(buf: ArrayBuffer): string {
@@ -155,6 +159,9 @@ Regler:
 - Föreslå en korrekt kontering enligt BAS-kontoplanen där debet = kredit (balanserad verifikation).
 - Använd ENDAST kontonummer som finns i kontoplanen nedan.
 - För en leverantörsfaktura med moms: debet kostnadskonto (NETTO = summa exkl. moms), debet 2640 ingående moms (momsbeloppet), kredit 2440 leverantörsskulder (= "Att betala", totalt inkl. moms efter ev. öresavrundning).
+- FAKTURA ELLER KREDITFAKTURA: avgör uttryckligen om underlaget är en vanlig faktura ("debit") eller en kreditfaktura/kreditnota ("credit"). Sätt invoice_type, is_credit_invoice och credit_evidence (ordet/uttrycket som avgjorde, t.ex. "Kreditfaktura", "Kreditnota", "Kreditering", "Krediteras", "Att erhålla", "Credit note").
+- KREDITFAKTURA: returnera belopp_inkl_moms och moms_belopp som NEGATIVA tal, och OMVÄND kontering: KREDIT kostnadskonto (netto), KREDIT ingående moms (2640/2641), DEBET 2440 leverantörsskulder (= beloppet "Att erhålla"/återbetalas). Summa debet = summa kredit ska fortfarande gälla (positiva belopp i debet/kredit-kolumnerna).
+- Förväxla INTE kreditfaktura med betalkredit, kreditvillkor, kredittid, kreditgräns eller kreditkort – sådant gör INTE underlaget till en kreditfaktura.
 - DUBBELRÄKNA ALDRIG: bokför kostnaden som EN nettorad. Om fakturan visar både enskilda fakturarader OCH en delsumma/"Summa exkl moms", använd ENBART delsumman (raderna ingår redan i den). Summan av alla debet-kostnadsrader måste vara exakt = netto (summa exkl moms).
 - ÖRESAVRUNDNING: om fakturan har "Öresavrundning"/"Öresutjämning" (t.ex. −0,25), lägg en egen rad på konto 3740 Öres- och kronutjämning. Avrundat NEDÅT (negativt) => kredit 3740; uppåt (positivt) => debet 3740. 2440 ska krediteras med "Att betala", inte netto+moms.
 - En rad får ALDRIG ha både debet och kredit – välj en sida.

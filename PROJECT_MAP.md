@@ -512,5 +512,30 @@ Sida `src/pages/NyLeverantorsfaktura.jsx` (`/leverantorsfakturor/ny`), 10/45/45-
   - Ny förkontroll: alla konteringskonton måste finnas i kontoplanen (`missingKonteringAccounts`) – tydligt svenskt
     fel innan bokföring annars. **Låsta standardkonton blockeras INTE** (flödet måste få bokföra på 2440/2640).
 - **Ren logik + tester:** `src/lib/leverantorsfaktura.js` (`missingKonteringAccounts`, `reactivatableAccounts`),
-  `src/lib/leverantorsfaktura.test.js` (9 tester). Begränsning: själva UI-körningen (upload/tolka i webbläsaren)
+  `src/lib/leverantorsfaktura.test.js`. Begränsning: själva UI-körningen (upload/tolka i webbläsaren)
   kräver inloggad session och kördes inte här – datalager + logik är bevisade; UI-genomgång görs av användaren.
+
+#### Kreditfaktura-stöd (debet- vs kreditfaktura)  *(2026-06-10)*
+BokPilot identifierar automatiskt kreditfakturor/kreditnotor från OCR och skapar negativ total/moms + omvänd kontering.
+- **Detektion** `detectCreditInvoice(result)` i `src/lib/leverantorsfaktura.js` (försiktig – kräver tydlig signal):
+  uttrycklig OCR-flagga (`invoice_type:'credit'`/`is_credit_invoice`), nyckelord (sv: **kreditfaktura, kreditnota,
+  kreditering, krediteras, kreditmeddelande, att erhålla**; en: **credit invoice/note/memo**), 2440 konterad på debet,
+  eller negativt belopp. Betalkredit/kreditvillkor/kredittid/kreditgräns klassas medvetet **INTE** som kreditfaktura.
+  Returnerar `{ isCreditInvoice, invoiceType, creditReason, sourceEvidence }`.
+- **Tecken utan dubbel-negativ:** `amountMagnitude` (abs först) + `signedHeaderAmount(value, isCredit)` → ett enda
+  tecken sätts av kreditfaktura-flaggan, även om OCR redan gav minus. `num()` normaliserar Unicode-minus (U+2212 från
+  sv-SE) + streck till ASCII så negativa visade belopp kan återinläsas.
+- **Kontering** `buildSupplierInvoicePosting({ isCreditInvoice, total, vat, rows, rounding, vatAccount, ... })`:
+  vanlig → kostnad+moms **debet**, 2440 **kredit**; kreditfaktura → kostnad+moms **kredit**, 2440 **debet**. Belopp i
+  debet/kredit alltid **positiva**; öresutjämning (3740) hamnar på den korta sidan (rätt tecken åt båda håll). Huvudets
+  Total/Moms får negativt tecken för kreditfaktura. `costRowsFromKontering` plockar ut kostnadsrader + momskonto ur OCR.
+- **UI** (`NyLeverantorsfaktura.jsx`): vid tolkning sätts kryssrutan Kreditfaktura, Total/Moms visas negativa, kontering
+  vänds; manuell toggle (`toggleKredit`) vänder rader + tecken och bevarar leverantör/datum/OCR/fakturanr/valuta;
+  `kreditManualRef` hindrar (om)tolkning från att skriva över ett manuellt val.
+- **OCR-prompt/schema** (`supabase/functions/tolka-underlag/index.ts`): nya fält `invoice_type` (required)/
+  `is_credit_invoice`/`credit_reason`/`credit_evidence`; prompten avgör debit/credit, returnerar negativa belopp och
+  omvänd kontering för kreditfaktura, och varnar för att förväxla med betalkredit.
+- **Bevis:** lib-tester (detektion sv/en, ingen dubbel-negativ, omvänd kontering, öresutjämning, referensexempel
+  −1 458/−291,50) + integrationstest `NyLeverantorsfaktura.credit.test.jsx` (OCR-fyllning + manuell toggle) + rollback-säker
+  prod-simulering: kreditverifikation 2440 debet 1458, 6550/2641 kredit, 3740 kredit 0,50, ΣD=ΣK=1458, faktura lagrad med
+  negativa belopp, revert OK. **Edge function kräver redeploy** för att prompten ska gälla live (kod uppdaterad).

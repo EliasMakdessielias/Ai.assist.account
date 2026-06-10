@@ -7,12 +7,14 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
-import { missingKonteringAccounts, reactivatableAccounts } from '../lib/leverantorsfaktura'
+import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, signedHeaderAmount, amountMagnitude } from '../lib/leverantorsfaktura'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
-const num = v => { const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
+// Normalisera Unicode-minus (sv-SE skriver negativa tal med U+2212) + streck till ASCII-minus,
+// annars blir negativa visade belopp (t.ex. "−291,50") NaN → 0 vid återinläsning.
+const num = v => { const n = parseFloat(String(v).replace(/[−‒–—―]/g, '-').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
 const emptyRow = () => ({ konto: '', namn: '', info: '', debet: '', kredit: '' })
 
 export default function NyLeverantorsfaktura() {
@@ -23,6 +25,7 @@ export default function NyLeverantorsfaktura() {
   const editId = params.get('edit')
   const autoTolka = params.get('tolka') === '1'
   const tolkadRef = useRef(false)
+  const kreditManualRef = useRef(false)   // användaren har själv togglat Kreditfaktura → skriv inte över vid (om)tolkning
   const [accounts, setAccounts] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [nextLopnr, setNextLopnr] = useState(null)
@@ -72,8 +75,8 @@ export default function NyLeverantorsfaktura() {
         setSupplierId(ex.supplier_id || '')
         setFakturadatum(ex.invoice_date || today())
         setForfallodatum(ex.due_date || today())
-        setTotal(absTotal ? fmt(absTotal) : '')
-        setMoms(absMoms ? fmt(absMoms) : '')
+        setTotal(absTotal ? fmt(kredit ? -absTotal : absTotal) : '')
+        setMoms(absMoms ? fmt(kredit ? -absMoms : absMoms) : '')
         setOcr(ex.ocr || '')
         setFakturanummer(ex.invoice_nr || '')
         setValuta(normalizeCurrency(ex.currency) || DEFAULT_CURRENCY)
@@ -157,7 +160,9 @@ export default function NyLeverantorsfaktura() {
   // Normal faktura: 2440 kredit = Total, 2640 debet = Moms.
   // Kreditfaktura: omvänt (2440 debet = Total, 2640 kredit = Moms). Auto vid blur.
   function syncHeader(nextTotal = total, nextMoms = moms, kredit = kreditfaktura) {
-    const t = num(nextTotal), m = num(nextMoms)
+    // Magnituder: konteringsraderna ska alltid ha positiva belopp – tecknet på Total/Moms
+    // i fakturahuvudet styr inte radbeloppen, utan kreditfaktura-flaggan styr SIDAN.
+    const t = amountMagnitude(nextTotal), m = amountMagnitude(nextMoms)
     const skuldSide = kredit ? 'debet' : 'kredit', momsSide = kredit ? 'kredit' : 'debet'
     setRows(rs => {
       let next = rs.map(r => r.konto === '2440' ? { ...r, [skuldSide]: t ? fmt(t) : '', [momsSide]: '' } : r)
@@ -172,9 +177,17 @@ export default function NyLeverantorsfaktura() {
     })
   }
 
-  // Bocka i/ur Kreditfaktura: vänd alla rader (debet<->kredit) så bokföringen blir en kreditering.
+  // Bocka i/ur Kreditfaktura: vänd alla rader (debet<->kredit) så bokföringen blir en
+  // kreditering, och teckenväxla Total/Moms i huvudet. Leverantör/datum/OCR/fakturanr/valuta
+  // bevaras (separat state). Markerar manuellt val så (om)tolkning inte skriver över det.
   function toggleKredit() {
-    setKreditfaktura(k => !k)
+    kreditManualRef.current = true
+    setKreditfaktura(k => {
+      const next = !k
+      setTotal(t => { const m = amountMagnitude(t); return m ? fmt(next ? -m : m) : t })
+      setMoms(t => { const m = amountMagnitude(t); return m ? fmt(next ? -m : m) : t })
+      return next
+    })
     setRows(rs => rs.map(r => ({ ...r, debet: r.kredit, kredit: r.debet })))
   }
 
@@ -250,39 +263,47 @@ export default function NyLeverantorsfaktura() {
         webb: String(result.leverantor_webb || result.webb || '').trim(),
       })
     }
-    // Kontering
+    // Kreditfaktura-detektion (sv/en-uttryck, 2440-på-debet, negativt belopp). Skriv INTE
+    // över om användaren redan togglat Kreditfaktura manuellt.
+    const credit = detectCreditInvoice(result)
+    const isCredit = kreditManualRef.current ? kreditfaktura : credit.isCreditInvoice
+    if (!kreditManualRef.current) setKreditfaktura(isCredit)
+
+    // Magnituder för Total/Moms (abs → aldrig dubbel-negativ även om OCR redan gav minus).
     const kr = Array.isArray(result.konteringsrader) ? result.konteringsrader : []
-    let nya = kr.map(r => {
-      const nr = String(r.konto ?? '').trim()
-      const d = num(r.debet), k = num(r.kredit)
-      return singleSide({ konto: nr, namn: accMap[nr] || r.benamning || '', info: '', debet: d > 0 ? fmt(d) : '', kredit: k > 0 ? fmt(k) : '' })
-    }).filter(r => r.konto)
-    // Härled Total/Moms
-    let t = num(result.total ?? result.belopp ?? result.summa)
-    let m = num(result.moms ?? result.vat)
-    if (!t && nya.length) t = nya.filter(r => r.konto === '2440').reduce((s, r) => s + num(r.kredit), 0) || nya.reduce((s, r) => s + num(r.debet), 0)
-    if (!m && nya.length) m = nya.filter(r => /^264/.test(r.konto)).reduce((s, r) => s + num(r.debet), 0)
-    if (t) { setTotal(fmt(t)) }
-    if (m) { setMoms(fmt(m)) }
-    if (!nya.length && t) {
-      // Bygg standardkontering om AI inte gav rader
-      nya = [
-        { konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: fmt(t) },
-        ...(m > 0 ? [{ konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: fmt(m), kredit: '' }] : []),
-        { konto: '4000', namn: accMap['4000'] || '', info: '', debet: fmt(t - m), kredit: '' },
-      ]
-    } else if (nya.length && !nya.some(r => r.konto === '2440')) {
-      nya.unshift({ konto: '2440', namn: 'Leverantörsskulder', info: '', debet: '', kredit: fmt(t) })
+    const { costRows, vatAccount } = costRowsFromKontering(kr)
+    let T = amountMagnitude(result.belopp_inkl_moms ?? result.total ?? result.belopp ?? result.summa)
+    let M = amountMagnitude(result.moms_belopp ?? result.moms ?? result.vat)
+    if (!M && vatAccount) M = amountMagnitude(kr.filter(r => /^264/.test(String(r.konto || ''))).reduce((s, r) => s + Math.max(num(r.debet), num(r.kredit)), 0))
+    if (!T) {
+      const payable = kr.filter(r => /^244/.test(String(r.konto || ''))).reduce((s, r) => s + Math.max(num(r.debet), num(r.kredit)), 0)
+      T = amountMagnitude(payable || (costRows.reduce((s, r) => s + r.amount, 0) + M))
     }
-    // Öresutjämning vid avrundningsdiff (konto 3740)
-    const sd2 = nya.reduce((s, r) => s + num(r.debet), 0), sk2 = nya.reduce((s, r) => s + num(r.kredit), 0)
-    const d2 = +(sd2 - sk2).toFixed(2)
-    if (Math.abs(d2) > 0.005 && Math.abs(d2) <= 1.5) {
-      nya.push({ konto: '3740', namn: accMap['3740'] || 'Öres- och kronutjämning', info: '', debet: d2 < 0 ? fmt(-d2) : '', kredit: d2 > 0 ? fmt(d2) : '' })
-      setOres(fmt(Math.abs(d2)))
+    // Saknas kostnadsrader helt → härled en nettorad mot leverantörens motkonto/4000.
+    let useCostRows = costRows
+    if (!useCostRows.length && T) {
+      const fallback = suppliers.find(s => s.id === supplierId)?.default_motkonto || '4000'
+      useCostRows = [{ nr: fallback, name: accMap[fallback] || '', amount: amountMagnitude(T - M) }]
     }
-    setRows([...nya, emptyRow()])
-    toast.success('Underlaget tolkat – granska och klicka Bokför')
+
+    // Omvänd kontering vid kreditfaktura sköts centralt; öresutjämning får korrekt tecken.
+    const posting = buildSupplierInvoicePosting({
+      isCreditInvoice: isCredit, total: T, vat: M, rows: useCostRows,
+      vatAccount: vatAccount || '2640', vatName: accMap[vatAccount || '2640'] || 'Ingående moms',
+      payableName: accMap['2440'] || 'Leverantörsskulder',
+    })
+
+    setTotal(T ? fmt(signedHeaderAmount(T, isCredit)) : '')
+    setMoms(M ? fmt(signedHeaderAmount(M, isCredit)) : '')
+    const oresRow = posting.rows.find(r => r.nr === '3740')
+    setOres(oresRow ? fmt(oresRow.debet || oresRow.kredit) : '')
+    if (posting.rows.length) {
+      setRows([
+        ...posting.rows.map(r => ({ konto: r.nr, namn: accMap[r.nr] || r.name || '', info: r.info || '', debet: r.debet ? fmt(r.debet) : '', kredit: r.kredit ? fmt(r.kredit) : '' })),
+        emptyRow(),
+      ])
+    }
+    toast.success(isCredit ? 'Underlaget tolkat som KREDITFAKTURA – granska och bokför' : 'Underlaget tolkat – granska och klicka Bokför')
   }
 
   const supplier = suppliers.find(s => s.id === supplierId)
@@ -296,7 +317,8 @@ export default function NyLeverantorsfaktura() {
 
   async function spara(bokfor) {
     if (!supplierId) return toast.error('Välj en leverantör')
-    const t = num(total)
+    // Magnitud (positiv); tecknet i fakturahuvudet styrs av kreditfaktura-flaggan nedan.
+    const t = amountMagnitude(total)
     if (t <= 0) return toast.error('Ange totalbelopp')
     const krows = konteringRows()
     // Automatisk öresutjämning vid små avrundningsdiffar (konto 3740)
@@ -322,7 +344,7 @@ export default function NyLeverantorsfaktura() {
       const invPayload = {
         company_id: company.id, supplier_id: supplierId, invoice_nr: fakturanummer || null, ocr: ocr || null,
         invoice_date: fakturadatum, due_date: forfallodatum, currency: isSupportedCurrency(valuta) ? valuta : DEFAULT_CURRENCY,
-        amount_excl_vat: sign * (t - num(moms)), vat_amount: sign * num(moms), total_amount: sign * t,
+        amount_excl_vat: sign * (t - amountMagnitude(moms)), vat_amount: sign * amountMagnitude(moms), total_amount: sign * t,
         kostnadskonto: costRow?.nr || '4000', status: 'unpaid', lopnr: nextLopnr, kreditfaktura,
       }
       let inv, e0
@@ -458,14 +480,14 @@ export default function NyLeverantorsfaktura() {
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Total</label>
             <input id="lev-total" className="input text-right" inputMode="decimal" value={total}
-              onChange={e => setTotal(e.target.value)} onBlur={e => { const n = num(e.target.value); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) }}
-              onKeyDown={e => hEnter(e, 'lev-moms', () => { const n = num(total); setTotal(n ? fmt(n) : ''); syncHeader(n ? fmt(n) : '', moms) })} placeholder="0,00" />
+              onChange={e => setTotal(e.target.value)} onBlur={e => { const mag = amountMagnitude(e.target.value); setTotal(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(mag, moms) }}
+              onKeyDown={e => hEnter(e, 'lev-moms', () => { const mag = amountMagnitude(total); setTotal(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(mag, moms) })} placeholder="0,00" />
           </div>
           <div className="col-span-2">
             <label className="block text-xs font-medium text-gray-500 mb-1">Moms</label>
             <input id="lev-moms" className="input text-right" inputMode="decimal" value={moms}
-              onChange={e => setMoms(e.target.value)} onBlur={e => { const n = num(e.target.value); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') }}
-              onKeyDown={e => hEnter(e, 'lev-ocr', () => { const n = num(moms); setMoms(n ? fmt(n) : ''); syncHeader(total, n ? fmt(n) : '') })} placeholder="0,00" />
+              onChange={e => setMoms(e.target.value)} onBlur={e => { const mag = amountMagnitude(e.target.value); setMoms(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(total, mag) }}
+              onKeyDown={e => hEnter(e, 'lev-ocr', () => { const mag = amountMagnitude(moms); setMoms(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(total, mag) })} placeholder="0,00" />
           </div>
         </div>
         <div className="grid grid-cols-12 gap-4 mb-4">

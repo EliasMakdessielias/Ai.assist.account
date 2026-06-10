@@ -1,0 +1,108 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import NyLeverantorsfaktura from './NyLeverantorsfaktura'
+
+// Ett OCR-resultat som är en kreditnota (negativa belopp + omvänd kontering).
+const { CREDIT_RESULT } = vi.hoisted(() => ({
+  CREDIT_RESULT: {
+    invoice_type: 'credit', is_credit_invoice: true, credit_evidence: 'Kreditnota',
+    beskrivning: 'Kreditnota konsultarvode', leverantor: 'Konsult AB', org_nr: '556677-8899',
+    belopp_inkl_moms: -1458, moms_belopp: -291.5,
+    konteringsrader: [
+      { konto: '6550', benamning: 'Konsultarvoden', debet: 0, kredit: 1166 },
+      { konto: '2641', benamning: 'Debiterad ingående moms', debet: 0, kredit: 291.5 },
+      { konto: '2440', benamning: 'Leverantörsskulder', debet: 1458, kredit: 0 },
+    ],
+  },
+}))
+
+vi.mock('../hooks/useAuth', () => {
+  const auth = { company: { id: 'c1' }, user: { id: 'u1' } }
+  return { useAuth: () => auth }
+})
+
+vi.mock('../lib/supabase', () => {
+  const DATA = {
+    accounts: [
+      { account_nr: '2440', name: 'Leverantörsskulder', is_active: true, is_locked: true },
+      { account_nr: '2640', name: 'Ingående moms', is_active: true, is_locked: true },
+      { account_nr: '2641', name: 'Debiterad ingående moms', is_active: true, is_locked: true },
+      { account_nr: '3740', name: 'Öres- och kronutjämning', is_active: true, is_locked: false },
+      { account_nr: '4000', name: 'Inköp', is_active: true, is_locked: false },
+      { account_nr: '6550', name: 'Konsultarvoden', is_active: true, is_locked: false },
+    ],
+    suppliers: [{ id: 's1', name: 'Konsult AB', org_nr: '556677-8899', bankgiro: '', default_motkonto: '6550' }],
+    supplier_invoices: [],
+  }
+  const make = (table) => {
+    const p = {}
+    const ret = () => p
+    p.select = ret; p.eq = ret; p.order = ret; p.in = ret; p.update = ret; p.insert = ret; p.single = ret; p.maybeSingle = ret
+    p.then = (resolve) => resolve({ data: DATA[table] ?? [], error: null })
+    return p
+  }
+  return { supabase: { from: (t) => make(t), rpc: async () => ({ data: null, error: null }) } }
+})
+
+// Stubba tunga barn. UnderlagPanel exponerar en knapp som matar OCR-resultatet via onTolkat.
+vi.mock('../components/UnderlagPanel', () => ({ default: ({ onTolkat }) => <button data-testid="fake-tolka" onClick={() => onTolkat(CREDIT_RESULT)}>tolka</button> }))
+vi.mock('../components/LeverantorEditor', () => ({ default: () => null }))
+
+const parseSv = s => { const n = parseFloat(String(s ?? '').replace(/[−‒–—―]/g, '-').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
+const kontoRow = (nr) => {
+  const konto = [...document.querySelectorAll('input[id^="lev-konto-"]')].find(i => i.value === nr)
+  if (!konto) return null
+  const idx = konto.id.replace('lev-konto-', '')
+  return {
+    debet: parseSv(document.getElementById(`lev-debet-${idx}`)?.value),
+    kredit: parseSv(document.getElementById(`lev-kredit-${idx}`)?.value),
+  }
+}
+
+const renderPage = () => render(<MemoryRouter initialEntries={['/leverantorsfakturor/ny']}><NyLeverantorsfaktura /></MemoryRouter>)
+beforeEach(() => { cleanup(); localStorage.clear() })
+afterEach(() => cleanup())
+
+describe('NyLeverantorsfaktura – kreditfaktura från OCR', () => {
+  it('tolkar kreditnota → kryssruta markerad, Total/Moms negativa, 2440 på debet, balanserat', async () => {
+    renderPage()
+    // vänta tills kontoplanen laddats (datalist fylld)
+    await waitFor(() => expect(document.querySelectorAll('#lev-konton option').length).toBeGreaterThan(0))
+
+    fireEvent.click(screen.getByTestId('fake-tolka'))
+
+    await waitFor(() => expect(parseSv(document.getElementById('lev-total').value)).toBe(-1458))
+    expect(parseSv(document.getElementById('lev-moms').value)).toBe(-291.5)
+    expect(screen.getByRole('checkbox').checked).toBe(true)        // Kreditfaktura ikryssad
+
+    // Omvänd kontering: 2440 debet, kostnad/moms kredit
+    expect(kontoRow('2440')).toEqual({ debet: 1458, kredit: 0 })
+    expect(kontoRow('6550')).toEqual({ debet: 0, kredit: 1166 })
+    expect(kontoRow('2641')).toEqual({ debet: 0, kredit: 291.5 })
+    expect(kontoRow('3740')).toEqual({ debet: 0, kredit: 0.5 })    // öresutjämning rätt sida
+
+    // Balans: summa debet = summa kredit
+    const inputs = id => [...document.querySelectorAll(`input[id^="${id}"]`)].reduce((s, i) => s + parseSv(i.value), 0)
+    expect(inputs('lev-debet-')).toBeCloseTo(inputs('lev-kredit-'), 2)
+  })
+
+  it('manuell toggle av Kreditfaktura räknar om tecken och kontering', async () => {
+    renderPage()
+    await waitFor(() => expect(document.querySelectorAll('#lev-konton option').length).toBeGreaterThan(0))
+    fireEvent.click(screen.getByTestId('fake-tolka'))
+    await waitFor(() => expect(parseSv(document.getElementById('lev-total').value)).toBe(-1458))
+
+    // Toggla UR kreditfaktura → vanlig faktura
+    fireEvent.click(screen.getByRole('checkbox'))
+
+    await waitFor(() => expect(screen.getByRole('checkbox').checked).toBe(false))
+    expect(parseSv(document.getElementById('lev-total').value)).toBe(1458)   // positivt igen
+    expect(parseSv(document.getElementById('lev-moms').value)).toBe(291.5)
+    // Sidorna vända tillbaka: 2440 kredit, kostnad/moms debet
+    expect(kontoRow('2440')).toEqual({ debet: 0, kredit: 1458 })
+    expect(kontoRow('6550')).toEqual({ debet: 1166, kredit: 0 })
+    expect(kontoRow('2641')).toEqual({ debet: 291.5, kredit: 0 })
+  })
+})

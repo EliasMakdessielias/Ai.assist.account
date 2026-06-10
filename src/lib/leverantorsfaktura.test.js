@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { missingKonteringAccounts, reactivatableAccounts } from './leverantorsfaktura'
+import {
+  missingKonteringAccounts, reactivatableAccounts,
+  detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering,
+  signedHeaderAmount, amountMagnitude,
+} from './leverantorsfaktura'
+
+const sum = (rows, k) => Math.round(rows.reduce((s, r) => s + r[k], 0) * 100) / 100
+const row = (rows, nr) => rows.find(r => r.nr === nr)
 
 describe('missingKonteringAccounts', () => {
   const plan = ['2440', '2640', '4000', '3740']
@@ -57,5 +64,128 @@ describe('reactivatableAccounts', () => {
   it('hanterar tomma indata', () => {
     expect(reactivatableAccounts([], accounts)).toEqual([])
     expect(reactivatableAccounts(null, null)).toEqual([])
+  })
+})
+
+describe('detectCreditInvoice', () => {
+  it('"Kreditnota" → kreditfaktura', () => {
+    const d = detectCreditInvoice({ beskrivning: 'Kreditnota för konsultarvode', konteringsrader: [] })
+    expect(d.isCreditInvoice).toBe(true)
+    expect(d.invoiceType).toBe('credit')
+    expect(d.sourceEvidence).toBe('kreditnota')
+  })
+
+  it('"Kreditfaktura" → kreditfaktura', () => {
+    expect(detectCreditInvoice({ beskrivning: 'KREDITFAKTURA 123', konteringsrader: [] }).isCreditInvoice).toBe(true)
+  })
+
+  it('"Att erhålla" → kreditfaktura', () => {
+    const d = detectCreditInvoice({ beskrivning: 'Belopp att erhålla 1 458', konteringsrader: [] })
+    expect(d.isCreditInvoice).toBe(true)
+    expect(d.sourceEvidence).toBe('att erhålla')
+  })
+
+  it('"credit note" (en) → kreditfaktura', () => {
+    expect(detectCreditInvoice({ beskrivning: 'Credit note', konteringsrader: [] }).isCreditInvoice).toBe(true)
+  })
+
+  it('uttrycklig OCR-flagga → kreditfaktura', () => {
+    expect(detectCreditInvoice({ invoice_type: 'credit', konteringsrader: [] }).isCreditInvoice).toBe(true)
+    expect(detectCreditInvoice({ is_credit_invoice: true, konteringsrader: [] }).isCreditInvoice).toBe(true)
+  })
+
+  it('2440 på debet → kreditfaktura (strukturell signal)', () => {
+    const d = detectCreditInvoice({ beskrivning: 'Faktura', konteringsrader: [{ konto: '2440', debet: 1458, kredit: 0 }] })
+    expect(d.isCreditInvoice).toBe(true)
+    expect(d.sourceEvidence).toBe('2440 på debet')
+  })
+
+  it('negativ total → kreditfaktura', () => {
+    expect(detectCreditInvoice({ beskrivning: 'x', belopp_inkl_moms: -1458, konteringsrader: [] }).isCreditInvoice).toBe(true)
+  })
+
+  it('vanlig faktura → INTE kreditfaktura', () => {
+    const d = detectCreditInvoice({ beskrivning: 'Faktura konsultarvode', belopp_inkl_moms: 1458, konteringsrader: [{ konto: '2440', debet: 0, kredit: 1458 }] })
+    expect(d.isCreditInvoice).toBe(false)
+    expect(d.invoiceType).toBe('debit')
+  })
+
+  it('betalkredit/kreditvillkor ska INTE klassas som kreditfaktura', () => {
+    expect(detectCreditInvoice({ beskrivning: 'Faktura. Betalningsvillkor: 30 dagar kredit. Kreditgräns 50000.', belopp_inkl_moms: 1000, konteringsrader: [{ konto: '2440', debet: 0, kredit: 1000 }] }).isCreditInvoice).toBe(false)
+  })
+})
+
+describe('signedHeaderAmount / amountMagnitude (ingen dubbel-negativ)', () => {
+  it('magnitud är alltid positiv', () => {
+    expect(amountMagnitude(-1458)).toBe(1458)
+    expect(amountMagnitude('−291,50')).toBe(291.5)
+    expect(amountMagnitude('1 458,00')).toBe(1458)
+  })
+
+  it('kreditfaktura → negativt, vanlig → positivt', () => {
+    expect(signedHeaderAmount(1458, true)).toBe(-1458)
+    expect(signedHeaderAmount(1458, false)).toBe(1458)
+  })
+
+  it('redan negativt OCR-belopp dubbel-negativeras INTE', () => {
+    expect(signedHeaderAmount(-1458, true)).toBe(-1458)   // abs först → -1458, inte +1458
+    expect(signedHeaderAmount(-291.5, true)).toBe(-291.5)
+  })
+})
+
+describe('costRowsFromKontering', () => {
+  it('plockar bort 244x och 264x, returnerar kostnadsrader + momskonto', () => {
+    const { costRows, vatAccount } = costRowsFromKontering([
+      { konto: '6550', benamning: 'Konsultarvoden', debet: 0, kredit: 1166 },
+      { konto: '2641', benamning: 'Deb. ing. moms', debet: 0, kredit: 291.5 },
+      { konto: '2440', debet: 1458, kredit: 0 },
+    ])
+    expect(costRows).toEqual([{ nr: '6550', name: 'Konsultarvoden', amount: 1166 }])
+    expect(vatAccount).toBe('2641')
+  })
+})
+
+describe('buildSupplierInvoicePosting', () => {
+  it('vanlig faktura: kostnad+moms debet, 2440 kredit, balanserar', () => {
+    const p = buildSupplierInvoicePosting({ isCreditInvoice: false, total: 1250, vat: 250, rows: [{ nr: '4000', name: 'Inköp', amount: 1000 }] })
+    expect(row(p.rows, '4000').debet).toBe(1000)
+    expect(row(p.rows, '2640').debet).toBe(250)
+    expect(row(p.rows, '2440').kredit).toBe(1250)
+    expect(p.balanced).toBe(true)
+    expect(sum(p.rows, 'debet')).toBe(sum(p.rows, 'kredit'))
+  })
+
+  it('kreditfaktura: kostnad+moms kredit, 2440 debet, balanserar (referensexempel)', () => {
+    const p = buildSupplierInvoicePosting({
+      isCreditInvoice: true, total: -1458, vat: -291.5,
+      rows: [{ nr: '6550', name: 'Konsultarvoden', amount: 1166 }], vatAccount: '2641',
+    })
+    expect(row(p.rows, '6550').kredit).toBe(1166)
+    expect(row(p.rows, '2641').kredit).toBe(291.5)
+    expect(row(p.rows, '2440').debet).toBe(1458)
+    // Differens 1458 − 1457,50 = 0,50 → öresutjämning på KREDIT (balanserar debet-sidan)
+    expect(row(p.rows, '3740').kredit).toBe(0.5)
+    expect(p.balanced).toBe(true)
+    expect(sum(p.rows, 'debet')).toBe(1458)
+    expect(sum(p.rows, 'kredit')).toBe(1458)
+  })
+
+  it('öresutjämning får rätt sida åt båda håll', () => {
+    // Konstruerad diff där debet < kredit för normal faktura → 3740 på debet
+    const p = buildSupplierInvoicePosting({ isCreditInvoice: false, total: 100, vat: 0, rows: [{ nr: '4000', amount: 100.5 }] })
+    // debet 100,50 (kostnad) vs kredit 100 (2440) → diff +0,50 → 3740 kredit 0,50
+    expect(row(p.rows, '3740').kredit).toBe(0.5)
+    expect(p.balanced).toBe(true)
+  })
+
+  it('ingen öresutjämning när det redan balanserar', () => {
+    const p = buildSupplierInvoicePosting({ isCreditInvoice: false, total: 1250, vat: 250, rows: [{ nr: '4000', amount: 1000 }] })
+    expect(row(p.rows, '3740')).toBeUndefined()
+    expect(p.diff).toBe(0)
+  })
+
+  it('belopp i debet/kredit är alltid positiva även för kreditfaktura', () => {
+    const p = buildSupplierInvoicePosting({ isCreditInvoice: true, total: -1458, vat: -291.5, rows: [{ nr: '6550', amount: 1166 }], vatAccount: '2641' })
+    for (const r of p.rows) { expect(r.debet).toBeGreaterThanOrEqual(0); expect(r.kredit).toBeGreaterThanOrEqual(0) }
   })
 })
