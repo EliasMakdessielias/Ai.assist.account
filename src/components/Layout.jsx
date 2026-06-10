@@ -4,6 +4,7 @@ import Sidebar from './Sidebar'
 import { useAuth } from '../hooks/useAuth'
 import StartGuide from './StartGuide'
 import { isCompanyLocked, lockAllowsPath, serviceStateMeta } from '../lib/serviceLock'
+import WhatsAppSupportButton from './WhatsAppSupportButton'
 
 // Låsvy när företagets tjänst är pausad/blockerad (Fas 2). Data raderas aldrig; endast
 // supportflödet är nåbart. Kunden kan inte skapa/tolka/bokföra/ladda upp/ändra/radera.
@@ -24,6 +25,9 @@ function ServiceLockView({ company, onSignOut, onSupport }) {
         <div className="flex justify-center gap-2.5">
           <button className="btn btn-primary" onClick={onSupport}><i className="ti ti-lifebuoy" /> Kontakta support</button>
           <button className="btn" onClick={onSignOut}><i className="ti ti-logout" /> Logga ut</button>
+        </div>
+        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+          <WhatsAppSupportButton company={company} block />
         </div>
       </div>
     </div>

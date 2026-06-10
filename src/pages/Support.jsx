@@ -9,6 +9,7 @@ import {
 import toast from 'react-hot-toast'
 import { AttachmentPicker, AttachmentList } from '../components/SupportAttachments'
 import { uploadSupportAttachments } from '../lib/supportAttachments'
+import WhatsAppSupportButton from '../components/WhatsAppSupportButton'
 
 const Pill = ({ tone, children }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${TONE_CLASS[tone] || TONE_CLASS.gray}`}>{children}</span>
@@ -94,8 +95,10 @@ export default function Support() {
       </div>
 
       <div className="p-7 max-w-5xl grid grid-cols-1 md:grid-cols-[320px_1fr] gap-6">
+        {/* Vänsterkolumn: ärendelista + sekundär WhatsApp-väg */}
+        <div className="self-start space-y-4">
         {/* Lista */}
-        <div className="bg-white rounded-xl overflow-hidden self-start" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+        <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
           <div className="px-4 py-2.5 border-b text-sm font-semibold" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>Mina ärenden</div>
           {loading ? <div className="p-6 text-center text-gray-400 text-sm">Laddar…</div>
             : tickets.length === 0 ? (
@@ -113,6 +116,13 @@ export default function Support() {
                 <div className="text-[11px] text-gray-400">{CATEGORY_LABELS[tk.category]} · {fmt(tk.last_message_at)}</div>
               </button>
             ))}
+        </div>
+
+        {/* Sekundär supportväg: WhatsApp (snabb fråga – ej för underlag) */}
+        <div className="bg-white rounded-xl p-4" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Snabb fråga?</div>
+          <WhatsAppSupportButton block />
+        </div>
         </div>
 
         {/* Detalj / skapa */}

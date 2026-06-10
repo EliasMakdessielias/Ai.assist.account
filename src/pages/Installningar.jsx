@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { CURRENCY_CODES } from '../lib/currency'
 // (Mottagningsadressen läses direkt från inbox_addresses-tabellen)
 import toast from 'react-hot-toast'
+import WhatsAppSupportButton from '../components/WhatsAppSupportButton'
 
 const TABS = ['Grunduppgifter', 'Faktureringsuppgifter', 'Bokföringsuppgifter', 'Övriga uppgifter', 'Mottagningsadresser']
 
@@ -144,6 +145,10 @@ function MottagningsAdresser({ company }) {
             </button>
           </div>
         )}
+      <div className="mt-6 pt-5 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Snabb supportfråga</div>
+        <WhatsAppSupportButton company={company} />
+      </div>
     </div>
   )
 }

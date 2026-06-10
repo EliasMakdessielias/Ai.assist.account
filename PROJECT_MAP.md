@@ -470,6 +470,23 @@ Ladda ner underlag från Inkorgen: enskild fil, valda som ZIP, eller hela fliken
 - Mottagningsadresser/arkivnummer: `src/lib/inboxAddresses.js`. Klassificering: `src/lib/classifyDocument.js`.
 - Bokföring/verifikationer, leverantörs-/kundfakturor, kontoplan, moms, bankavstämning – se respektive sida i `src/pages/`.
 
+## WhatsApp-supportlänk [WHATSAPP_SUPPORT]
+**Snabb supportväg via WhatsApp – ENDAST en wa.me-länk.** Ingen WhatsApp API/Cloud-integration, inga webhooks,
+ingen inbox-sync, ingen bot, inga template messages, ingen ny datamodell. WhatsApp är **inte** en officiell kanal
+för bokföringsunderlag – underlag går fortsatt via upload/email-import/Inkorg.
+- **Ren logik** `src/lib/whatsappSupport.js`: `normalizeWhatsAppNumber` (endast siffror), `getSupportWhatsAppNumber(env)`
+  (läser `VITE_BOKPILOT_SUPPORT_WHATSAPP_NUMBER` – **aldrig hårdkodat**; tom = knappen döljs), `buildWhatsAppMessage`
+  (svensk mall: företag/användare/sida alltid; org.nr+arkivnr om de finns; Status endast vid paused/blocked),
+  `buildWhatsAppUrl` (`https://wa.me/{nr}?text={encodeURIComponent}`), `WHATSAPP_BUTTON_LABEL`/`WHATSAPP_GDPR_WARNING`.
+- **Komponent** `src/components/WhatsAppSupportButton.jsx` (knapp "Kontakta support via WhatsApp" + GDPR-not "Skicka
+  inte bokföringsunderlag…"). Läser company/user via `useAuth` + sida via `useLocation`; `company`-prop kan överskrida.
+  **Saknat nummer → renderar null** (döljs).
+- **Placeringar:** Support-sidan (`src/pages/Support.jsx`, vänsterkolumn), kundappens **låsvy** (`Layout.jsx`
+  `ServiceLockView`, pausad/blockerad), och **Inställningar → Mottagningsadresser** (`Installningar.jsx`, semantiskt
+  nära underlagskanalerna). Env-exempel i `.env.example` (`VITE_BOKPILOT_SUPPORT_WHATSAPP_NUMBER`).
+- **Tester:** `src/lib/whatsappSupport.test.js` (12 – url, encoding, saknat nummer, mall-villkor),
+  `src/components/WhatsAppSupportButton.test.jsx` (5 – wa.me-url, GDPR-not, dölj vid saknat nummer, låsvy/paused).
+
 ## Bokföringskärna – verifierade flöden
 Stegvis verifiering av de verkliga bokföringsflödena (ett flöde i taget: testscenario → kör → hitta fel →
 fixa endast det → tester → verifiera → dokumentera).
