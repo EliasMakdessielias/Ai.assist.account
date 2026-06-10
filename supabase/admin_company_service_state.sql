@@ -25,22 +25,22 @@ revoke update (service_state, service_reason, service_note, service_changed_at, 
 insert into public.notification_templates (event_type, channel, lang, subject, body, required_vars, is_active) values
  ('service_paused','in_app','sv-SE','Ditt BokPilot-konto är pausat',
   'Ditt BokPilot-konto för {{companyName}} är tillfälligt pausat. Orsak: {{reason}}. Kontakta support för att återaktivera.',
-  '[]'::jsonb, true),
+  '{}'::text[], true),
  ('service_paused','email','sv-SE','Ditt BokPilot-konto är pausat',
   'Hej,\n\nDitt BokPilot-konto för {{companyName}} är tillfälligt pausat sedan {{date}}.\n\nOrsak: {{reason}}\n\nKontakta support för att återaktivera tjänsten: {{actionUrl}}\n\nDin bokföringsdata är oförändrad och raderas inte.',
-  '["actionUrl"]'::jsonb, true),
+  array['actionUrl'], true),
  ('service_blocked','in_app','sv-SE','Ditt BokPilot-konto är blockerat',
   'Ditt BokPilot-konto för {{companyName}} är blockerat. Orsak: {{reason}}. Kontakta support.',
-  '[]'::jsonb, true),
+  '{}'::text[], true),
  ('service_blocked','email','sv-SE','Ditt BokPilot-konto är blockerat',
   'Hej,\n\nDitt BokPilot-konto för {{companyName}} är blockerat sedan {{date}}.\n\nOrsak: {{reason}}\n\nKontakta support: {{actionUrl}}\n\nDin data är oförändrad och raderas inte.',
-  '["actionUrl"]'::jsonb, true),
+  array['actionUrl'], true),
  ('service_reactivated','in_app','sv-SE','Ditt BokPilot-konto är återaktiverat',
   'Ditt BokPilot-konto för {{companyName}} är åter aktivt. Välkommen tillbaka!',
-  '[]'::jsonb, true),
+  '{}'::text[], true),
  ('service_reactivated','email','sv-SE','Ditt BokPilot-konto är återaktiverat',
   'Hej,\n\nDitt BokPilot-konto för {{companyName}} är åter aktivt sedan {{date}}. Välkommen tillbaka!\n\nÖppna BokPilot: {{actionUrl}}',
-  '["actionUrl"]'::jsonb, true)
+  array['actionUrl'], true)
 on conflict (event_type, channel, lang) do nothing;
 
 -- 4. Mutation: pausa/blockera/återaktivera. Gate = can_manage_operations() (superadmin/operations_admin).

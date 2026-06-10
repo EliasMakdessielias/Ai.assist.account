@@ -69,6 +69,12 @@ till i Vercel + DNS (CNAME, som app-subdomänen) – koden är klar, domänen pr
     returnerar 403 med svensk orsak (`code:'service_locked'`), inget system_error. `ocr-folio` disabled/not_configured bevaras.
   - Klient `tolka.js`: fångar `service_locked` → ren svensk text, INGET omförsök. Tester:
     `supabase/functions/_shared/serviceState.test.js`, `parse.test.mjs` (classifyWebhookOutcome), `tolka.test.js`.
+  - **STATUS: LIVE.** Migrationerna `admin_company_service_state.sql` + `admin_company_write_lock.sql` är
+    **applicerade** i prod (companies.service_state, 17 write-lock-triggers, RPC:er, notismallar). Edge functions
+    **deployade**: inbound-email v9 (verify_jwt=false), tolka-underlag v18 + ocr-folio v4 (verify_jwt=true) – importerar
+    `../_shared/serviceState.ts`. Live-verifierat: pausa→audit+notis (in_app sent/email pending), kund-kontext-insert
+    blockeras av triggern ("Tjänsten är pausad…"), service-role exempt, `tolka-underlag` 403 service_locked vid lås,
+    support/notiser/audit/billing olåsta, återaktivering→allt fungerar igen.
 
 ## Notification system (`src/lib/notifications.js`, DB, `src/components/NotificationCenter.jsx`)
 Centralt notissystem som hela appen kan använda utan duplicerad logik.
