@@ -44,6 +44,20 @@ till i Vercel + DNS (CNAME, som app-subdomänen) – koden är klar, domänen pr
     admins, nya `notification_templates`-rader). `admin_list_companies(search,state)` + `admin_get_company(id)`
     (gate **can_view_operations**, inkl. read_only). Inga parallella modeller. Routes `/foretag`, `/foretag/:id`.
   **Leverans hittills: Fas 1–2.** Tester: `serviceLock.test.js`, `adminCompanies.test.js`, `Layout.test.jsx`.
+- **Server-side write-lock (Fas 2-härdning)** `supabase/admin_company_write_lock.sql` (ej applicerad – körs av admin):
+  central guard `can_company_write(company)` (active→true; paused/blocked→false; superadmin/operations_admin→true) +
+  **BEFORE INSERT/UPDATE/DELETE-triggers** (`enforce_company_write_lock`) på 15 affärstabeller (documents,
+  verifikationer, invoices, supplier_invoices, customers, suppliers, products, bank_transactions, bank_accounts,
+  account_import_batches, accounts, article_templates, bookkeeping_templates, fiscal_years, salaries) + rad-tabeller
+  (verifikation_rows/invoice_rows via förälder). Triggern fires ÄVEN i SECURITY DEFINER-RPC:er → kundinitierade
+  `import_chart_of_accounts`/`clear_chart_of_accounts`/`reset_company` täcks utan omskrivning. **`auth.uid() IS NULL`
+  (service-role/workers/cron) släpps igenom** (inbound-email/imap/tolka/email-worker/scheduled-notifications/audit/
+  notiser fortsätter; inget bokförs automatiskt). Storage-RLS `underlag_insert`/`underlag_delete` får guard (kund kan
+  ej ladda upp/radera till låst företag; `underlag_select` + service-role orörda; support-bucket orörd). Fel:
+  **"Tjänsten är pausad för detta företag. Kontakta BokPilot support."** (errcode 42501). Klientspegel/UI-felmappning:
+  `serviceLock.js` `canCompanyWrite`/`friendlyWriteError`/`LOCKED_WRITE_TABLES`/`WRITE_LOCK_EXEMPT_TABLES` (testade).
+  **Undantag (medvetna):** support_*, notification_*, audit-loggar, company_subscriptions, user_companies/company_invites,
+  worker_health, system/katalog – får aldrig låsas (support/drift/billing/notiser måste fungera).
 
 ## Notification system (`src/lib/notifications.js`, DB, `src/components/NotificationCenter.jsx`)
 Centralt notissystem som hela appen kan använda utan duplicerad logik.

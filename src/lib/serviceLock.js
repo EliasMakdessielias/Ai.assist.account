@@ -26,3 +26,35 @@ export const SERVICE_STATES = ['active', 'paused', 'blocked']
 export function isValidServiceState(state) {
   return SERVICE_STATES.includes(state)
 }
+
+// ---- Server-side write-lock (Fas 2-härdning) ----
+export const SERVICE_PAUSED_MESSAGE = 'Tjänsten är pausad för detta företag. Kontakta BokPilot support.'
+
+// Speglar can_company_write() i DB. Plattformsadmin (operations) får skriva; annars endast active.
+export function canCompanyWrite(company, access = null) {
+  if (access && (access.isSuperadmin || access.canManageOperations)) return true
+  if (!company) return true
+  return (company.service_state || 'active') === 'active'
+}
+
+// Affärstabeller som skyddas av write-lock-triggern (dokumentation + regressionsskydd för testerna).
+export const LOCKED_WRITE_TABLES = [
+  'documents', 'verifikationer', 'verifikation_rows', 'invoices', 'invoice_rows', 'supplier_invoices',
+  'customers', 'suppliers', 'products', 'bank_transactions', 'bank_accounts', 'account_import_batches',
+  'accounts', 'article_templates', 'bookkeeping_templates', 'fiscal_years', 'salaries',
+]
+// Medvetna undantag som MÅSTE fortsätta fungera (support/notiser/audit/billing/team/system).
+export const WRITE_LOCK_EXEMPT_TABLES = [
+  'support_tickets', 'support_messages', 'support_internal_notes', 'support_attachments',
+  'notification_queue', 'notification_events', 'notification_preferences',
+  'audit_log', 'platform_audit_log', 'download_audit_log',
+  'company_subscriptions', 'user_companies', 'company_invites', 'worker_health',
+]
+
+// Mappar ett DB-skrivfel till ren svensk text när det är ett service-lås-fel (krav 7) –
+// så att UI visar ett begripligt meddelande, inte ett tekniskt RLS/SQL-fel.
+export function friendlyWriteError(error) {
+  const msg = (error && (error.message || error.msg)) || (typeof error === 'string' ? error : '')
+  if (/Tjänsten är pausad/.test(msg) || error?.code === '42501') return SERVICE_PAUSED_MESSAGE
+  return msg || 'Något gick fel.'
+}

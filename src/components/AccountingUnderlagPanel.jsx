@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import DocumentViewerPanel from './viewer/DocumentViewerPanel'
 import { MAX_ATTACHMENT_BYTES } from '../lib/inboxAddresses'
+import { friendlyWriteError } from '../lib/serviceLock'
 
 // [DOCUMENT_VIEWER] Höger dokumentpanel för Bokföring → Registrera dagskassa / Registrera kvitto.
 // Komponerar den gemensamma visaren (DocumentViewerPanel) med en "VÄLJ BILD"-toolbar,
@@ -67,7 +68,8 @@ export default function AccountingUnderlagPanel({ company, kategori = 'dokument'
       onSelected?.({ ...row, url: signed?.signedUrl || null })
       toast.success('Underlag uppladdat')
     } catch (err) {
-      toast.error('Kunde inte ladda upp underlag: ' + (err.message || String(err)))
+      // Rent svenskt meddelande vid service-lås (krav 7), annars ursprungsfelet.
+      toast.error(friendlyWriteError(err))
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
