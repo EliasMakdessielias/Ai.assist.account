@@ -186,7 +186,40 @@ export function costRowsFromKontering(kontering) {
     const amt = round2(Math.abs(num(r.debet) || num(r.kredit) || num(r.amount)))
     if (/^244/.test(nr)) continue                 // leverantörsskuld – byggs separat
     if (/^264/.test(nr)) { vatAccount = nr; continue } // moms – byggs separat
+    if (/^374/.test(nr)) continue                 // öresavrundning – byggs/återskapas separat
     if (amt > 0.005) costRows.push({ nr, name: r.benamning || r.name || r.namn || '', amount: amt })
   }
   return { costRows, vatAccount }
+}
+
+// Stämmer av OCR:ns kostnadsrader mot ett tillförlitligt netto (Total − Moms). OCR
+// dubbelräknar ibland (t.ex. en delsumma OCH en enskild rad som redan ingår i delsumman),
+// vilket gör att summan inte balanserar. Logik:
+//   * Summerar raderna ≈ nettot (inom öresavrundning, tol) → behåll dem oförändrade
+//     (öresavrundningen hanteras sedan av buildSupplierInvoicePosting).
+//   * Annars (dubbelräkning/saknad rad) → korrigera till nettot: ett konto → en nettorad
+//     (löser dubbelräkning rent); flera konton → proportionell skalning så summan = nettot.
+export function reconcileCostRows(costRows, netTarget, tol = 1.5) {
+  const rows = (costRows || [])
+    .map(r => ({ nr: String(r.nr ?? r.konto ?? '').trim(), name: r.name ?? r.namn ?? '', amount: round2(Math.abs(num(r.amount ?? r.debet ?? r.kredit))) }))
+    .filter(r => r.nr && r.amount > 0.005)
+  const net = round2(Math.abs(num(netTarget)))
+  if (!net || !rows.length) return rows
+  const sum = round2(rows.reduce((s, r) => s + r.amount, 0))
+  if (Math.abs(sum - net) <= tol) return rows   // konsistent – öresavrundning sköts av byggaren
+
+  const distinct = [...new Set(rows.map(r => r.nr))]
+  if (distinct.length === 1) return [{ nr: distinct[0], name: rows[0].name, amount: net }]
+
+  // Flera konton → skala proportionellt; lägg avrundningsresten på den största raden.
+  const factor = net / sum
+  let acc = 0
+  const scaled = rows.map(r => { const a = round2(r.amount * factor); acc = round2(acc + a); return { ...r, amount: a } })
+  const resid = round2(net - acc)
+  if (Math.abs(resid) >= 0.01) {
+    let big = 0
+    scaled.forEach((r, i) => { if (r.amount > scaled[big].amount) big = i })
+    scaled[big] = { ...scaled[big], amount: round2(scaled[big].amount + resid) }
+  }
+  return scaled
 }

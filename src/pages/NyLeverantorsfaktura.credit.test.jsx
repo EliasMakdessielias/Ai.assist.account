@@ -4,8 +4,9 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import NyLeverantorsfaktura from './NyLeverantorsfaktura'
 
-// Ett OCR-resultat som är en kreditnota (negativa belopp + omvänd kontering).
-const { CREDIT_RESULT } = vi.hoisted(() => ({
+// OCR-resultat: (1) kreditnota (negativa belopp + omvänd kontering); (2) vanlig faktura där
+// OCR DUBBELRÄKNAR kostnaden (delsumma 365 + enskild rad 16 som redan ingår) – Spiris-fallet.
+const { CREDIT_RESULT, NORMAL_DOUBLECOUNT } = vi.hoisted(() => ({
   CREDIT_RESULT: {
     invoice_type: 'credit', is_credit_invoice: true, credit_evidence: 'Kreditnota',
     beskrivning: 'Kreditnota konsultarvode', leverantor: 'Konsult AB', org_nr: '556677-8899',
@@ -14,6 +15,16 @@ const { CREDIT_RESULT } = vi.hoisted(() => ({
       { konto: '6550', benamning: 'Konsultarvoden', debet: 0, kredit: 1166 },
       { konto: '2641', benamning: 'Debiterad ingående moms', debet: 0, kredit: 291.5 },
       { konto: '2440', benamning: 'Leverantörsskulder', debet: 1458, kredit: 0 },
+    ],
+  },
+  NORMAL_DOUBLECOUNT: {
+    invoice_type: 'debit', is_credit_invoice: false, beskrivning: 'Faktura Spiris',
+    belopp_inkl_moms: 456, moms_belopp: 91.25,
+    konteringsrader: [
+      { konto: '6592', benamning: 'Bokningstjänst', debet: 365, kredit: 0 },
+      { konto: '6592', benamning: 'Bokningstjänst', debet: 16, kredit: 0 },
+      { konto: '2641', benamning: 'Debiterad ingående moms', debet: 91.25, kredit: 0 },
+      { konto: '2440', benamning: 'Leverantörsskulder', debet: 0, kredit: 456 },
     ],
   },
 }))
@@ -32,6 +43,7 @@ vi.mock('../lib/supabase', () => {
       { account_nr: '3740', name: 'Öres- och kronutjämning', is_active: true, is_locked: false },
       { account_nr: '4000', name: 'Inköp', is_active: true, is_locked: false },
       { account_nr: '6550', name: 'Konsultarvoden', is_active: true, is_locked: false },
+      { account_nr: '6592', name: 'Bokningstjänst', is_active: true, is_locked: false },
     ],
     suppliers: [{ id: 's1', name: 'Konsult AB', org_nr: '556677-8899', bankgiro: '', default_motkonto: '6550' }],
     supplier_invoices: [],
@@ -47,7 +59,10 @@ vi.mock('../lib/supabase', () => {
 })
 
 // Stubba tunga barn. UnderlagPanel exponerar en knapp som matar OCR-resultatet via onTolkat.
-vi.mock('../components/UnderlagPanel', () => ({ default: ({ onTolkat }) => <button data-testid="fake-tolka" onClick={() => onTolkat(CREDIT_RESULT)}>tolka</button> }))
+vi.mock('../components/UnderlagPanel', () => ({ default: ({ onTolkat }) => (<>
+  <button data-testid="fake-tolka" onClick={() => onTolkat(CREDIT_RESULT)}>tolka kredit</button>
+  <button data-testid="fake-tolka-normal" onClick={() => onTolkat(NORMAL_DOUBLECOUNT)}>tolka normal</button>
+</>) }))
 vi.mock('../components/LeverantorEditor', () => ({ default: () => null }))
 
 const parseSv = s => { const n = parseFloat(String(s ?? '').replace(/[−‒–—―]/g, '-').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
@@ -104,5 +119,29 @@ describe('NyLeverantorsfaktura – kreditfaktura från OCR', () => {
     expect(kontoRow('2440')).toEqual({ debet: 0, kredit: 1458 })
     expect(kontoRow('6550')).toEqual({ debet: 1166, kredit: 0 })
     expect(kontoRow('2641')).toEqual({ debet: 291.5, kredit: 0 })
+  })
+})
+
+describe('NyLeverantorsfaktura – OCR-dubbelräkning korrigeras (Spiris-fallet)', () => {
+  it('vanlig faktura med dubbelräknad kostnad → balanserad kontering, differens 0', async () => {
+    renderPage()
+    await waitFor(() => expect(document.querySelectorAll('#lev-konton option').length).toBeGreaterThan(0))
+
+    fireEvent.click(screen.getByTestId('fake-tolka-normal'))
+
+    await waitFor(() => expect(parseSv(document.getElementById('lev-total').value)).toBe(456))
+    expect(parseSv(document.getElementById('lev-moms').value)).toBe(91.25)
+    expect(screen.getByRole('checkbox').checked).toBe(false)        // INTE kreditfaktura
+
+    // Endast EN 6592-rad (dubbelräkningen borta), avstämd mot netto 364,75
+    expect([...document.querySelectorAll('input[id^="lev-konto-"]')].filter(i => i.value === '6592').length).toBe(1)
+    expect(kontoRow('6592')).toEqual({ debet: 364.75, kredit: 0 })
+    expect(kontoRow('2641')).toEqual({ debet: 91.25, kredit: 0 })
+    expect(kontoRow('2440')).toEqual({ debet: 0, kredit: 456 })
+
+    // Differens 0,00: summa debet = summa kredit
+    const inputs = id => [...document.querySelectorAll(`input[id^="${id}"]`)].reduce((s, i) => s + parseSv(i.value), 0)
+    expect(inputs('lev-debet-')).toBeCloseTo(456, 2)
+    expect(inputs('lev-debet-')).toBeCloseTo(inputs('lev-kredit-'), 2)
   })
 })

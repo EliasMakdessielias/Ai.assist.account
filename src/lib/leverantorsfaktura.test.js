@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   missingKonteringAccounts, reactivatableAccounts,
-  detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering,
+  detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows,
   signedHeaderAmount, amountMagnitude,
 } from './leverantorsfaktura'
 
@@ -187,5 +187,43 @@ describe('buildSupplierInvoicePosting', () => {
   it('belopp i debet/kredit är alltid positiva även för kreditfaktura', () => {
     const p = buildSupplierInvoicePosting({ isCreditInvoice: true, total: -1458, vat: -291.5, rows: [{ nr: '6550', amount: 1166 }], vatAccount: '2641' })
     for (const r of p.rows) { expect(r.debet).toBeGreaterThanOrEqual(0); expect(r.kredit).toBeGreaterThanOrEqual(0) }
+  })
+})
+
+describe('reconcileCostRows (OCR-dubbelräkning)', () => {
+  it('behåller raderna när de summerar ≈ nettot (öresavrundning ok)', () => {
+    // 365 mot netto 364,75 → diff 0,25 ≤ tol → behåll (byggaren lägger öresutjämning)
+    expect(reconcileCostRows([{ nr: '6592', amount: 365 }], 364.75)).toEqual([{ nr: '6592', name: '', amount: 365 }])
+  })
+
+  it('ett konto som dubbelräknats → en nettorad (Spiris-fallet)', () => {
+    // 365 + 16 = 381, men 16 ingår redan i 365. Netto = 456 − 91,25 = 364,75.
+    const out = reconcileCostRows([{ nr: '6592', amount: 365 }, { nr: '6592', amount: 16 }], 364.75)
+    expect(out).toEqual([{ nr: '6592', name: '', amount: 364.75 }])
+  })
+
+  it('flera konton som inte stämmer → proportionell skalning, summa = netto', () => {
+    const out = reconcileCostRows([{ nr: '5910', amount: 200 }, { nr: '6071', amount: 200 }], 300)
+    expect(out.reduce((s, r) => s + r.amount, 0)).toBeCloseTo(300, 2)
+  })
+})
+
+describe('Spiris-faktura: dubbelräkning korrigeras och balanserar', () => {
+  it('OCR ger 6592:365 + 6592:16 (dubbelräkning) → balanserad kontering, differens 0', () => {
+    const { costRows, vatAccount } = costRowsFromKontering([
+      { konto: '6592', benamning: 'Bokningstjänst', debet: 365, kredit: 0 },
+      { konto: '6592', benamning: 'Bokningstjänst', debet: 16, kredit: 0 },
+      { konto: '2641', benamning: 'Debiterad ingående moms', debet: 91.25, kredit: 0 },
+      { konto: '2440', benamning: 'Leverantörsskulder', debet: 0, kredit: 456 },
+    ])
+    const T = 456, M = 91.25
+    const fixed = reconcileCostRows(costRows, T - M)
+    const p = buildSupplierInvoicePosting({ isCreditInvoice: false, total: T, vat: M, rows: fixed, vatAccount })
+    expect(row(p.rows, '6592').debet).toBe(364.75)   // ingen dubbelräkning
+    expect(row(p.rows, '2641').debet).toBe(91.25)
+    expect(row(p.rows, '2440').kredit).toBe(456)
+    expect(p.balanced).toBe(true)
+    expect(sum(p.rows, 'debet')).toBe(456)
+    expect(sum(p.rows, 'kredit')).toBe(456)
   })
 })

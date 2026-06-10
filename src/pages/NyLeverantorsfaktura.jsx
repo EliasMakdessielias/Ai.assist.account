@@ -7,7 +7,7 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
-import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, signedHeaderAmount, amountMagnitude } from '../lib/leverantorsfaktura'
+import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, signedHeaderAmount, amountMagnitude } from '../lib/leverantorsfaktura'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -279,8 +279,9 @@ export default function NyLeverantorsfaktura() {
       const payable = kr.filter(r => /^244/.test(String(r.konto || ''))).reduce((s, r) => s + Math.max(num(r.debet), num(r.kredit)), 0)
       T = amountMagnitude(payable || (costRows.reduce((s, r) => s + r.amount, 0) + M))
     }
-    // Saknas kostnadsrader helt → härled en nettorad mot leverantörens motkonto/4000.
-    let useCostRows = costRows
+    // Stäm av kostnadsrader mot tillförlitligt netto (Total − Moms): OCR dubbelräknar ibland
+    // (delsumma + enskild rad som redan ingår) → korrigeras så konteringen balanserar.
+    let useCostRows = reconcileCostRows(costRows, T - M)
     if (!useCostRows.length && T) {
       const fallback = suppliers.find(s => s.id === supplierId)?.default_motkonto || '4000'
       useCostRows = [{ nr: fallback, name: accMap[fallback] || '', amount: amountMagnitude(T - M) }]

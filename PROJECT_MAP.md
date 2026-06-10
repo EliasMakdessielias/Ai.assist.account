@@ -525,6 +525,11 @@ BokPilot identifierar automatiskt kreditfakturor/kreditnotor från OCR och skapa
 - **Tecken utan dubbel-negativ:** `amountMagnitude` (abs först) + `signedHeaderAmount(value, isCredit)` → ett enda
   tecken sätts av kreditfaktura-flaggan, även om OCR redan gav minus. `num()` normaliserar Unicode-minus (U+2212 från
   sv-SE) + streck till ASCII så negativa visade belopp kan återinläsas.
+- **OCR-dubbelräkning** `reconcileCostRows(costRows, netTarget)`: OCR returnerar ibland både en delsumma OCH en
+  enskild rad som redan ingår (t.ex. Spiris-faktura: `6592:365` + `6592:16` där 16 ingår i 365 → differens). Kostnads-
+  raderna stäms av mot tillförlitligt **netto = Total − Moms**: summerar de ≈ nettot behålls de (öresavrundning kvar);
+  annars korrigeras de (ett konto → en nettorad, flera → proportionell skalning) så konteringen alltid balanserar.
+  3740 (öresavrundning) plockas ur OCR-raderna och återskapas av byggaren. `num()` normaliserar även Unicode-minus.
 - **Kontering** `buildSupplierInvoicePosting({ isCreditInvoice, total, vat, rows, rounding, vatAccount, ... })`:
   vanlig → kostnad+moms **debet**, 2440 **kredit**; kreditfaktura → kostnad+moms **kredit**, 2440 **debet**. Belopp i
   debet/kredit alltid **positiva**; öresutjämning (3740) hamnar på den korta sidan (rätt tecken åt båda håll). Huvudets
