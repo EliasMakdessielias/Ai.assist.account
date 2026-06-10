@@ -300,6 +300,21 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   av billing_admin/superadmin i **Billing → Planer → Redigera** (validering: `prod_`/`price_`-prefix, tomt tillåtet;
   audit). Plan-kort visar **Stripe kopplad / Saknar price-id**. Checkout väljer price från planen utifrån vald period;
   saknas price → `configured:false` (blockeras med supportärende-fallback). `isValidStripeId`/`planStripeStatus` (testat).
+- **Fas 3 – Stripe ↔ service_state-koppling** (`supabase/stripe_billing_phase3.sql`): kopplar betalningsstatus till
+  Fas 2-låset utan parallell modell. **Två-fälts-modell:** `company_subscriptions.status` = billing-livscykel
+  (trial/active/past_due/suspended/cancelled/expired); `companies.service_state` = appåtkomst (active/paused/blocked).
+  Nya fält: `grace_until`, `cancel_at`, `last_payment_failed_at`, `next_payment_attempt_at`, `stripe_latest_invoice_id`,
+  `discount_percent`; `companies.service_state_manual`. **Kärnfunktion** `sync_company_service_state_from_billing(company)`:
+  trial/active→active; past_due inom grace→active, efter grace→paused; cancelled/expired/suspended→paused. **Admin-skydd
+  (krav 7):** om `service_state_manual=true` (admin satte paused/blocked via Företag-vyn) rör Stripe service_state ALDRIG.
+  `stripe_handle_event` utökad (+`p_invoice_id`/`p_next_attempt`, grace 7 dgr vid `invoice.payment_failed`, rensas vid
+  succeeded, `invoice.finalized`, anropar sync). Schemalagt `run_subscription_grace_enforcement()` (pg_cron
+  `bokpilot-subscription-grace` dagl 06:15) → past_due efter grace → paused. Admin-RPC:er (`can_manage_billing`):
+  `admin_set_subscription_grace`/`admin_set_subscription_discount`/`admin_sync_service_state`. Notiser
+  `grace_period_started`/`account_paused_unpaid` (in_app+email, dedupe/dag). Webhook utökad (`invoice.finalized` +
+  invoice-id/next_attempt). Klient `serviceStateForBilling`/`stripeConfigSummary` (testade); `adminMetrics.failedPayments`;
+  BillingAdmin: grace/rabatt/sync-actions + config-badge + betalfält. **Statusar paused/blocked finns i service_state, ej i
+  subscription.status (medveten separation).** Churn/trial-conversion = Fas 7 (data räcker ej ärligt än).
 
 **Events som stöds (17):** underlag_received, kvitto_classified, supplier_invoice_received,
 invoice_needs_review, ocr_failed, bookkeeping_suggestion, verifikation_created, payment_overdue,

@@ -23,11 +23,13 @@ export function computeBillingMetrics(subscriptions = [], plans = []) {
   const revenueByPlan = {}
   let mrr = 0
   let companiesWithSub = 0
+  let failedPayments = 0
 
   for (const s of subscriptions || []) {
     const status = s.status || 'none'                 // företag utan subscription → 'none'
     byStatus[status] = (byStatus[status] || 0) + 1
     if (s.subscription_id) companiesWithSub++
+    if (s.payment_status === 'failed') failedPayments++
     if (s.status === 'active') {
       const m = normalizedMonthly(s, plansById)
       mrr += m
@@ -49,6 +51,7 @@ export function computeBillingMetrics(subscriptions = [], plans = []) {
     cancelled: byStatus.cancelled || 0,
     expired: byStatus.expired || 0,
     noSubscription: byStatus.none || 0,
+    failedPayments,
     byStatus,
     mrr: mrrR,
     arr: mrrR * 12,

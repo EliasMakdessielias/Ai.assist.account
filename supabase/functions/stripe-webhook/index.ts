@@ -12,7 +12,7 @@ const iso = (sec?: number | null) => (sec ? new Date(sec * 1000).toISOString() :
 
 const HANDLED = new Set([
   'checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated',
-  'customer.subscription.deleted', 'invoice.payment_succeeded', 'invoice.payment_failed',
+  'customer.subscription.deleted', 'invoice.finalized', 'invoice.payment_succeeded', 'invoice.payment_failed',
 ])
 
 Deno.serve(async (req) => {
@@ -33,6 +33,7 @@ Deno.serve(async (req) => {
   const o: any = event.data.object
   let customerId: string | null = null, subscriptionId: string | null = null, priceId: string | null = null
   let stripeStatus: string | null = null, periodStart: string | null = null, periodEnd: string | null = null, clientRef: string | null = null
+  let invoiceId: string | null = null, nextAttempt: string | null = null
   if (event.type === 'checkout.session.completed') {
     customerId = typeof o.customer === 'string' ? o.customer : o.customer?.id || null
     subscriptionId = typeof o.subscription === 'string' ? o.subscription : o.subscription?.id || null
@@ -45,12 +46,15 @@ Deno.serve(async (req) => {
     customerId = typeof o.customer === 'string' ? o.customer : o.customer?.id || null
     subscriptionId = typeof o.subscription === 'string' ? o.subscription : o.subscription?.id || null
     periodEnd = iso(o.lines?.data?.[0]?.period?.end)
+    invoiceId = o.id || null
+    nextAttempt = iso(o.next_payment_attempt)   // sätts av Stripe vid invoice.payment_failed
   }
 
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const { data, error } = await admin.rpc('stripe_handle_event', {
     p_event_id: event.id, p_type: event.type, p_customer_id: customerId, p_subscription_id: subscriptionId,
     p_price_id: priceId, p_stripe_status: stripeStatus, p_period_start: periodStart, p_period_end: periodEnd, p_client_reference: clientRef,
+    p_invoice_id: invoiceId, p_next_attempt: nextAttempt,
   })
   if (error) return json({ error: 'handler_failed' }, 500)   // 5xx -> Stripe gör retry
   return json({ received: true, result: data })

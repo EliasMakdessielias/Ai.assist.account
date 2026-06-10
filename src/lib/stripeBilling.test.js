@@ -1,12 +1,47 @@
 import { describe, it, expect } from 'vitest'
-import { STRIPE_HANDLED_EVENTS, STRIPE_REQUIRED_ENV, mapStripeStatus, stripeCustomerUrl, isValidStripeId, planStripeStatus } from './stripeBilling'
+import { STRIPE_HANDLED_EVENTS, STRIPE_REQUIRED_ENV, mapStripeStatus, stripeCustomerUrl, isValidStripeId, planStripeStatus, serviceStateForBilling, stripeConfigSummary } from './stripeBilling'
 
-describe('Stripe-event-stöd (krav 7)', () => {
-  it('hanterar minst de sex kärn-eventen', () => {
+describe('Stripe-event-stöd (krav 6/7)', () => {
+  it('hanterar kärn-eventen + invoice.finalized (Fas 3)', () => {
     for (const e of ['checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated',
-      'customer.subscription.deleted', 'invoice.payment_succeeded', 'invoice.payment_failed']) {
+      'customer.subscription.deleted', 'invoice.finalized', 'invoice.payment_succeeded', 'invoice.payment_failed']) {
       expect(STRIPE_HANDLED_EVENTS).toContain(e)
     }
+  })
+})
+
+describe('serviceStateForBilling – betalningsstatus → service_state (Fas 3, krav 7)', () => {
+  const now = new Date('2026-06-10T12:00:00Z').getTime()
+  const future = '2026-06-15T12:00:00Z', past = '2026-06-05T12:00:00Z'
+  it('trial/active → active', () => {
+    expect(serviceStateForBilling({ status: 'trial' }, now)).toBe('active')
+    expect(serviceStateForBilling({ status: 'active' }, now)).toBe('active')
+  })
+  it('past_due inom grace → active, efter grace → paused', () => {
+    expect(serviceStateForBilling({ status: 'past_due', grace_until: future }, now)).toBe('active')
+    expect(serviceStateForBilling({ status: 'past_due', grace_until: past }, now)).toBe('paused')
+    expect(serviceStateForBilling({ status: 'past_due', grace_until: null }, now)).toBe('paused')  // ingen grace satt
+  })
+  it('cancelled/expired/suspended → paused', () => {
+    expect(serviceStateForBilling({ status: 'cancelled' }, now)).toBe('paused')
+    expect(serviceStateForBilling({ status: 'expired' }, now)).toBe('paused')
+    expect(serviceStateForBilling({ status: 'suspended' }, now)).toBe('paused')
+  })
+  it('admin-manuell lås respekteras – Stripe rör inte (krav 7)', () => {
+    expect(serviceStateForBilling({ status: 'active', service_state_manual: true }, now)).toBeNull()
+    expect(serviceStateForBilling({ status: 'past_due', grace_until: past, service_state_manual: true }, now)).toBeNull()
+    expect(serviceStateForBilling(null, now)).toBeNull()
+  })
+})
+
+describe('stripeConfigSummary – konfigurationsstatus (krav 3/13)', () => {
+  it('ready när alla aktiva planer är kopplade, partial/none annars', () => {
+    expect(stripeConfigSummary([{ is_active: true, stripe_price_monthly: 'price_a' }, { is_active: true, stripe_price_yearly: 'price_b' }]))
+      .toEqual({ total: 2, connected: 2, status: 'ready' })
+    expect(stripeConfigSummary([{ is_active: true, stripe_price_monthly: 'price_a' }, { is_active: true }]))
+      .toEqual({ total: 2, connected: 1, status: 'partial' })
+    expect(stripeConfigSummary([{ is_active: true }])).toEqual({ total: 1, connected: 0, status: 'none' })
+    expect(stripeConfigSummary([])).toEqual({ total: 0, connected: 0, status: 'none' })
   })
 })
 

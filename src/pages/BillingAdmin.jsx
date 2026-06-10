@@ -7,7 +7,7 @@ import {
   formatPrice, formatLimit,
 } from '../lib/billing'
 import UsageOverview from '../components/UsageOverview'
-import { stripeCustomerUrl, isValidStripeId, planStripeStatus } from '../lib/stripeBilling'
+import { stripeCustomerUrl, isValidStripeId, planStripeStatus, stripeConfigSummary } from '../lib/stripeBilling'
 import toast from 'react-hot-toast'
 
 const Pill = ({ tone, children }) => (
@@ -26,6 +26,8 @@ export default function BillingAdmin() {
   const [plans, setPlans] = useState([])
   const [sel, setSel] = useState(null)        // admin_get_subscription
   const [dates, setDates] = useState({ trial: '', period: '' })
+  const [grace, setGrace] = useState('')        // grace_until (date)
+  const [discount, setDiscount] = useState('')  // discount_percent
   const [filters, setFilters] = useState({ status: '', planId: '', search: '' })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -45,6 +47,7 @@ export default function BillingAdmin() {
     const { data, error } = await supabase.rpc('admin_get_subscription', { p_company_id: id })
     if (error) return toast.error('Kunde inte hämta')
     setSel(data); setDates({ trial: toDate(data.subscription?.trial_ends_at), period: toDate(data.subscription?.current_period_end) })
+    setGrace(toDate(data.subscription?.grace_until)); setDiscount(data.subscription?.discount_percent ?? '')
   }
   async function act(rpc, params, okMsg) {
     setBusy(true)
@@ -87,7 +90,13 @@ export default function BillingAdmin() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium flex items-center gap-2"><i className="ti ti-credit-card text-purple-600" /> Billing</span>
+        <span className="text-base font-medium flex items-center gap-2"><i className="ti ti-credit-card text-purple-600" /> Billing
+          {(() => { const cfg = stripeConfigSummary(plans); return (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${cfg.status === 'ready' ? 'bg-green-100 text-green-700' : cfg.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}
+              title="Stripe price-id per plan. Saknas koppling → checkout faller tillbaka till supportärende.">
+              <i className="ti ti-brand-stripe" /> {cfg.connected}/{cfg.total} planer kopplade
+            </span>) })()}
+        </span>
         <div className="flex items-center gap-2">
           <div className="flex bg-gray-100 rounded-lg p-0.5 text-sm">
             <button className={`px-3 py-1 rounded-md ${tab === 'subs' ? 'bg-white shadow-sm' : 'text-gray-500'}`} onClick={() => setTab('subs')}>Abonnemang</button>
@@ -169,6 +178,29 @@ export default function BillingAdmin() {
                     ? <a href={stripeCustomerUrl(s.payment_customer_id)} target="_blank" rel="noopener" className="text-blue-600 hover:underline">{s.payment_customer_id}</a>
                     : '–'} · Prenumeration: {s?.payment_subscription_id || '–'}</div>
                   <div className="mt-1">Senaste betalning: {fmt(s?.last_payment_at)} · Skapad: {fmt(s?.created_at)} · Pausad: {fmt(s?.suspended_at)} · Avslutad: {fmt(s?.cancelled_at)}</div>
+                  <div className="mt-1">Misslyckad betalning: {fmt(s?.last_payment_failed_at)} · Nästa försök: {fmt(s?.next_payment_attempt_at)} · Senaste faktura: {s?.stripe_latest_invoice_id || '–'}</div>
+                </div>
+
+                {/* Fas 3: grace period, rabatt, service-state-sync */}
+                <div className="bg-white rounded-xl p-4 space-y-3" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+                  <div className="text-xs font-semibold text-gray-600 flex items-center justify-between">
+                    <span><i className="ti ti-shield-half text-purple-600" /> Tjänst & grace</span>
+                    <span className="text-[10px] text-gray-400">Tjänstelås: {sel.company?.service_state || 'active'}{sel.company?.service_state_manual ? ' (manuell)' : ''}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="block text-[11px] text-gray-500 mb-1">Grace till</label>
+                      <input type="date" className="input text-sm py-1" value={grace} onChange={e => setGrace(e.target.value)} /></div>
+                    <div className="flex items-end">
+                      <button className="btn text-sm" disabled={busy} onClick={() => act('admin_set_subscription_grace', { p_company_id: sel.company.id, p_grace_until: fromDate(grace) }, 'Grace-period sparad')}>Sätt grace</button></div>
+                    <div><label className="block text-[11px] text-gray-500 mb-1">Rabatt (%)</label>
+                      <input type="number" min="0" max="100" className="input text-sm py-1" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" /></div>
+                    <div className="flex items-end">
+                      <button className="btn text-sm" disabled={busy} onClick={() => act('admin_set_subscription_discount', { p_company_id: sel.company.id, p_percent: Number(discount) || 0 }, 'Rabatt sparad')}>Sätt rabatt</button></div>
+                  </div>
+                  <button className="btn text-sm" disabled={busy} onClick={() => act('admin_sync_service_state', { p_company_id: sel.company.id }, 'Tjänstelås synkat från billing')}>
+                    <i className="ti ti-refresh" /> Sync tjänstelås från billing
+                  </button>
+                  <p className="text-[10px] text-gray-400">Admin-manuell paus/blockering (Företag-vyn) skrivs aldrig över av Stripe. Använd Återaktivera där för att släppa låset.</p>
                 </div>
               </div>
             )}

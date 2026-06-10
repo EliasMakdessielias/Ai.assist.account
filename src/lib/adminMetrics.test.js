@@ -49,6 +49,16 @@ describe('computeBillingMetrics – MRR/ARR/ARPC + statusräkning (krav 2)', () 
   it('tom indata ger nollor', () => {
     const z = computeBillingMetrics([], [])
     expect(z.mrr).toBe(0); expect(z.arr).toBe(0); expect(z.arpc).toBe(0); expect(z.totalCompanies).toBe(0)
+    expect(z.failedPayments).toBe(0)
+  })
+  it('failedPayments räknar payment_status=failed (Fas 3)', () => {
+    const m2 = computeBillingMetrics([
+      { company_id: 'x', subscription_id: 's', plan_id: 'p1', plan_name: 'Bas', status: 'past_due', billing_period: 'monthly', payment_status: 'failed' },
+      { company_id: 'y', subscription_id: 's2', plan_id: 'p1', plan_name: 'Bas', status: 'active', billing_period: 'monthly', payment_status: 'paid' },
+      { company_id: 'z', subscription_id: 's3', plan_id: 'p2', plan_name: 'Plus', status: 'past_due', billing_period: 'monthly', payment_status: 'failed' },
+    ], plans)
+    expect(m2.failedPayments).toBe(2)
+    expect(m2.pastDue).toBe(2)
   })
 })
 

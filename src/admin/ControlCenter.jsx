@@ -75,6 +75,7 @@ export default function ControlCenter({ access }) {
             <Card label="Aktiva" value={b.activeCompanies} />
             <Card label="Trial" value={b.trial} />
             <Card label="Past due" value={b.pastDue} tone={b.pastDue ? 'amber' : 'gray'} />
+            <Card label="Misslyckade bet." value={b.failedPayments} tone={b.failedPayments ? 'red' : 'gray'} />
             <Card label="Pausade/blockerade" value={b.paused} tone={b.paused ? 'red' : 'gray'} />
             <Card label="Avslutade" value={b.cancelled + b.expired} />
           </div>

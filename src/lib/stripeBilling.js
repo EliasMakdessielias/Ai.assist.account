@@ -3,8 +3,24 @@
 
 export const STRIPE_HANDLED_EVENTS = [
   'checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated',
-  'customer.subscription.deleted', 'invoice.payment_succeeded', 'invoice.payment_failed',
+  'customer.subscription.deleted', 'invoice.finalized', 'invoice.payment_succeeded', 'invoice.payment_failed',
 ]
+
+// Billing-status → companies.service_state (speglar sync_company_service_state_from_billing i DB).
+// Returnerar målstatus, eller null om admin-manuell lås (service_state_manual) ska respekteras (krav 7).
+// Policy: trial/active→active; past_due inom grace→active, efter grace→paused; cancelled/expired/suspended→paused.
+export function serviceStateForBilling(sub, now = Date.now()) {
+  if (!sub) return null
+  if (sub.service_state_manual) return null            // admin-manuell lås rörs aldrig av billing
+  const status = sub.status
+  if (status === 'trial' || status === 'active') return 'active'
+  if (status === 'past_due') {
+    const g = sub.grace_until ? new Date(sub.grace_until).getTime() : null
+    return (g && g > now) ? 'active' : 'paused'        // inom grace → kvar aktiv, efter → paused
+  }
+  if (status === 'cancelled' || status === 'expired' || status === 'suspended') return 'paused'
+  return 'active'
+}
 
 export const STRIPE_REQUIRED_ENV = [
   'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET',
@@ -51,4 +67,14 @@ export function planStripeStatus(plan) {
   const monthly = !!(plan?.stripe_price_monthly)
   const yearly = !!(plan?.stripe_price_yearly)
   return { monthly, yearly, product: !!(plan?.stripe_product_id), connected: monthly || yearly }
+}
+
+// Konfigurationsstatus för Stripe (admin). Klienten kan inte läsa edge-secrets, men kan visa hur
+// många planer som har price-id kopplade. Saknas koppling → checkout faller tillbaka till supportärende.
+// status: 'ready' (alla aktiva planer kopplade), 'partial', 'none'.
+export function stripeConfigSummary(plans = []) {
+  const active = (plans || []).filter(p => p?.is_active)
+  const connected = active.filter(p => planStripeStatus(p).connected)
+  const status = active.length === 0 ? 'none' : connected.length === active.length ? 'ready' : connected.length > 0 ? 'partial' : 'none'
+  return { total: active.length, connected: connected.length, status }
 }
