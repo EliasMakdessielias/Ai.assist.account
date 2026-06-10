@@ -200,8 +200,12 @@ export default function Inkorg() {
     return [lev, dat, tot != null ? `${fmt(tot)} kr` : null].filter(Boolean).join(' · ')
   }
 
-  const visible = docs.filter(d => (d.kategori || 'dokument') === kat && !d.verifikation_id)
-  const counts = Object.fromEntries(KATS.map(k => [k.key, docs.filter(d => (d.kategori || 'dokument') === k.key && !d.verifikation_id).length]))
+  // Effektiv kategori: okänd/borttagen kategori (t.ex. äldre 'kundfaktura') visas under
+  // "Behöver granskas" så inget underlag blir osynligt utan flik.
+  const KAT_KEYS = new Set(KATS.map(k => k.key))
+  const effKat = d => { const k = d.kategori || 'dokument'; return KAT_KEYS.has(k) ? k : 'okand' }
+  const visible = docs.filter(d => effKat(d) === kat && !d.verifikation_id)
+  const counts = Object.fromEntries(KATS.map(k => [k.key, docs.filter(d => effKat(d) === k.key && !d.verifikation_id).length]))
   const fileIcon = m => m === 'application/pdf' ? 'ti-file-type-pdf' : m?.startsWith('image/') ? 'ti-photo' : 'ti-file'
   // Klassificeringsbadge (detekterad typ-confidence/status) för e-postunderlag.
   function classBadge(d) {

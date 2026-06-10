@@ -21,9 +21,10 @@ describe('classifyDocument', () => {
     expect(r.status).toBe('classified')
   })
 
-  it('kundfaktura känns igen', () => {
+  it('kundfaktura-kategorin finns inte längre (klassas ej som kundfaktura)', () => {
     const r = classifyDocument({ filename: 'kundfaktura.pdf', bodyText: 'Kundfaktura till kund' })
-    expect(r.type).toBe('kundfaktura')
+    expect(r.type).not.toBe('kundfaktura')
+    expect(r.type).toBe('leverantorsfaktura')   // innehåller "faktura" → fakturasignal
   })
 
   it('okänd fil -> needs_review', () => {

@@ -10,23 +10,21 @@
 // AI/OCR är valfria signaler: skicka ocrText (t.ex. från tolka-underlag) för bättre
 // träffsäkerhet. Motorn är avsiktligt deterministisk och enhetstestbar.
 
-export const DOC_TYPES = ['kvitto', 'leverantorsfaktura', 'kundfaktura', 'avtal', 'dokument', 'okand']
+export const DOC_TYPES = ['kvitto', 'leverantorsfaktura', 'avtal', 'dokument', 'okand']
 export const CLASSIFIED_THRESHOLD = 0.6
 
 // Vid lika poäng vinner kategorin tidigast i denna prioritet.
-const PRIORITY = ['leverantorsfaktura', 'kvitto', 'kundfaktura', 'avtal', 'dokument']
+const PRIORITY = ['leverantorsfaktura', 'kvitto', 'avtal', 'dokument']
 
 // Starka nyckelord (ger basvikt) + stödjande signaler (mindre vikt).
 const STRONG = {
   kvitto: ['kvitto', 'receipt', 'kassakvitto', 'kortköp'],
   leverantorsfaktura: ['leverantörsfaktura', 'faktura', 'invoice'],
-  kundfaktura: ['kundfaktura', 'utgående faktura'],
   avtal: ['avtal', 'kontrakt', 'agreement', 'contract'],
 }
 const SUPPORT = {
   kvitto: ['butik', 'betaldatum', 'kvittonr', 'kortbetalning', 'swish', 'summa'],
   leverantorsfaktura: ['ocr', 'bankgiro', 'plusgiro', 'förfallodatum', 'fakturanummer', 'fakturanr', 'att betala', 'momsreg', 'org.nr'],
-  kundfaktura: ['kund', 'vår referens', 'er referens'],
   avtal: ['signerat', 'signerad', 'parterna', 'parter', 'villkor', 'undertecknat', 'giltighetstid'],
 }
 const STRONG_WEIGHT = 0.6
@@ -44,7 +42,7 @@ export function classifyDocument(input = {}, opts = {}) {
 
   const hay = `${filename} ${subject} ${bodyText} ${ocrText}`.toLowerCase()
   const scores = {}
-  for (const cat of ['kvitto', 'leverantorsfaktura', 'kundfaktura', 'avtal']) {
+  for (const cat of ['kvitto', 'leverantorsfaktura', 'avtal']) {
     const strong = countHits(hay, STRONG[cat]) > 0 ? STRONG_WEIGHT : 0
     const support = countHits(hay, SUPPORT[cat]) * SUPPORT_WEIGHT
     scores[cat] = strong > 0 ? strong + support : support * 0.5 // stödsignal utan starkt ord väger lätt

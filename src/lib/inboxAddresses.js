@@ -12,7 +12,6 @@ export const INBOX_LOCAL = 'underlag'
 export const INBOX_CATEGORIES = [
   { key: 'kvitto', label: 'Kvitton', icon: 'ti-receipt', tolka: true, create: 'verifikation' },
   { key: 'leverantorsfaktura', label: 'Leverantörsfakturor', icon: 'ti-file-invoice', tolka: true, create: 'lev' },
-  { key: 'kundfaktura', label: 'Kundfakturor', icon: 'ti-file-dollar', tolka: false },
   { key: 'dokument', label: 'Dokument', icon: 'ti-file-text', tolka: false },
   { key: 'avtal', label: 'Avtal', icon: 'ti-file-certificate', tolka: false },
   { key: 'okand', label: 'Behöver granskas', icon: 'ti-help-circle', tolka: false },

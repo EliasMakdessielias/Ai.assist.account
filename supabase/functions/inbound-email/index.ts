@@ -76,22 +76,20 @@ function attachmentReject(a: { filename?: string; contentType?: string; size?: n
 const STRONG: Record<string, string[]> = {
   kvitto: ['kvitto', 'receipt', 'kassakvitto', 'kortköp'],
   leverantorsfaktura: ['leverantörsfaktura', 'faktura', 'invoice'],
-  kundfaktura: ['kundfaktura', 'utgående faktura'],
   avtal: ['avtal', 'kontrakt', 'agreement', 'contract'],
 }
 const SUPPORT: Record<string, string[]> = {
   kvitto: ['butik', 'betaldatum', 'kvittonr', 'kortbetalning', 'swish', 'summa'],
   leverantorsfaktura: ['ocr', 'bankgiro', 'plusgiro', 'förfallodatum', 'fakturanummer', 'fakturanr', 'att betala', 'momsreg', 'org.nr'],
-  kundfaktura: ['kund', 'vår referens', 'er referens'],
   avtal: ['signerat', 'signerad', 'parterna', 'parter', 'villkor', 'undertecknat', 'giltighetstid'],
 }
-const PRIORITY = ['leverantorsfaktura', 'kvitto', 'kundfaktura', 'avtal', 'dokument']
+const PRIORITY = ['leverantorsfaktura', 'kvitto', 'avtal', 'dokument']
 function classify(input: { filename?: string; mimeType?: string; subject?: string; bodyText?: string }, supported: boolean) {
   if (!supported) return { type: 'okand', confidence: 0, status: 'unsupported' }
   const hay = `${input.filename || ''} ${input.subject || ''} ${input.bodyText || ''}`.toLowerCase()
   const hits = (ws: string[]) => ws.reduce((n, w) => n + (hay.includes(w) ? 1 : 0), 0)
   const scores: Record<string, number> = {}
-  for (const c of ['kvitto', 'leverantorsfaktura', 'kundfaktura', 'avtal']) {
+  for (const c of ['kvitto', 'leverantorsfaktura', 'avtal']) {
     const strong = hits(STRONG[c]) > 0 ? 0.6 : 0
     const support = hits(SUPPORT[c]) * 0.12
     scores[c] = strong > 0 ? strong + support : support * 0.5

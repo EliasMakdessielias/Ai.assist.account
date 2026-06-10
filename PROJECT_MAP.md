@@ -443,7 +443,7 @@ obligatorisk→sänd trots opt-out, ogiltig mottagare→permanent fail, ingen du
 ## Inkorg-nedladdning [INBOX_DOWNLOAD]
 Ladda ner underlag från Inkorgen: enskild fil, valda som ZIP, eller hela fliken som ZIP.
 - **Ren logik** `src/lib/inboxDownload.js` (testad i `inboxDownload.test.js`): `sectionSlug` (kategori→slug:
-  kvitton/leverantorsfakturor/kundfakturor/dokument/avtal/behover_granskas), `sanitizeFilename` (blockerar path
+  kvitton/leverantorsfakturor/dokument/avtal/behover_granskas), `sanitizeFilename` (blockerar path
   traversal `../ / \`, null/styrtecken, allowlist `[A-Za-z0-9._-]`, behåller ändelse), `dedupeNames`
   (faktura.pdf→faktura_2.pdf…), `zipFileName` (`{slug}_{YYYY-MM-DD}.zip`, valda: `{slug}_valda_…`),
   `checkZipLimits` (max **50 filer / 150 MB**, dokumenterad client-side-gräns), `partialSummary`.

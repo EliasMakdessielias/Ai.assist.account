@@ -5,7 +5,6 @@
 export const SECTION_SLUGS = {
   kvitto: 'kvitton',
   leverantorsfaktura: 'leverantorsfakturor',
-  kundfaktura: 'kundfakturor',
   dokument: 'dokument',
   avtal: 'avtal',
   okand: 'behover_granskas',
