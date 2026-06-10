@@ -48,7 +48,13 @@ export default function NyVerifikation() {
   const [accounts, setAccounts] = useState([])
   const [saving, setSaving] = useState(false)
   const beskRef = useRef()
-  const [panelOpen, setPanelOpen] = useState(true)
+  // Underlagspanelens öppen/dölj sparas per vy (krav 9/12/13).
+  const [panelOpen, setPanelOpen] = useState(() => {
+    try { return localStorage.getItem('bokpilot.bokforing.nyverifikation.viewerOpen') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('bokpilot.bokforing.nyverifikation.viewerOpen', panelOpen ? '1' : '0') } catch { /* ignore */ }
+  }, [panelOpen])
   const [attachIds, setAttachIds] = useState([])
   const [reloadSignal, setReloadSignal] = useState(0)
   const [kommentar, setKommentar] = useState('')
@@ -594,7 +600,7 @@ export default function NyVerifikation() {
         <i className={`ti ${panelOpen ? 'ti-chevron-right' : 'ti-chevron-left'}`} />
       </button>
       {panelOpen && (
-        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={initialDoc} reloadSignal={reloadSignal} onClose={() => setPanelOpen(false)} />
+        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={initialDoc} reloadSignal={reloadSignal} widthKey="bokpilot.bokforing.nyverifikation.viewerW" onClose={() => setPanelOpen(false)} />
       )}
     </div>
   )

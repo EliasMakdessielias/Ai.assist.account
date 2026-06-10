@@ -71,6 +71,35 @@ describe('Ny leverantörsfaktura – panelbredd ~45% av fönstret (krav 1-8/16)'
   })
 })
 
+// Verifikation – ny: samma split-modell (UnderlagPanel med widthKey
+// bokpilot.bokforing.nyverifikation.viewerW). Arbetsyta och underlag delar ytan
+// efter sidomenyn 50/50; hopfälld sidomeny räknas om.
+describe('Ny verifikation – arbetsyta/underlag 50/50 efter sidomeny (krav 1-8/20)', () => {
+  const panelDefault = (vw, collapsed = false) =>
+    resolveViewerWidth(null, vw - sidebarWidth(vw, collapsed), { fraction: 0.5, minPx: 420 })
+
+  it('default 50/50: underlag ≈ arbetsyta (krav 1/2/3/6)', () => {
+    const avail = 1920 - sidebarWidth(1920)              // 1700
+    const panel = panelDefault(1920)                     // 850
+    expect(panel).toBe(850)
+    expect(avail - panel).toBe(panel)                    // arbetsyta === underlag (50/50)
+  })
+
+  it('hopfälld sidomeny räknas om (krav 5)', () => {
+    // sidomeny 72 → avail 1848 → 50% = 924 (≠ utfällt 850)
+    expect(panelDefault(1920, true)).toBe(924)
+    expect(panelDefault(1920, true)).not.toBe(panelDefault(1920, false))
+  })
+
+  it('giltigt sparat värde respekteras, ogiltigt/för litet återställs till 50/50 (krav 7/8)', () => {
+    const avail = 1920 - sidebarWidth(1920)              // 1700, default 850
+    expect(resolveViewerWidth('900', avail, { fraction: 0.5, minPx: 420 })).toBe(900)   // giltigt
+    expect(resolveViewerWidth('100', avail, { fraction: 0.5, minPx: 420 })).toBe(850)   // för litet
+    expect(resolveViewerWidth('NaN', avail, { fraction: 0.5, minPx: 420 })).toBe(850)   // NaN
+    expect(resolveViewerWidth('9999', avail, { fraction: 0.5, minPx: 420 })).toBe(850)  // för stort (>75%)
+  })
+})
+
 describe('computeAutoScale – fit-to-width (Auto)', () => {
   it('returnerar null innan container/dokument mätts', () => {
     expect(computeAutoScale(0, 800, 1000, 1400)).toBeNull()
