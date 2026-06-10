@@ -200,8 +200,10 @@ Idempotens på event-nivå via `notification_events.dedupe_key` (unikt per `comp
   vid lyckad körning (rensar last_error); cron pingar `scheduled-notifications`.
 
 **Admin: Support** (`src/pages/SupportAdmin.jsx`, `src/lib/support.js`):
-- Route `/admin/support` (Plattform → Support), **superadmin + support_admin** (`can_view_support()` RPC-gating +
+- Route `/admin/support` (Plattform → **Supportärenden**), **superadmin + support_admin** (`can_view_support()` RPC-gating +
   RLS). operations_admin/billing_admin nekas om de inte också har support_admin. Forbidden-state för övriga.
+  Sidebar-labeln är **"Supportärenden"** (admin) för att inte krocka med kundens **"Support"** under HJÄLP (`/support`);
+  read_only_admin ser den också (`canViewSupport`). Sidebar.test.jsx verifierar att ingen roll ser dubbel "Support".
 - **Datamodell:** `support_tickets` (company, created_by, assigned_admin, subject, category, priority, status,
   last_message_at, closed_at), `support_messages` (konversation, is_admin), `support_internal_notes`
   (**aldrig synliga för kund** – RLS `can_view_support()`), `support_attachments`. Status: new/open/
