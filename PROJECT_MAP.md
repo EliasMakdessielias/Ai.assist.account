@@ -665,3 +665,19 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   audit-fel stoppar ej tolkning) + **live-verifierat rollback-säkert**: alla fem DB-händelser loggas med rätt action/source/
   company_id/metadata, raderna fångas vid radering, kundfaktura loggas, `accounts_audit` opåverkad. Bygg + 585 tester gröna.
 - **Kvarstår (§16):** lucka 2 tvingande periodlås, lucka 3 makulering via motverifikation. **Ej ändrat i denna uppgift.**
+
+## Tvingande periodlås (BFL avvikelse 2) – [PERIODLAS]
+
+- **Migration** `supabase/periodlas.sql` (applicerad): central kontroll `assert_period_open(company, datum)` + triggers
+  `trg_periodlas_verifikation` och `trg_periodlas_ver_rows` (BEFORE INSERT/UPDATE/DELETE). Gäller alla klienter inkl.
+  service_role. **Ingen JS-ändring** – UI:t visar redan `error.message`, så det svenska `PERIODLÅST: …`-felet når användaren.
+- **Regler:** (1) `datum` ≤ sista dagen i `companies.bokforing_last_tom` (`YYYY-MM` från Inställningar) → blockeras;
+  (2) finns `fiscal_years` måste datum ligga i ett `active` år (stängda år låsta; företag utan år blockeras inte);
+  (3) UPDATE kräver båda datumen öppna; (4) rad-update som endast ändrar `avstamd` tillåts (bankavstämning via
+  `StamAvKonto.jsx` är ingen bokföringsändring); (5) bypass endast via transaktionslokal GUC `app.periodlas_bypass`,
+  satt i `reset_company`/`purge_test_data` (avsiktlig, auditad total-radering; samma mönster som `app.bulk_import`).
+- **Bevarade flöden:** kompenserande `rollbackVer`-delete (nyss skapad ver = öppen period), SIE-import (kräver öppet år
+  för datumen – historisk import förutsätter att rätt räkenskapsår är aktivt och inte låst).
+- **Bevis:** live-verifierat rollback-säkert, 11 scenarier: insert/flytt/delete/update i låst period blockeras (även
+  rader), utanför aktivt räkenskapsår blockeras, öppen period + avstämning + admin-bypass tillåts. Bygg + 585 tester gröna.
+- **Kvarstår (§16):** lucka 3 makulering via motverifikation (radering nu endast möjlig i öppen period, loggas med full radbild).

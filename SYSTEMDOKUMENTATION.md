@@ -135,10 +135,20 @@ beskrivningstext i `document_interpreted` (endast leverantör/org.nr/fakturanr/d
 ## 7. Räkenskapsår och periodlåsning
 
 - `fiscal_years` (start/slut/status) per företag; Kontoanalys auto-väljer aktivt år.
-- `companies.bokforing_last_tom` visas ("Bokföring låst t.o.m. …") i rapportfiltren.
-
-> **VIKTIG LUCKA:** Periodlåset är **endast visning** – det finns **ingen trigger** som hindrar bokföring i låst period eller
-> utanför öppet räkenskapsår (`finns_periodlas_trigger=false`). Se §16.
+- `companies.bokforing_last_tom` (format `YYYY-MM`, sätts i Inställningar) visas ("Bokföring låst t.o.m. …") i rapportfiltren.
+- **Tvingande periodlås på DB-nivå** (avvikelse 2 åtgärdad, `supabase/periodlas.sql`): central kontroll
+  `assert_period_open(company, datum)` + triggers `trg_periodlas_verifikation` (BEFORE INSERT/UPDATE/DELETE på
+  `verifikationer`) och `trg_periodlas_ver_rows` (BEFORE INSERT/UPDATE/DELETE på `verifikation_rows`). Gäller **alla**
+  klienter (UI, edge, service_role). Regler:
+  1. `datum` ≤ sista dagen i `bokforing_last_tom` → insert/update/delete **blockeras** (svenskt fel `PERIODLÅST: …`).
+  2. Finns räkenskapsår måste `datum` ligga i ett **öppet** (`active`) år; stängda år är låsta. Företag **utan**
+     räkenskapsår blockeras inte av årsregeln (nystartade).
+  3. UPDATE kräver att **både** gamla och nya datumet är öppna (låst post kan inte ändras eller flyttas in/ut ur lås).
+  4. **Bankavstämning undantagen:** rad-update som endast ändrar `avstamd` tillåts (ingen bokföringsändring).
+  5. **Bypass endast** för avsiktlig administrativ total-radering: `reset_company`/`purge_test_data` sätter
+     transaktionslokal GUC `app.periodlas_bypass` (samma mönster som `app.bulk_import`); båda auditas redan.
+  Kompenserande radering i bokför-flödet (`rollbackVer`) påverkas inte – en nyss skapad verifikation ligger per
+  definition i öppen period.
 
 ## 8. Service locks (tjänstelås)
 
@@ -188,6 +198,7 @@ secrets/price-id saknas; webhook signaturverifierad, verify_jwt=false).
 |---|---|
 | 2026-06-11 | Första versionen av SYSTEMDOKUMENTATION.md (as-built + lucksanalys) efter bindande redovisningsprotokoll. |
 | 2026-06-11 | Avvikelse 1 åtgärdad: behandlingshistorik för bokföring (`audit_log.source`/`metadata` + `log_accounting_audit` + triggers + `document_interpreted`). Se §6 och §16.1. |
+| 2026-06-11 | Avvikelse 2 åtgärdad: tvingande periodlås på DB-nivå (`assert_period_open` + triggers på `verifikationer`/`verifikation_rows`, avstämningsundantag, admin-bypass). Se §7 och §16.2. |
 
 ---
 
@@ -203,9 +214,10 @@ konflikten rapporteras**.
    `customer_invoice_booked`, och klienten loggar `document_interpreted` (se §6). Bokföringslogiken är **oförändrad** och audit
    kan **aldrig** stoppa en bokföring. Live-verifierat (rollback-säkert) och täckt av tester (`auditAccounting.test.js`,
    `tolka.test.js`). **Kvarstår:** dedikerade ledger-händelser för moms/skatt (egen datamodell) – se lucka 5.
-2. **Periodlås ej tvingande (§2, §15).** `companies.bokforing_last_tom` visas men ingen DB-trigger hindrar bokföring i låst
-   period eller utanför öppet räkenskapsår. **Åtgärd:** BEFORE INSERT/UPDATE-trigger på `verifikationer` som validerar
-   `datum` mot öppet `fiscal_years` och `bokforing_last_tom`.
+2. **Periodlås — ✅ ÅTGÄRDAD (2026-06-11, `supabase/periodlas.sql`).** DB-triggers på `verifikationer` +
+   `verifikation_rows` blockerar insert/update/delete i låst period (`bokforing_last_tom`) och utanför öppet räkenskapsår,
+   för alla klienter. Bankavstämning (`avstamd`) undantagen; bypass endast för auditad admin-total-radering
+   (`reset_company`/`purge_test_data`). Live-verifierat rollback-säkert (11 scenarier). Se §7.
 3. **Makulering förstör original (§2, §4).** Det finns ingen status (`aktiv/makulerad/rättad`) på `verifikationer`;
    "makulering" sker via **radering** (`trg_verifikation_delete` återställer faktura/underlag) → originalet bevaras inte.
    **Åtgärd:** statusfält + **motverifikation** (omvänd kontering) i stället för fysisk radering, så historik och spårbarhet
@@ -217,7 +229,9 @@ konflikten rapporteras**.
 6. **Kundfaktura-kreditlogik (§12)** är inte härdad/testad i samma omfattning som leverantörsfakturan.
 7. **Skatt/deklaration (§8)** är inte byggt; ska byggas stegvis med tydlig regelkälla och separation bokförings-/deklarationsdata.
 
-**Konsekvens (bindande):** lucka 1 (behandlingshistorik för bokföring) är nu åtgärdad. **Kvarstående kritiska luckor: (2)
-tvingande periodlås och (3) makulering via motverifikation.** Tills dessa två är åtgärdade kan BokPilot fortfarande bokföra i
-låst period/utanför öppet räkenskapsår och "makulera" genom radering som inte bevarar originalet, vilket strider mot
-Bokföringslagen. Nästa redovisningsuppgift bör prioritera **(2) tvingande periodlås** och **(3) makulering via motverifikation**.
+**Konsekvens (bindande):** luckorna 1 (behandlingshistorik) och 2 (tvingande periodlås) är nu åtgärdade. **Kvarstående
+kritisk lucka: (3) makulering via motverifikation.** Tills den är åtgärdad "makulerar" BokPilot genom radering som inte
+bevarar originalet, vilket strider mot Bokföringslagen — dock numera endast möjligt i **öppen** period (periodlåset
+blockerar radering i låst period) och varje radering loggas med full radbild i behandlingshistoriken. Nästa
+redovisningsuppgift bör prioritera **(3) makulering via motverifikation** (statusfält + omvänd kontering i stället för
+fysisk radering), därefter (4) spårbart rättelseflöde.
