@@ -479,7 +479,6 @@ export default function NyLeverantorsfaktura() {
         </label>
         <Tool icon="ti-copy" label="Kopiera" disabled />
         <Tool icon="ti-cash" label="Utbetalningar" onClick={() => navigate('/leverantorsfakturor')} />
-        <Tool icon="ti-file-off" label="Inaktivera betalfil" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
         <Tool icon="ti-search" label="Kreditupplysning" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
         <Tool icon="ti-calendar" label="Periodisering" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
         <Tool icon="ti-message" label="Kommentar" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
