@@ -545,4 +545,29 @@ BokPilot identifierar automatiskt kreditfakturor/kreditnotor från OCR och skapa
 - **Bevis:** lib-tester (detektion sv/en, ingen dubbel-negativ, omvänd kontering, öresutjämning, referensexempel
   −1 458/−291,50) + integrationstest `NyLeverantorsfaktura.credit.test.jsx` (OCR-fyllning + manuell toggle) + rollback-säker
   prod-simulering: kreditverifikation 2440 debet 1458, 6550/2641 kredit, 3740 kredit 0,50, ΣD=ΣK=1458, faktura lagrad med
-  negativa belopp, revert OK. **Edge function kräver redeploy** för att prompten ska gälla live (kod uppdaterad).
+  negativa belopp, revert OK. Edge function `tolka-underlag` **v19 deployad** (verify_jwt=true) – prompten gäller live.
+
+#### Kontering från förra fakturan  *(2026-06-11)*
+I Skapa leverantörsfaktura: hopfällbar sektion mellan **Ytterligare uppgifter** och **Kontoregistrering** som hämtar
+senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återanvända kontostrukturen.
+- **Datakälla (RLS, ingen ny modell, ingen RPC):** klientfråga i `NyLeverantorsfaktura.jsx` (effekt på `[company.id, supplierId]`)
+  → senaste `supplier_invoices` med `bokford=true` + `verifikation_id` (sortering `invoice_date desc, created_at desc`),
+  scopad på `company_id` (+ RLS); därefter `verifikation_rows` (konto/benämning), `verifikationer` (datum/nr) och kopplat
+  `documents`. Tabellerna är RLS-skyddade per medlemskap (verifierat `relrowsecurity=true`).
+- **När den visas:** leverantör vald + minst en bokförd faktura med rader. Annars vänligt läge
+  ("Ingen tidigare kontering hittades…" / "Välj leverantör…") – ingen trasig tom tabell. Förhandsruta visar endast
+  **Konto** + **Kontobenämning**.
+- **"Använd kontering"** `buildKonteringFromPrevious` (ren, i `src/lib/leverantorsfaktura.js`): återanvänder kontona men
+  **räknar om beloppen** från nuvarande Total/Moms (gamla belopp kopieras aldrig). Ett kostnadskonto → nettot;
+  flera → proportionell fördelning efter tidigare belopp; om proportion saknas → konton utan belopp + toast
+  **"Beloppen behöver kontrolleras."** Moms hamnar på tidigare momskonto (264x), total på 2440; kreditfaktura vänder
+  sidorna; öresutjämning + balans via `buildSupplierInvoicePosting`. Bevarar leverantör/datum/OCR/fakturanr/valuta/total/moms.
+- **"Visa underlag"** öppnar tidigare fakturans underlag i ny flik via signerad URL (bucket `underlag`); disabled + svensk
+  info om inget underlag finns. Ersätter aldrig den nya fakturans underlag.
+- **Säkerhet:** company_id-isolation (filter + RLS); läsning kräver endast medlemskap. **Låsta konton** (2440/2641)
+  återanvänds som de var, reaktiveras aldrig (samma skydd som i bokför-flödet).
+- **Bevis:** lib-tester (`konteringStructureFromRows`, `buildKonteringFromPrevious`: ett/flera kostnadskonton,
+  proportion, manuell-flagga, kreditfaktura, gamla belopp ej kopierade, momskonto bevarat) + integrationstest
+  `NyLeverantorsfaktura.prevkontering.test.jsx` (ingen leverantör / utan historik / med historik → balanserad apply /
+  Visa underlag aktiv) + live-verifiering: HEDIN FINANCIAL SERVICES senaste bokförda faktura hämtas korrekt
+  (5615/5615/2440/6991/3740, 1 underlag) via exakt klientfråga.

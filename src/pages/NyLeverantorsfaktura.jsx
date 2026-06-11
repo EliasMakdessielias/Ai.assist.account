@@ -7,7 +7,7 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
-import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, signedHeaderAmount, amountMagnitude } from '../lib/leverantorsfaktura'
+import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude } from '../lib/leverantorsfaktura'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -52,6 +52,9 @@ export default function NyLeverantorsfaktura() {
   const [levEditor, setLevEditor] = useState(null)
   const [levOpen, setLevOpen] = useState(false)
   const [levQuery, setLevQuery] = useState('')
+  const [prevKontering, setPrevKontering] = useState(null)   // { invoice, ver, rows, doc } från senaste bokförda fakturan
+  const [prevOpen, setPrevOpen] = useState(false)
+  const [prevLoading, setPrevLoading] = useState(false)
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   useEffect(() => { if (company) init() }, [company?.id])
@@ -109,6 +112,35 @@ export default function NyLeverantorsfaktura() {
       } catch (e) { toast.dismiss(t); toast.error(e.message || String(e)) }
     })()
   }, [company, accounts.length])
+
+  // Hämta senaste BOKFÖRDA fakturan från samma leverantör (samma company_id) → "Kontering
+  // från förra fakturan". RLS skyddar datan; explicit company_id-filter som extra skydd.
+  // Endast bokförda fakturor med kopplad verifikation och faktiska bokföringsrader.
+  useEffect(() => {
+    if (!company || !supplierId) { setPrevKontering(null); setPrevOpen(false); return }
+    let cancelled = false
+    ;(async () => {
+      setPrevLoading(true)
+      const { data: inv } = await supabase.from('supplier_invoices')
+        .select('id, invoice_date, created_at, verifikation_id, kreditfaktura')
+        .eq('company_id', company.id).eq('supplier_id', supplierId).eq('bokford', true)
+        .not('verifikation_id', 'is', null)
+        .order('invoice_date', { ascending: false }).order('created_at', { ascending: false })
+        .limit(1).maybeSingle()
+      if (cancelled) return
+      if (!inv?.verifikation_id) { setPrevKontering(null); setPrevLoading(false); return }
+      const [{ data: vrows }, { data: ver }, { data: doc }] = await Promise.all([
+        supabase.from('verifikation_rows').select('account_nr, account_name, debet, kredit, sort_order').eq('verifikation_id', inv.verifikation_id).order('sort_order'),
+        supabase.from('verifikationer').select('ver_nr, datum').eq('id', inv.verifikation_id).maybeSingle(),
+        supabase.from('documents').select('id, storage_path, file_name, mime_type').eq('company_id', company.id).eq('verifikation_id', inv.verifikation_id).limit(1).maybeSingle(),
+      ])
+      if (cancelled) return
+      if (!vrows || !vrows.length) { setPrevKontering(null); setPrevLoading(false); return }
+      setPrevKontering({ invoice: inv, ver: ver || null, rows: vrows, doc: doc || null })
+      setPrevLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [company?.id, supplierId])
 
   async function reloadSuppliers() {
     const { data } = await supabase.from('suppliers').select('id, name, org_nr, bankgiro, default_motkonto').eq('company_id', company.id).order('name')
@@ -388,6 +420,32 @@ export default function NyLeverantorsfaktura() {
     setSaving(false)
   }
 
+  // Använd kontostrukturen från förra fakturan på den aktuella. Räknar om beloppen från
+  // NUVARANDE total/moms (gamla belopp kopieras aldrig). Bevarar leverantör/datum/OCR/
+  // fakturanr/valuta/total/moms; respekterar kreditfaktura. Låsta konton återanvänds som de var.
+  function anvandForraKontering() {
+    if (!prevKontering?.rows?.length) return
+    const res = buildKonteringFromPrevious(prevKontering.rows, { total, vat: moms, isCreditInvoice: kreditfaktura, accMap })
+    if (!res.rows.length) return toast.error('Kunde inte tillämpa tidigare kontering')
+    setRows([
+      ...res.rows.map(r => ({ konto: r.nr, namn: accMap[r.nr] || r.name || '', info: r.info || '', debet: r.debet ? fmt(r.debet) : '', kredit: r.kredit ? fmt(r.kredit) : '' })),
+      emptyRow(),
+    ])
+    const oresRow = res.rows.find(r => r.nr === '3740')
+    setOres(oresRow ? fmt(oresRow.debet || oresRow.kredit) : '')
+    if (res.needsManualAmounts) toast('Kontostruktur tillämpad. Beloppen behöver kontrolleras.', { icon: '⚠️', duration: 7000 })
+    else toast.success('Kontering tillämpad från förra fakturan')
+  }
+
+  // Öppna tidigare fakturans underlag i ny flik (ersätter INTE nuvarande fakturas underlag).
+  async function visaForraUnderlag() {
+    const d = prevKontering?.doc
+    if (!d?.storage_path) return
+    const { data, error } = await supabase.storage.from('underlag').createSignedUrl(d.storage_path, 120)
+    if (error || !data?.signedUrl) return toast.error('Kunde inte öppna det tidigare underlaget')
+    window.open(data.signedUrl, '_blank', 'noopener')
+  }
+
   const Tool = ({ icon, label, onClick, disabled }) => (
     <button disabled={disabled} onClick={onClick} className={`flex items-center gap-1.5 text-[13px] ${disabled ? 'text-gray-300' : 'text-gray-600 hover:text-gray-900'}`}>
       <i className={`ti ${icon}`} /> {label}
@@ -524,8 +582,56 @@ export default function NyLeverantorsfaktura() {
             <div><label className="block text-xs font-medium text-gray-500 mb-1">Meddelande</label><input className="input" /></div>
           </div>
         )}
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2 border-b mb-5" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-          <i className="ti ti-chevron-right text-green-700" /> Kontering från förra fakturan
+        {/* Kontering från förra fakturan – hopfällbar, mellan Ytterligare uppgifter och Kontoregistrering */}
+        <div className="border-b mb-5" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+          <button className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2 w-full" onClick={() => setPrevOpen(o => !o)}>
+            <i className={`ti ti-chevron-${prevOpen ? 'down' : 'right'} text-green-700`} /> Kontering från förra fakturan
+            {prevKontering && <span className="ml-1 text-[10px] font-semibold bg-blue-100 text-blue-700 px-1.5 rounded-full">{prevKontering.rows.length}</span>}
+          </button>
+          {prevOpen && (
+            <div className="pb-4">
+              {!supplierId ? (
+                <p className="text-sm text-gray-400 px-1 pb-1">Välj leverantör för att se tidigare kontering.</p>
+              ) : prevLoading ? (
+                <p className="text-sm text-gray-400 px-1 pb-1">Hämtar tidigare kontering…</p>
+              ) : !prevKontering ? (
+                <p className="text-sm text-gray-400 px-1 pb-1">Ingen tidigare kontering hittades för denna leverantör.</p>
+              ) : (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-3">
+                    Tidigare kontering tas fram utifrån hur ni bokfört den senaste fakturan från leverantören.
+                    {prevKontering.ver?.datum && <span className="text-gray-400"> · Bokförd {new Date(prevKontering.ver.datum).toLocaleDateString('sv-SE')}{prevKontering.ver?.ver_nr ? ` (${prevKontering.ver.ver_nr})` : ''}</span>}
+                  </p>
+                  <div className="bg-white rounded-xl overflow-hidden max-w-xl" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                          <th className="text-left px-3 py-2 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
+                          <th className="text-left px-3 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Kontobenämning</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {prevKontering.rows.map((r, i) => (
+                          <tr key={i}>
+                            <td className="border-b px-3 py-1.5 tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.account_nr}</td>
+                            <td className="border-b px-3 py-1.5 text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{accMap[r.account_nr] || r.account_name || ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center gap-2.5 mt-3">
+                    <button className="btn" onClick={visaForraUnderlag} disabled={!prevKontering.doc}
+                      title={prevKontering.doc ? 'Öppna tidigare fakturans underlag i ny flik' : 'Inget underlag finns kopplat till den tidigare fakturan.'}>
+                      <i className="ti ti-photo" /> Visa underlag
+                    </button>
+                    <button className="btn btn-green" onClick={anvandForraKontering}><i className="ti ti-copy" /> Använd kontering</button>
+                    {!prevKontering.doc && <span className="text-xs text-gray-400">Inget underlag finns kopplat till den tidigare fakturan.</span>}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Tabbar */}

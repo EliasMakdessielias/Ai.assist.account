@@ -3,6 +3,7 @@ import {
   missingKonteringAccounts, reactivatableAccounts,
   detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows,
   signedHeaderAmount, amountMagnitude,
+  konteringStructureFromRows, buildKonteringFromPrevious,
 } from './leverantorsfaktura'
 
 const sum = (rows, k) => Math.round(rows.reduce((s, r) => s + r[k], 0) * 100) / 100
@@ -225,5 +226,96 @@ describe('Spiris-faktura: dubbelräkning korrigeras och balanserar', () => {
     expect(p.balanced).toBe(true)
     expect(sum(p.rows, 'debet')).toBe(456)
     expect(sum(p.rows, 'kredit')).toBe(456)
+  })
+})
+
+describe('konteringStructureFromRows', () => {
+  it('plockar ut kostnadskonton, momskonto och leverantörsskuld ur verifikationsrader', () => {
+    const s = konteringStructureFromRows([
+      { account_nr: '2440', account_name: 'Leverantörsskulder', debet: 0, kredit: 1250 },
+      { account_nr: '2641', account_name: 'Debiterad ingående moms', debet: 250, kredit: 0 },
+      { account_nr: '5220', account_name: 'Hyra av inventarier och verktyg', debet: 1000, kredit: 0 },
+      { account_nr: '3740', account_name: 'Öres- och kronutjämning', debet: 0, kredit: 0.25 },
+    ])
+    expect(s.payableAccount).toBe('2440')
+    expect(s.vatAccount).toBe('2641')
+    expect(s.costAccounts).toEqual([{ nr: '5220', name: 'Hyra av inventarier och verktyg', prevAmount: 1000 }])
+  })
+})
+
+describe('buildKonteringFromPrevious (Kontering från förra fakturan)', () => {
+  // Grenkeleasing-liknande tidigare faktura: 2440 / 2641 / 5220.
+  const GRENKE = [
+    { account_nr: '2440', account_name: 'Leverantörsskulder', debet: 0, kredit: 9999 },
+    { account_nr: '2641', account_name: 'Debiterad ingående moms', debet: 1111, kredit: 0 },
+    { account_nr: '5220', account_name: 'Hyra av inventarier och verktyg', debet: 8888, kredit: 0 },
+  ]
+
+  it('ett kostnadskonto: nettot på kostnaden, moms på 2641, total på 2440, balanserar', () => {
+    const { rows, balanced, needsManualAmounts } = buildKonteringFromPrevious(GRENKE, { total: 1250, vat: 250, isCreditInvoice: false })
+    expect(row(rows, '5220').debet).toBe(1000)   // netto = 1250 − 250
+    expect(row(rows, '2641').debet).toBe(250)
+    expect(row(rows, '2440').kredit).toBe(1250)
+    expect(balanced).toBe(true)
+    expect(needsManualAmounts).toBe(false)
+    expect(sum(rows, 'debet')).toBe(sum(rows, 'kredit'))
+  })
+
+  it('gamla belopp kopieras INTE rakt av (räknas om från ny total/moms)', () => {
+    const { rows } = buildKonteringFromPrevious(GRENKE, { total: 500, vat: 100 })
+    expect(row(rows, '5220').debet).toBe(400)    // inte 8888
+    expect(row(rows, '2440').kredit).toBe(500)   // inte 9999
+  })
+
+  it('kreditfaktura: kostnad/moms KREDIT, 2440 DEBET, balanserar', () => {
+    const { rows, balanced } = buildKonteringFromPrevious(GRENKE, { total: 1250, vat: 250, isCreditInvoice: true })
+    expect(row(rows, '5220').kredit).toBe(1000)
+    expect(row(rows, '2641').kredit).toBe(250)
+    expect(row(rows, '2440').debet).toBe(1250)
+    expect(balanced).toBe(true)
+    for (const r of rows) { expect(r.debet).toBeGreaterThanOrEqual(0); expect(r.kredit).toBeGreaterThanOrEqual(0) }
+  })
+
+  it('flera kostnadskonton: nya nettot fördelas proportionellt, balanserar', () => {
+    const prev = [
+      { account_nr: '2440', debet: 0, kredit: 1250 },
+      { account_nr: '2641', debet: 250, kredit: 0 },
+      { account_nr: '5220', account_name: 'Hyra', debet: 600, kredit: 0 },
+      { account_nr: '6110', account_name: 'Kontorsmateriel', debet: 400, kredit: 0 },
+    ]
+    const { rows, balanced, needsManualAmounts } = buildKonteringFromPrevious(prev, { total: 1250, vat: 250 })
+    // netto 1000 fördelat 60/40
+    expect(row(rows, '5220').debet).toBe(600)
+    expect(row(rows, '6110').debet).toBe(400)
+    expect(needsManualAmounts).toBe(false)
+    expect(balanced).toBe(true)
+  })
+
+  it('flera kostnadskonton utan användbar proportion → konton utan belopp + needsManualAmounts', () => {
+    const prev = [
+      { account_nr: '2440', debet: 0, kredit: 0 },
+      { account_nr: '5220', debet: 0, kredit: 0 },
+      { account_nr: '6110', debet: 0, kredit: 0 },
+    ]
+    const { rows, needsManualAmounts, balanced } = buildKonteringFromPrevious(prev, { total: 1250, vat: 250 })
+    expect(needsManualAmounts).toBe(true)
+    expect(balanced).toBe(false)
+    expect(row(rows, '5220')).toMatchObject({ debet: 0, kredit: 0 })
+    expect(row(rows, '6110')).toMatchObject({ debet: 0, kredit: 0 })
+    // moms/2440 ligger ändå på rätt sida för ifyllnad
+    expect(row(rows, '2440').kredit).toBe(1250)
+  })
+
+  it('låsta standardkonton (2440/2641) återanvänds på rätt sida (hanteras korrekt)', () => {
+    const { rows } = buildKonteringFromPrevious(GRENKE, { total: 1250, vat: 250 })
+    expect(row(rows, '2440').kredit).toBe(1250)   // skuld kredit (normal)
+    expect(row(rows, '2641').debet).toBe(250)     // ingående moms debet
+    for (const r of rows) { expect(r.debet).toBeGreaterThanOrEqual(0); expect(r.kredit).toBeGreaterThanOrEqual(0) }
+  })
+
+  it('momskonto från tidigare faktura behålls (2641, inte default 2640)', () => {
+    const { rows } = buildKonteringFromPrevious(GRENKE, { total: 1250, vat: 250 })
+    expect(row(rows, '2641')).toBeTruthy()
+    expect(row(rows, '2640')).toBeUndefined()
   })
 })

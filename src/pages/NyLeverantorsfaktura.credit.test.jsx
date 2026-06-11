@@ -51,7 +51,7 @@ vi.mock('../lib/supabase', () => {
   const make = (table) => {
     const p = {}
     const ret = () => p
-    p.select = ret; p.eq = ret; p.order = ret; p.in = ret; p.update = ret; p.insert = ret; p.single = ret; p.maybeSingle = ret
+    p.select = ret; p.eq = ret; p.order = ret; p.in = ret; p.update = ret; p.insert = ret; p.single = ret; p.maybeSingle = ret; p.not = ret; p.limit = ret
     p.then = (resolve) => resolve({ data: DATA[table] ?? [], error: null })
     return p
   }

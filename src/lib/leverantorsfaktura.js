@@ -223,3 +223,82 @@ export function reconcileCostRows(costRows, netTarget, tol = 1.5) {
   }
   return scaled
 }
+
+// ---------------------------------------------------------------------------
+// "Kontering från förra fakturan" – återanvänd kontostruktur från en tidigare verifikation
+// ---------------------------------------------------------------------------
+
+// Plockar isär en tidigare verifikations rader till kontostruktur:
+//   costAccounts: kostnadskonton (allt utom 244x/264x/374x) med tidigare magnitud (för proportion),
+//   vatAccount/payableAccount: momskonto (264x) resp. leverantörsskuld (244x) med benämning.
+// Accepterar både verifikation_rows (account_nr/account_name) och interna rader (nr/konto).
+export function konteringStructureFromRows(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  let vatAccount = null, vatName = '', payableAccount = '2440', payableName = 'Leverantörsskulder'
+  const costAccounts = []
+  for (const r of list) {
+    const nr = String(r?.account_nr ?? r?.konto ?? r?.nr ?? '').trim()
+    if (!nr) continue
+    const name = r?.account_name ?? r?.name ?? r?.namn ?? r?.benamning ?? ''
+    const amt = round2(Math.abs(num(r?.debet) || num(r?.kredit) || num(r?.amount)))
+    if (/^244/.test(nr)) { payableAccount = nr; if (name) payableName = name; continue }
+    if (/^264/.test(nr)) { vatAccount = nr; if (name) vatName = name; continue }
+    if (/^374/.test(nr)) continue   // öresavrundning – återskapas av byggaren
+    costAccounts.push({ nr, name, prevAmount: amt })
+  }
+  return { costAccounts, vatAccount, vatName, payableAccount, payableName }
+}
+
+// Bygger NY kontering utifrån en tidigare fakturas kontostruktur + NYA total/moms.
+// Gamla belopp kopieras ALDRIG rakt av – endast kontona återanvänds, beloppen räknas om:
+//   * ett kostnadskonto  → hela nettot (Total − Moms) på det kontot,
+//   * flera kostnadskonton med tidigare belopp → nettot fördelas PROPORTIONELLT,
+//   * flera utan användbar proportion → konton utan belopp + flagga needsManualAmounts.
+// Moms hamnar på tidigare momskonto (264x), total på leverantörsskuld (244x). Kreditfaktura
+// vänder sidorna. Öresutjämning och balans sköts av buildSupplierInvoicePosting.
+export function buildKonteringFromPrevious(prevRows, { total = 0, vat = 0, isCreditInvoice = false, accMap = {} } = {}) {
+  const struct = konteringStructureFromRows(prevRows)
+  const T = amountMagnitude(total), M = amountMagnitude(vat)
+  const net = round2(T - M)
+  const nameOf = (nr, fb) => (accMap && accMap[nr]) || fb || ''
+  const vatAccount = struct.vatAccount || '2641'
+  const vatName = nameOf(vatAccount, struct.vatName || 'Debiterad ingående moms')
+  const payableAccount = struct.payableAccount
+  const payableName = nameOf(payableAccount, struct.payableName)
+
+  let needsManualAmounts = false
+  let costRows = []
+  if (struct.costAccounts.length <= 1) {
+    const c = struct.costAccounts[0]
+    if (c && net > 0.005) costRows = [{ nr: c.nr, name: nameOf(c.nr, c.name), amount: net }]
+    else if (c) costRows = [{ nr: c.nr, name: nameOf(c.nr, c.name), amount: 0 }]
+  } else {
+    const prevSum = round2(struct.costAccounts.reduce((s, c) => s + c.prevAmount, 0))
+    if (prevSum > 0.005 && net > 0.005) {
+      let acc = 0
+      costRows = struct.costAccounts.map(c => { const a = round2(net * (c.prevAmount / prevSum)); acc = round2(acc + a); return { nr: c.nr, name: nameOf(c.nr, c.name), amount: a } })
+      const resid = round2(net - acc)
+      if (Math.abs(resid) >= 0.01) { let big = 0; costRows.forEach((r, i) => { if (r.amount > costRows[big].amount) big = i }); costRows[big] = { ...costRows[big], amount: round2(costRows[big].amount + resid) } }
+    } else {
+      needsManualAmounts = true
+      costRows = struct.costAccounts.map(c => ({ nr: c.nr, name: nameOf(c.nr, c.name), amount: 0 }))
+    }
+  }
+
+  if (needsManualAmounts) {
+    // Konton utan belopp + moms/leverantörsskuld med belopp på rätt sida. Balanserar INTE
+    // (kräver manuell kontroll); debet/kredit hålls positiva (0 på tomma kostnadsrader).
+    const costSide = isCreditInvoice ? 'kredit' : 'debet'
+    const payableSide = isCreditInvoice ? 'debet' : 'kredit'
+    const out = costRows.map(c => ({ nr: c.nr, name: c.name, info: '', debet: 0, kredit: 0 }))
+    if (M > 0.005) out.push(line(vatAccount, vatName, costSide, M))
+    if (T > 0.005) out.push(line(payableAccount, payableName, payableSide, T))
+    return { rows: out, needsManualAmounts: true, balanced: false }
+  }
+
+  const posting = buildSupplierInvoicePosting({
+    isCreditInvoice, total: T, vat: M, rows: costRows.filter(r => r.amount > 0.005),
+    vatAccount, vatName, payableAccount, payableName,
+  })
+  return { rows: posting.rows, needsManualAmounts: false, balanced: posting.balanced }
+}
