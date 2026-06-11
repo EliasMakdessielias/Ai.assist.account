@@ -145,3 +145,40 @@ describe('NyLeverantorsfaktura – OCR-dubbelräkning korrigeras (Spiris-fallet)
     expect(inputs('lev-debet-')).toBeCloseTo(inputs('lev-kredit-'), 2)
   })
 })
+
+describe('NyLeverantorsfaktura – Kreditfaktura-kryssrutans placering', () => {
+  it('ligger i formuläret direkt ovanför Total/Moms-gruppen, inte i verktygsraden', async () => {
+    renderPage()
+    await waitFor(() => expect(document.querySelectorAll('#lev-konton option').length).toBeGreaterThan(0))
+
+    const checkbox = screen.getByRole('checkbox')
+    const label = checkbox.closest('label')
+    expect(label.textContent).toMatch(/Kreditfaktura/)
+
+    // INTE i verktygsraden (raden med Kopiera/Kreditupplysning)
+    const toolbar = screen.getByText('Kreditupplysning').closest('div')
+    expect(toolbar.contains(checkbox)).toBe(false)
+
+    // Sitter direkt ovanför Total/Moms-gridden (egen rad, nästa syskon = beloppsgridden)
+    const totalGrid = document.getElementById('lev-total').closest('.grid')
+    expect(label.parentElement.nextElementSibling).toBe(totalGrid)
+    // och före Total i dokumentordning
+    expect(label.compareDocumentPosition(document.getElementById('lev-total')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('toggle anropar samma logik: vänder Total/Moms-tecken och kontering', async () => {
+    renderPage()
+    await waitFor(() => expect(document.querySelectorAll('#lev-konton option').length).toBeGreaterThan(0))
+    // fyll en vanlig faktura via OCR
+    fireEvent.click(screen.getByTestId('fake-tolka-normal'))
+    await waitFor(() => expect(parseSv(document.getElementById('lev-total').value)).toBe(456))
+    expect(kontoRow('2440')).toEqual({ debet: 0, kredit: 456 })
+
+    // toggla kreditfaktura → tecken negativa + sidor vända
+    fireEvent.click(screen.getByRole('checkbox'))
+    await waitFor(() => expect(screen.getByRole('checkbox').checked).toBe(true))
+    expect(parseSv(document.getElementById('lev-total').value)).toBe(-456)
+    expect(parseSv(document.getElementById('lev-moms').value)).toBe(-91.25)
+    expect(kontoRow('2440')).toEqual({ debet: 456, kredit: 0 })   // skuld nu på debet
+  })
+})

@@ -473,10 +473,6 @@ export default function NyLeverantorsfaktura() {
 
       {/* Verktygsrad */}
       <div className="bg-white border-b px-7 py-2.5 flex items-center gap-6 flex-wrap" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-        <label className={`flex items-center gap-1.5 text-[13px] cursor-pointer select-none ${kreditfaktura ? 'text-purple-700 font-medium' : 'text-gray-600 hover:text-gray-900'}`} title="Bocka i för att skapa en kreditfaktura (omvänd kontering)">
-          <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={kreditfaktura} onChange={toggleKredit} />
-          <i className="ti ti-file-minus" /> Kreditfaktura
-        </label>
         <Tool icon="ti-copy" label="Kopiera" disabled />
         <Tool icon="ti-cash" label="Utbetalningar" onClick={() => navigate('/leverantorsfakturor')} />
         <Tool icon="ti-search" label="Kreditupplysning" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })} />
@@ -493,6 +489,15 @@ export default function NyLeverantorsfaktura() {
             <button className="text-amber-700 hover:text-amber-900 text-xs underline" onClick={() => setLevForslag(null)}>Ignorera</button>
           </div>
         )}
+
+        {/* Kreditfaktura – fakturatyp (styr Total/Moms-tecken + omvänd kontering). Ligger vid
+            beloppen, ej i toolbaren. Egen rad, högerjusterad ovanför Total/Moms-gruppen. */}
+        <div className="flex justify-end mb-1.5">
+          <label className={`inline-flex items-center gap-1.5 text-[13px] cursor-pointer select-none whitespace-nowrap ${kreditfaktura ? 'text-purple-700 font-medium' : 'text-gray-600 hover:text-gray-900'}`} title="Bocka i för att skapa en kreditfaktura (omvänd kontering på Total, Moms och konton)">
+            <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={kreditfaktura} onChange={toggleKredit} />
+            <i className="ti ti-file-minus" /> Kreditfaktura
+          </label>
+        </div>
 
         {/* Huvuduppgifter */}
         <div className="grid grid-cols-12 gap-4 mb-2">
