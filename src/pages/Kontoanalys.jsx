@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { BRAND } from '../lib/brand'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const verNum = v => parseInt(String(v || '').replace(/\D/g, ''), 10) || 0
@@ -16,21 +17,25 @@ function parseKonto(str) {
 }
 const docType = serie => { const s = String(serie || ''); return s.includes(' - ') ? s.split(' - ')[1] : s }
 
-export default function Kontoanalys() {
+export default function Kontoanalys({ popout = false }) {
   const { company } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const yr = new Date().getFullYear()
-  const [tab, setTab] = useState('huvudbok')
+  // Filter kan seedas via query params (så popout öppnas med samma urval). Ingen ny modell.
+  const validTab = t => (['huvudbok', 'balans', 'resultat'].includes(t) ? t : 'huvudbok')
+  const urlHasPeriod = !!(params.get('from') && params.get('to'))
+  const [tab, setTab] = useState(validTab(params.get('tab')))
   const [accounts, setAccounts] = useState([])
   const [rows, setRows] = useState([])
   const [fy, setFy] = useState([])
   const [loading, setLoading] = useState(true)
-  const [kontoSok, setKontoSok] = useState('')
-  const [textSok, setTextSok] = useState('')
-  const [from, setFrom] = useState(`${yr}-01-01`)
-  const [tom, setTom] = useState(`${yr}-12-31`)
-  const [doljKorr, setDoljKorr] = useState(false)
-  const [doktyp, setDoktyp] = useState('Alla')
+  const [kontoSok, setKontoSok] = useState(params.get('account') || '')
+  const [textSok, setTextSok] = useState(params.get('search') || '')
+  const [from, setFrom] = useState(params.get('from') || `${yr}-01-01`)
+  const [tom, setTom] = useState(params.get('to') || `${yr}-12-31`)
+  const [doljKorr, setDoljKorr] = useState(params.get('hideCorrections') === '1')
+  const [doktyp, setDoktyp] = useState(params.get('documentType') || 'Alla')
   const [page, setPage] = useState(0)
 
   useEffect(() => { if (company) load() }, [company?.id])
@@ -47,8 +52,9 @@ export default function Kontoanalys() {
       datum: x.verifikationer.datum, besk: x.verifikationer.beskrivning, belopp: (x.debet || 0) - (x.kredit || 0),
     })))
     setFy(f || [])
+    // Auto-välj aktivt räkenskapsår – men inte om perioden redan kommer från URL (popout).
     const active = (f || []).find(y => y.status === 'active') || (f || [])[0]
-    if (active) { setFrom(active.start_date); setTom(active.end_date) }
+    if (active && !urlHasPeriod) { setFrom(active.start_date); setTom(active.end_date) }
     setLoading(false)
   }
 
@@ -98,11 +104,50 @@ export default function Kontoanalys() {
   const periodSum = nr => rows.filter(r => r.account_nr === nr && r.datum >= from && r.datum <= tom && matchRad(r)).reduce((s, r) => s + r.belopp, 0)
   const rapportRader = (test, sign) => accounts.filter(a => test(a.account_nr)).map(a => ({ nr: a.account_nr, namn: a.name, v: sign * (tab === 'balans' ? saldoUB(a.account_nr) : periodSum(a.account_nr)) })).filter(x => Math.abs(x.v) > 0.005)
 
+  // Bygg popout-URL med nuvarande filter så det egna fönstret öppnas med samma urval.
+  function popoutUrl() {
+    const q = new URLSearchParams()
+    if (tab !== 'huvudbok') q.set('tab', tab)
+    if (kontoSok) q.set('account', kontoSok)
+    if (textSok) q.set('search', textSok)
+    if (from) q.set('from', from)
+    if (tom) q.set('to', tom)
+    if (doljKorr) q.set('hideCorrections', '1')
+    if (doktyp && doktyp !== 'Alla') q.set('documentType', doktyp)
+    const qs = q.toString()
+    return `/kontoanalys/popout${qs ? `?${qs}` : ''}`
+  }
+  // Eget fönster: samma origin/session/aktiva företag → live samma data, RLS oförändrad. Ingen state kopieras.
+  function openPopout() { window.open(window.location.origin + popoutUrl(), 'bokpilot-kontoanalys-popout', 'width=1280,height=900') }
+  // Stäng: stäng skript-öppnat fönster; annars (öppnat direkt/refresh) navigera tillbaka. Påverkar ej huvudappen.
+  function stangPopout() { window.close(); setTimeout(() => { if (!window.closed) navigate('/kontoanalys') }, 150) }
+
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between no-print" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Kontoanalys</span>
-        <button className="btn" onClick={() => window.print()}><i className="ti ti-printer" /> Skriv ut</button>
+        {popout ? (
+          <span className="text-base flex items-baseline gap-2">
+            <span className="font-bold tracking-tight">{BRAND.appName}</span>
+            <span className="text-gray-300">·</span>
+            <span className="font-medium">Kontoanalys</span>
+          </span>
+        ) : (
+          <span className="text-base font-medium">Kontoanalys</span>
+        )}
+        <div className="flex items-center gap-2.5">
+          {!popout && (
+            <button data-testid="kontoanalys-popout-open" className="btn" onClick={openPopout}
+              title="Öppna Kontoanalys i ett eget fönster för parallellt arbete">
+              <i className="ti ti-external-link" /> Öppna i eget fönster
+            </button>
+          )}
+          <button className="btn" onClick={() => window.print()}><i className="ti ti-printer" /> Skriv ut</button>
+          {popout && (
+            <button data-testid="kontoanalys-popout-close" className="btn" onClick={stangPopout}>
+              <i className="ti ti-x" /> Stäng
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="px-7 pt-4 flex gap-3 no-print">

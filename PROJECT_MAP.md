@@ -458,6 +458,25 @@ Ladda ner underlag från Inkorgen: enskild fil, valda som ZIP, eller hela fliken
   (p_company_id,p_section,p_kind,p_file_count)` → tabell `download_audit_log` (user/company/section/kind/antal/tid –
   aldrig filinnehåll; insert endast via SECURITY DEFINER + medlemskapskontroll).
 
+## Kontoanalys – eget fönster (popout) [KONTOANALYS_POPOUT]
+`src/pages/Kontoanalys.jsx` (huvudbok/balans/resultat, RLS-laddning via `useAuth().company`) kan öppnas i ett **eget
+fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
+- **Knapp "Öppna i eget fönster"** (`ti-external-link`) i headern bredvid "Skriv ut" (endast i normal vy).
+  `window.open(origin + '/kontoanalys/popout?…', 'bokpilot-kontoanalys-popout', 'width=1280,height=900')`.
+- **Route `/kontoanalys/popout`** ligger i `App.jsx` **UTANFÖR `<Layout>`** (ingen sidebar/huvudnav/företagsväxlare)
+  men inom **`ProtectedRoute`** → kräver inloggning. Komponenten renderas med `popout`-prop: minimal header
+  (**BokPilot · Kontoanalys** + "Skriv ut" + "Stäng"), full bredd, ingen modal-känsla, körbar självständigt i egen flik.
+- **Live, ingen ny modell:** popout-fönstret delar origin/Supabase-session/`activeCompanyId` (localStorage) → samma
+  inloggade användare + aktiva företag + RLS. Läser från samma `accounts`/`verifikation_rows`/`fiscal_years`; refresh
+  laddar om. Ingen cache-kopia, ingen postMessage, ingen state-kopiering.
+- **Filter via query params** (URL-state, minsta nödvändiga): `account`/`search`/`from`/`to`/`documentType`/
+  `hideCorrections`/`tab` seedar filtren så popout öppnas med samma urval. `urlHasPeriod` hindrar `load()` från att
+  skriva över en URL-period med aktivt räkenskapsår.
+- **"Stäng":** `window.close()` (skript-öppnat fönster); fallback `navigate('/kontoanalys')` om fönstret ej kan stängas
+  (öppnat direkt/refresh). Påverkar aldrig huvudappen, rensar inga filter, loggar inte ut.
+- **Tester** `src/pages/Kontoanalys.test.jsx` (6): knapp finns/URL byggs med filter + huvudvy ej rensad, popout-header
+  (BokPilot·Kontoanalys) + Stäng + ingen "Öppna"-knapp, query params seedar filtren, `window.close` anropas, normal vy oförändrad.
+
 ## Övrigt (urval)
 - Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,
   höjden begränsar ej → långa dokument scrollas vertikalt. Höger panel = **45%** standard (`resolveViewerWidth`).

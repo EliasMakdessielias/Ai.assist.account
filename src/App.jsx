@@ -74,6 +74,9 @@ export default function App() {
       <Toaster position="bottom-right" toastOptions={{ duration: 3000, style: { background: '#1a1a18', color: '#fff', fontSize: '13px' } }} />
       <Routes>
         <Route path="/login" element={<Login />} />
+        {/* Kontoanalys i eget fönster: egen route UTANFÖR Layout (ingen sidebar/huvudnav),
+            men inloggningsskyddad (ProtectedRoute) → samma session/aktiva företag + RLS. */}
+        <Route path="/kontoanalys/popout" element={<ProtectedRoute><Kontoanalys popout /></ProtectedRoute>} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="bokforing" element={<Bokforing />} />
