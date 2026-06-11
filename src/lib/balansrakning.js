@@ -1,9 +1,8 @@
 // Ren logik för Balansräkningen i Kontoanalys: BAS-hierarki + summering + balanskontroll.
 // Inga beroenden på React/Supabase. INGEN ny datamodell – bygger på kontoplanen (accounts)
 // och verifikationsrader (via en valueFn som anroparen beräknar från company-scopad data).
-
-const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100
-const nrNum = nr => parseInt(String(nr ?? '').replace(/\D/g, ''), 10) || 0
+// Hierarki-traverseringen delas med Resultaträkningen via src/lib/rapport.js.
+import { buildHierReport, round2, nrNum } from './rapport'
 
 // Balansräkningens struktur enligt BAS. sign: tillgångar = +1 (debet-positiv),
 // eget kapital & skulder = −1 (kredit-positiv). Konto-intervall per undergrupp.
@@ -34,46 +33,22 @@ export const BALANCE_STRUCTURE = [
 export function isBalansKonto(nr) { const n = nrNum(nr); return n >= 1000 && n <= 2999 }
 
 const ZERO = () => ({ ib: 0, change: 0, ub: 0 })
-const addV = (a, b) => ({ ib: a.ib + b.ib, change: a.change + b.change, ub: a.ub + b.ub })
-const sumV = list => { const t = (list || []).reduce((a, v) => addV(a, v), ZERO()); return { ib: round2(t.ib), change: round2(t.change), ub: round2(t.ub) } }
-const isZeroV = v => Math.abs(v.ib) < 0.005 && Math.abs(v.change) < 0.005 && Math.abs(v.ub) < 0.005
 
-// Bygger den hierarkiska balansräkningen.
+// Bygger den hierarkiska balansräkningen via den delade rapport-traverseringen.
 //   accounts: [{ account_nr, name }] (kontoplanen)
 //   valueFn(nr) → { ib, change, ub } RAW (debet−kredit, otecknat)
 //   opts.showZero: ta med nollkonton (default false → dölj konton som är 0 i alla kolumner)
 //   opts.aretsResultat: { ib, change, ub } redan tecknat för Eget kapital (vinst positiv)
 // Returnerar { sektioner, tillgangar, ekskuld, differens, balanserar }.
 export function buildBalansReport(accounts = [], valueFn = ZERO, opts = {}) {
-  const showZero = !!opts.showZero
   const ar = opts.aretsResultat || null
-  const sektioner = []
-  for (const sec of BALANCE_STRUCTURE) {
-    const grupper = []
-    for (const gr of sec.grupper) {
-      const undergrupper = []
-      for (const ug of gr.undergrupper) {
-        let konton = (accounts || [])
-          .filter(a => { const n = nrNum(a.account_nr); return n >= ug.from && n <= ug.to })
-          .map(a => {
-            const raw = valueFn(a.account_nr) || ZERO()
-            return { nr: String(a.account_nr), namn: a.name || '', ib: round2(sec.sign * raw.ib), change: round2(sec.sign * raw.change), ub: round2(sec.sign * raw.ub) }
-          })
-        // Årets resultat injiceras som egen rad under Eget kapital (gör att balansen går ihop).
-        if (ar && sec.key === 'ekskuld' && gr.key === 'ek') {
-          konton = konton.concat([{ nr: '', namn: 'Årets resultat', synthetic: true, ib: round2(ar.ib), change: round2(ar.change), ub: round2(ar.ub) }])
-        }
-        if (!konton.length) continue                                   // inget konto i kontoplanen → hoppa undergrupp
-        const visible = showZero ? konton : konton.filter(k => k.synthetic || !isZeroV(k))
-        if (!visible.length) continue                                  // alla noll & ej "visa alla" → hoppa
-        undergrupper.push({ rubrik: ug.rubrik, konton: visible, sum: sumV(visible) })
-      }
-      if (!undergrupper.length) continue                               // tom grupp → hoppa (t.ex. saknade obeskattade reserver)
-      grupper.push({ key: gr.key, rubrik: gr.rubrik, undergrupper, sum: sumV(undergrupper.map(u => u.sum)) })
-    }
-    if (!grupper.length) continue
-    sektioner.push({ key: sec.key, rubrik: sec.rubrik, sign: sec.sign, grupper, sum: sumV(grupper.map(g => g.sum)) })
-  }
+  const sektioner = buildHierReport(BALANCE_STRUCTURE, accounts, valueFn, {
+    fields: ['ib', 'change', 'ub'], showZero: !!opts.showZero,
+    // Årets resultat injiceras som egen rad under Eget kapital (gör att balansen går ihop).
+    inject: (secKey, grKey) => (ar && secKey === 'ekskuld' && grKey === 'ek')
+      ? [{ nr: '', namn: 'Årets resultat', synthetic: true, ib: round2(ar.ib), change: round2(ar.change), ub: round2(ar.ub) }]
+      : null,
+  })
   const get = k => sektioner.find(s => s.key === k)?.sum || ZERO()
   const tillgangar = get('tillgangar'), ekskuld = get('ekskuld')
   const differens = { ib: round2(tillgangar.ib - ekskuld.ib), change: round2(tillgangar.change - ekskuld.change), ub: round2(tillgangar.ub - ekskuld.ub) }

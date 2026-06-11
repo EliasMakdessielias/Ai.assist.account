@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { BRAND } from '../lib/brand'
 import { buildInvoiceLinkMap, buildRelatedVerMap, invoiceRoute, splitDescriptionByInvoiceNr } from '../lib/kontoanalys'
 import { buildBalansReport } from '../lib/balansrakning'
+import { buildResultatReport } from '../lib/resultatrakning'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const verNum = v => parseInt(String(v || '').replace(/\D/g, ''), 10) || 0
@@ -43,8 +44,10 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
   const [relatedVer, setRelatedVer] = useState({})       // verifikation_id → [relaterade verifikation_id]
   const [docSet, setDocSet] = useState(() => new Set())  // verifikation_id med kopplat underlag
   const [expandedKey, setExpandedKey] = useState(null)   // inline-expanderad rad (konto:ver, en åt gången)
-  const [visaAlla, setVisaAlla] = useState(false)        // Balansräkning: visa även nollkonton
+  const [visaAlla, setVisaAlla] = useState(false)        // Balans/Resultat: visa även nollkonton
   const [balCollapsed, setBalCollapsed] = useState(() => new Set())  // hopfällda balansgrupper
+  const [resCollapsed, setResCollapsed] = useState(() => new Set())  // hopfällda resultatgrupper
+  const [resOpenAcc, setResOpenAcc] = useState(() => new Set())      // resultatkonton expanderade till transaktioner
 
   useEffect(() => { if (company) load() }, [company?.id])
   async function load() {
@@ -118,11 +121,6 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
   const cur = Math.min(page, pageCount - 1)
   const pageItems = items.slice(cur * PAGE, (cur + 1) * PAGE)
 
-  // Balans-/Resultaträkning
-  const saldoUB = nr => accOB(nr) + rows.filter(r => r.account_nr === nr && r.datum <= tom && matchRad(r)).reduce((s, r) => s + r.belopp, 0)
-  const periodSum = nr => rows.filter(r => r.account_nr === nr && r.datum >= from && r.datum <= tom && matchRad(r)).reduce((s, r) => s + r.belopp, 0)
-  const rapportRader = (test, sign) => accounts.filter(a => test(a.account_nr)).map(a => ({ nr: a.account_nr, namn: a.name, v: sign * (tab === 'balans' ? saldoUB(a.account_nr) : periodSum(a.account_nr)) })).filter(x => Math.abs(x.v) > 0.005)
-
   // ---- Balansräkning ----
   // Balansräkningen respekterar bara "Dölj korrigeringar" (ej dokumenttyp/text-sök som hör till Huvudbok).
   const matchBal = r => !(doljKorr && /^R/.test(r.serie || ''))
@@ -158,6 +156,36 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
   // INTERN flikväxling – ingen route-navigation, fungerar även i popout.
   function goToKonto(nr) { if (!nr) return; setKontoSok(nr); setPage(0); setTab('huvudbok') }
   const toggleBalGrupp = key => setBalCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  // ---- Resultaträkning ----
+  // Räkenskapsårets början (för Ackumulerat) = det räkenskapsår som innehåller tom-datumet.
+  const fyStart = useMemo(() => {
+    const m = (fy || []).find(y => y.start_date <= tom && tom <= y.end_date)
+    return m?.start_date || `${String(tom).slice(0, 4)}-01-01`
+  }, [fy, tom])
+  // En pass: per konto, Perioden (from–tom) och Ackumulerat (räkenskapsårets början–tom).
+  const resRorelse = useMemo(() => {
+    const m = {}
+    for (const r of rows) {
+      if (!matchBal(r) || r.datum > tom) continue
+      const e = m[r.account_nr] || (m[r.account_nr] = { perioden: 0, ackumulerat: 0 })
+      if (r.datum >= fyStart) e.ackumulerat += r.belopp
+      if (r.datum >= from && r.datum <= tom) e.perioden += r.belopp
+    }
+    return m
+  }, [rows, from, tom, fyStart, doljKorr])
+  const resReport = useMemo(() => buildResultatReport(
+    accounts, nr => resRorelse[nr] || { perioden: 0, ackumulerat: 0 }, { showZero: visaAlla },
+  ), [accounts, resRorelse, visaAlla])
+  // Transaktioner för ett konto inom perioden (löpande ackumulerat) – för konto-expansion.
+  const kontoTransaktioner = nr => {
+    let saldo = 0
+    return rows.filter(r => r.account_nr === nr && r.datum >= from && r.datum <= tom && matchBal(r))
+      .sort((a, b) => a.datum.localeCompare(b.datum) || verNum(a.ver_nr) - verNum(b.ver_nr))
+      .map(r => { saldo += r.belopp; return { ...r, ack: saldo } })
+  }
+  const toggleResGrupp = key => setResCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const toggleResAcc = nr => setResOpenAcc(s => { const n = new Set(s); n.has(nr) ? n.delete(nr) : n.add(nr); return n })
 
   // Bygg popout-URL med nuvarande filter så det egna fönstret öppnas med samma urval.
   function popoutUrl() {
@@ -335,6 +363,122 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
     )
   }
 
+  // Hierarkisk Resultaträkning (BAS): sektion → grupp (hopfällbar) → konton (hela raden expanderar
+  // transaktioner → inline VerDetail). Två kolumner: Perioden + Ackumulerat. Samma mönster som Balans/Huvudbok.
+  function ResultatView() {
+    const rep = resReport
+    const Amt = ({ v, bold }) => <td className={`px-4 py-1.5 text-right tabular-nums ${bold ? 'font-semibold' : ''}`} style={{ color: v < -0.005 ? '#b91c1c' : undefined }}>{fmt(v)}</td>
+    const Res = ({ label, v, strong }) => (
+      <div className={`flex items-center text-sm py-0.5 ${strong ? 'font-bold pt-1.5 mt-1 border-t' : ''}`} style={strong ? { borderColor: 'rgba(0,0,0,0.1)' } : undefined}>
+        <span className={strong ? '' : 'text-gray-600'} style={{ flex: 1 }}>{label}</span>
+        <span className="tabular-nums w-36 text-right" style={{ color: strong ? (v.perioden >= 0 ? '#1a7a2e' : '#b91c1c') : (v.perioden < -0.005 ? '#b91c1c' : undefined) }}>{fmt(v.perioden)}</span>
+        <span className="tabular-nums w-36 text-right" style={{ color: strong ? (v.ackumulerat >= 0 ? '#1a7a2e' : '#b91c1c') : (v.ackumulerat < -0.005 ? '#b91c1c' : undefined) }}>{fmt(v.ackumulerat)}</span>
+      </div>
+    )
+    const hasData = rep.sektioner.length > 0
+    return (
+      <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+              <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
+              <th className="text-right px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Perioden</th>
+              <th className="text-right px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Ackumulerat</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!hasData && <tr><td colSpan="3" className="text-center py-12 text-gray-400">Inga resultatkonton i perioden.</td></tr>}
+            {rep.sektioner.map(sec => (
+              <Fragment key={sec.key}>
+                <tr><td colSpan="3" className="px-4 pt-4 pb-1 text-[15px] font-bold text-gray-900">{sec.rubrik}</td></tr>
+                {sec.grupper.map(gr => {
+                  const gk = `${sec.key}:${gr.key}`
+                  const collapsed = resCollapsed.has(gk)
+                  const konton = gr.undergrupper.flatMap(u => u.konton)
+                  return (
+                    <Fragment key={gr.key}>
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-1.5" colSpan="3">
+                          <button className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-700 cursor-pointer" aria-expanded={!collapsed}
+                            onClick={() => toggleResGrupp(gk)}>
+                            <i className={`ti ti-chevron-${collapsed ? 'right' : 'down'} text-xs text-green-700`} />{gr.rubrik}
+                          </button>
+                        </td>
+                      </tr>
+                      {!collapsed && konton.map((k, ki) => {
+                        const accOpen = !!k.nr && resOpenAcc.has(k.nr)
+                        const txns = accOpen ? kontoTransaktioner(k.nr) : []
+                        return (
+                          <Fragment key={ki}>
+                            {/* Kontorad – hela raden expanderar transaktioner (ingen pil). */}
+                            <tr className={`${k.nr ? 'cursor-pointer hover:bg-gray-50' : ''} ${accOpen ? 'bg-purple-50/60' : ''}`} tabIndex={k.nr ? 0 : undefined}
+                              aria-expanded={k.nr ? accOpen : undefined}
+                              onClick={() => k.nr && toggleResAcc(k.nr)}
+                              onKeyDown={k.nr ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleResAcc(k.nr) } }) : undefined}>
+                              <td className="px-4 py-1 pl-9" style={{ borderLeft: accOpen ? '3px solid #6d28d9' : '3px solid transparent' }}>
+                                {k.nr ? <span className="text-blue-700">{k.nr} {k.namn}</span> : <span className="text-gray-700 italic">{k.namn}</span>}
+                              </td>
+                              <Amt v={k.perioden} /><Amt v={k.ackumulerat} />
+                            </tr>
+                            {accOpen && txns.length === 0 && <tr><td colSpan="3" className="px-4 py-2 pl-12 text-gray-400 text-[13px]">Inga transaktioner i perioden.</td></tr>}
+                            {accOpen && txns.map((t, ti) => {
+                              const rowKey = `res:${k.nr}:${t.ver_id}:${ti}`
+                              const vOpen = expandedKey === rowKey
+                              const panelId = `respanel-${k.nr}-${t.ver_id}-${ti}`
+                              const toggleV = () => setExpandedKey(x => (x === rowKey ? null : rowKey))
+                              return (
+                                <Fragment key={ti}>
+                                  {/* Transaktionsrad – hela raden expanderar VerDetail (ingen pil, ingen navigation). */}
+                                  <tr className={`cursor-pointer hover:bg-gray-50 text-[13px] ${vOpen ? 'bg-purple-50/40' : ''}`} tabIndex={0}
+                                    aria-expanded={vOpen} aria-controls={vOpen ? panelId : undefined}
+                                    onClick={toggleV} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleV() } }}>
+                                    <td className="px-4 py-1 pl-12">
+                                      <span className="flex items-center gap-3">
+                                        <span className="font-medium text-gray-700 w-12 shrink-0">{t.ver_nr}</span>
+                                        <span className="text-gray-500 w-24 shrink-0">{t.datum}</span>
+                                        <span className="text-gray-600 truncate flex-1">{renderBesk(t)}</span>
+                                        <span className="text-gray-400 w-28 shrink-0 truncate">{docType(t.serie)}</span>
+                                        {docSet.has(t.ver_id) && <i className="ti ti-paperclip text-gray-400 shrink-0" />}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-1 text-right tabular-nums text-gray-700">{fmt(t.belopp)}</td>
+                                    <td className="px-4 py-1 text-right tabular-nums text-gray-500">{fmt(t.ack)}</td>
+                                  </tr>
+                                  {vOpen && <tr id={panelId} className="bg-white"><VerDetail r={t} /></tr>}
+                                </Fragment>
+                              )
+                            })}
+                          </Fragment>
+                        )
+                      })}
+                      {!collapsed && (
+                        <tr className="border-t" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                          <td className="px-4 py-1 pl-9 text-[13px] font-semibold text-gray-700">Summa {gr.rubrik.toLowerCase()}</td>
+                          <Amt v={gr.sum.perioden} bold /><Amt v={gr.sum.ackumulerat} bold />
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+                <tr className="border-t-2" style={{ borderColor: 'rgba(0,0,0,0.15)', background: 'rgba(109,40,217,0.06)' }}>
+                  <td className="px-4 py-2 text-sm font-bold text-gray-900 uppercase tracking-wide">Summa {sec.rubrik.toLowerCase()}</td>
+                  <Amt v={sec.sum.perioden} bold /><Amt v={sec.sum.ackumulerat} bold />
+                </tr>
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+        {hasData && (
+          <div className="px-4 py-3 border-t" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>
+            <Res label="Rörelseresultat" v={rep.rorelseresultat} />
+            <Res label="Resultat efter finansiella poster" v={rep.efterFinansiella} />
+            <Res label="Beräknat resultat för perioden" v={rep.beraknat} strong />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between no-print" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -370,7 +514,7 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
         ))}
       </div>
 
-      {tab !== 'balans' && (
+      {tab === 'huvudbok' && (
       <div className="px-7 py-4 grid grid-cols-[1.3fr_1.4fr] gap-6 items-start no-print">
         <div className="space-y-2">
           <div className="relative"><input className="input pl-8" placeholder="Sök konto t.ex. 1510, 3050-3053" value={kontoSok} onChange={e => { setKontoSok(e.target.value); setPage(0) }} /><i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" /></div>
@@ -391,8 +535,8 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
       </div>
       )}
 
-      {/* Balansräkningens egen filterrad */}
-      {tab === 'balans' && (
+      {/* Gemensam filterrad för Balansräkning + Resultaträkning (samma layout). */}
+      {tab !== 'huvudbok' && (
       <div className="px-7 py-4 grid grid-cols-[1.3fr_1fr] gap-6 items-start no-print">
         <div className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-2">
           <label className="text-sm text-gray-600">Visa period</label>
@@ -403,7 +547,11 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
           <label className="text-sm text-gray-600">Bokföringsdatum</label>
           <div className="flex items-center gap-2"><input className="input" type="date" value={from} onChange={e => setFrom(e.target.value)} /><span className="text-gray-400">–</span><input className="input" type="date" value={tom} onChange={e => setTom(e.target.value)} /></div>
           <label className="text-sm text-gray-600">Visa kolumner</label>
-          <select className="input" defaultValue="ib-change-ub"><option value="ib-change-ub">Vid periodens början, Förändring, Vid periodens slut</option></select>
+          <select className="input" value={tab} onChange={() => {}}>
+            {tab === 'balans'
+              ? <option value="balans">Vid periodens början, Förändring, Vid periodens slut</option>
+              : <option value="resultat">Perioden och Ackumulerat</option>}
+          </select>
           {company?.bokforing_last_tom && <><label className="text-sm text-gray-600">Bokföring låst t.o.m.</label><span className="text-sm text-gray-700">{company.bokforing_last_tom}</span></>}
         </div>
         <div className="space-y-2 pt-0.5">
@@ -475,40 +623,8 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
         ) : tab === 'balans' ? (
           <BalansView />
         ) : (
-          <Rapport titel={`Resultaträkning ${from} – ${tom}`} sektioner={[
-            { rubrik: 'Intäkter', rader: rapportRader(nr => /^3/.test(nr), -1) },
-            { rubrik: 'Kostnader', rader: rapportRader(nr => /^[4-7]/.test(nr), 1) },
-            { rubrik: 'Finansiella poster', rader: rapportRader(nr => /^8/.test(nr), 1) },
-          ]} resultat />
+          <ResultatView />
         )}
-      </div>
-    </div>
-  )
-}
-
-function Rapport({ titel, sektioner, resultat }) {
-  const sum = s => s.rader.reduce((a, r) => a + r.v, 0)
-  const total = sektioner.reduce((a, s, i) => a + (resultat ? (i === 0 ? sum(s) : -sum(s)) : sum(s)), 0)
-  return (
-    <div className="bg-white rounded-xl p-6 max-w-3xl" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
-      <div className="text-base font-semibold mb-4">{titel}</div>
-      {sektioner.map((s, i) => (
-        <div key={i} className="mb-5">
-          <div className="text-sm font-semibold text-gray-700 mb-1.5 pb-1 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{s.rubrik}</div>
-          {s.rader.length === 0 ? <div className="text-sm text-gray-400 py-1">–</div> : s.rader.map(r => (
-            <div key={r.nr} className="flex justify-between py-1 text-sm">
-              <span className="text-gray-600">{r.nr} {r.namn}</span>
-              <span className="tabular-nums">{fmt(r.v)}</span>
-            </div>
-          ))}
-          <div className="flex justify-between py-1.5 mt-1 text-sm font-semibold border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-            <span>Summa {s.rubrik.toLowerCase()}</span><span className="tabular-nums">{fmt(sum(s))}</span>
-          </div>
-        </div>
-      ))}
-      <div className="flex justify-between py-2 text-base font-bold border-t-2" style={{ borderColor: 'rgba(0,0,0,0.15)' }}>
-        <span>{resultat ? 'Beräknat resultat' : 'Balansomslutning / Differens'}</span>
-        <span className="tabular-nums" style={{ color: total >= 0 ? '#1a7a2e' : '#b91c1c' }}>{fmt(total)}</span>
       </div>
     </div>
   )

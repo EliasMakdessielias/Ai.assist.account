@@ -512,6 +512,22 @@ fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
   `src/pages/Kontoanalys.balans.test.jsx` (8). Live-verifierat (BokPilot AB): Tillgångar = EK+skulder + Årets resultat → Differens 0.
   **Begränsning:** Årets resultat visas som EK-rad men bokförs inte till 2099 förrän bokslut (befintlig modell); ingen separat
   resultatdisposition ännu.
+- **Resultaträkning (hierarkisk BAS-rapport)** `src/lib/resultatrakning.js` (`RESULTAT_STRUCTURE`, `buildResultatReport`,
+  `isResultatKonto`). **Delar hierarki-traverseringen med Balansräkning via `src/lib/rapport.js` (`buildHierReport`)** –
+  `buildBalansReport` refaktorerad att använda samma byggare (minskar duplicering, samma retur-shape). Resultatkonton
+  **3xxx–8xxx** (1xxx/2xxx visas EJ). Sektioner: **Rörelsens intäkter** (Nettoomsättning, Övriga rörelseintäkter),
+  **Rörelsens kostnader** (Råvaror, Övriga externa, Personalkostnader, Av-/nedskrivningar, Övriga rörelsekostnader),
+  **Finansiella poster**, **Bokslutsdispositioner och skatt** – tomma grupper utelämnas. Alla sektioner **sign −1** →
+  intäkter positivt, kostnader negativt. Kolumner **Perioden** (rörelse from–tom) + **Ackumulerat** (räkenskapsårets början
+  `fyStart`–tom). Sammanställning: Rörelseresultat, Resultat efter finansiella poster, **Beräknat resultat för perioden**
+  (= Årets resultat). **Konto-expand:** hela kontoraden (ingen pil, `aria-expanded`, Enter/Space) fäller ut kontots
+  transaktioner (Ver.nr/datum/beskrivning/dokumenttyp/bilaga/belopp + löpande ack); transaktionsraden expanderar inline
+  **VerDetail** (samma som Huvudbok); fakturanr länkar i normal vy (popout = text); ingen navigation. Grupp-collapse (chevron),
+  Visa alla konton, Dölj korrigeringar, gemensam filterrad med Balans (Visa kolumner = "Perioden och Ackumulerat"). Print via
+  `#printable`. Tester: `src/lib/resultatrakning.test.js` (8) + `src/pages/Kontoanalys.resultat.test.jsx` (8). Live-verifierat
+  (BokPilot AB): intäkter/kostnader, **Beräknat resultat = Årets resultat (−13 552,44)** – konsekvent med Balansräkningen.
+  **Begränsning:** BAS-grupperingen är intervallbaserad (kontoplanen saknar rapportgrupp-metadata) – kan förfinas senare om
+  specifika konton ska flyttas mellan grupper.
 
 ## Övrigt (urval)
 - **App-logo:** `public/logo.svg` (BP-emblem, beskuren viewBox). Källa `BRAND.logo` (`src/lib/brand.js`) → används i
