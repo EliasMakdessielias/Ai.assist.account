@@ -63,20 +63,23 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         {collapsed ? (
           <div className="flex flex-col items-center gap-2">
             <button onClick={onToggle} title="Expandera meny" aria-label="Expandera meny"
-              className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-white text-xs font-bold hover:bg-blue-800">
-              {BRAND.appName.slice(0, 2)}
+              className="w-9 h-9 bg-white border rounded-lg flex items-center justify-center hover:bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.12)' }}>
+              <img src={BRAND.logo} alt={BRAND.appName} className="w-6 h-6 object-contain" />
             </button>
             <NotificationCenter collapsed />
           </div>
         ) : (
           <>
-            <div className="min-w-0">
-              <div className="text-xl font-semibold tracking-tight truncate">
-                {BRAND.appName.split('').map((ch, i) =>
-                  /[A-ZÅÄÖ]/.test(ch) ? <span key={i} className="font-extrabold">{ch}</span> : ch
-                )}
+            <div className="flex items-center gap-2 min-w-0">
+              <img src={BRAND.logo} alt={BRAND.appName} className="w-8 h-8 object-contain shrink-0" />
+              <div className="min-w-0">
+                <div className="text-xl font-semibold tracking-tight truncate">
+                  {BRAND.appName.split('').map((ch, i) =>
+                    /[A-ZÅÄÖ]/.test(ch) ? <span key={i} className="font-extrabold">{ch}</span> : ch
+                  )}
+                </div>
+                <div className="text-[11px] text-gray-400 mt-0.5 truncate">{BRAND.tagline}</div>
               </div>
-              <div className="text-[11px] text-gray-400 mt-0.5 truncate">{BRAND.tagline}</div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <NotificationCenter />

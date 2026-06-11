@@ -2,6 +2,7 @@
 // Ändra produktnamn/företagsnamn/underrubrik på ETT ställe.
 export const BRAND = {
   appName: 'BokPilot',           // produktnamn – huvudnamn i UI
+  logo: '/logo.svg',             // app-logo (BP-emblem), serveras från public/
   productName: 'BokPilot',
   companyName: 'BokPilot AB',    // juridiskt företagsnamn (bolaget bakom produkten)
   tagline: 'Bokföring & ekonomi',

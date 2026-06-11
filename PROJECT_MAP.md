@@ -514,6 +514,8 @@ fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
   resultatdisposition ännu.
 
 ## Övrigt (urval)
+- **App-logo:** `public/logo.svg` (BP-emblem, beskuren viewBox). Källa `BRAND.logo` (`src/lib/brand.js`) → används i
+  Sidebar (utfällt: emblem + wordmark; hopfällt: emblem i vit knapp), Login och favicon (`index.html`).
 - Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,
   höjden begränsar ej → långa dokument scrollas vertikalt. Höger panel = **45%** standard (`resolveViewerWidth`).
 - **Split-layout ~10/45/45:** dokumentpanelen tar **50% av ytan EFTER sidomenyn** (≈45% av fönstret). `sidebarWidth()`

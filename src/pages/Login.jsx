@@ -37,6 +37,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-surface-3 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
+          <img src={BRAND.logo} alt={BRAND.appName} className="w-14 h-14 object-contain mx-auto mb-3" />
           <h1 className="text-3xl font-semibold tracking-tight">{BRAND.appName}</h1>
           <p className="text-sm text-gray-400 mt-1">{BRAND.tagline}</p>
         </div>
