@@ -681,3 +681,27 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
 - **Bevis:** live-verifierat rollback-säkert, 11 scenarier: insert/flytt/delete/update i låst period blockeras (även
   rader), utanför aktivt räkenskapsår blockeras, öppen period + avstämning + admin-bypass tillåts. Bygg + 585 tester gröna.
 - **Kvarstår (§16):** lucka 3 makulering via motverifikation (radering nu endast möjlig i öppen period, loggas med full radbild).
+
+## Makulering via motverifikation (BFL avvikelse 3) – [MAKULERING]
+
+- **Migration** `supabase/makulering.sql` (applicerad, additiv): `verifikationer.status (aktiv/makulerad/motverifikation)`
+  + `makulerad_av` (original → motver) + `motverkar` (motver → original) + check-constraint.
+- **RPC `makulera_verifikation(p_ver_id, p_orsak)`** (SECURITY DEFINER, medlemskapskontroll): skapar motverifikation i
+  **samma serie/datum** (`next_ver_nr` – inga nummerluckor) med **omvänd kontering** (debet↔kredit, aldrig negativa
+  rader), sätter originalet till `makulerad`, återställer kopplingar (supplier_invoices bokford/betalning,
+  bank_transactions → unmatched, invoices.verifikation_id → null) precis som gamla delete-triggern, och loggar
+  `verification_voided` (metadata: motverifikation_id/nr + orsak). Avvisar dubbelmakulering och makulering av motverifikation.
+- **Oföränderlighet:** `trg_makulerad_skydd` (ver) + `trg_makulerad_skydd_rows` (rader) blockerar update/delete av
+  makulerade/motverifikationer (svenskt fel `MAKULERAD: …`). Undantag: avstämningsflaggan (`avstamd`), RPC:ns egen
+  radinsättning (transaktionslokal GUC `app.makulera_insert`), admin-total-radering (`app.periodlas_bypass`).
+- **Periodlås gäller:** makulering i låst period blockeras (motver-insert stoppas av `trg_periodlas_verifikation`) –
+  rättelse i låst period kräver framtida rättelseflöde (lucka 4).
+- **UI:** `Bokforing.jsx` – "Radera (senaste i serien)" ersatt med **Makulera** (alla aktiva verifikationer, ti-ban-ikon,
+  status-badge Makulerad/Motverifikation i listan); `KassaBank.jsx` – "Ångra bokföring" makulerar i stället för raderar.
+  Rapporter/SIE inkluderar både original och motverifikation (nettar till noll) – korrekt enligt BFL.
+- **Kvarvarande fysisk radering (medveten):** endast `rollbackVer` i `NyLeverantorsfaktura.jsx` (kompenserande cleanup
+  av nyss skapad ofullständig bokning) – auditas som `verification_deleted_current_legacy_flow`.
+- **Bevis:** live-verifierat rollback-säkert (original bevarad m. rader, motver omvänd + netto 0, audit `verification_voided`,
+  faktura återställd, dubbelmakulering/mot-makulering/ändra/radera blockerade, avstämning tillåten, låst period blockerad)
+  + `Bokforing.test.jsx` (3 nya: knapp endast på aktiv + rpc-anrop, badge + ingen knapp på makulerad, avbruten confirm)
+  + `auditAccounting.test.js`. Bygg + 588 tester gröna.

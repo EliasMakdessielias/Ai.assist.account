@@ -116,7 +116,8 @@ Implementerat idag:
   |---|---|---|---|
   | Skapa verifikation | `verification_created` | trigger på `verifikationer` | `trg_audit_verifikation_ins` (AFTER INSERT) |
   | Ändra verifikation | `verification_updated` | trigger på `verifikationer` | `trg_audit_verifikation_upd` (AFTER UPDATE) |
-  | Makulera/radera verifikation | `verification_deleted_current_legacy_flow` | trigger på `verifikationer` | `trg_audit_verifikation_del` (BEFORE DELETE; metadata `warning`, raderna sparas i `old_data`) |
+  | Makulera verifikation | `verification_voided` | RPC | `makulera_verifikation` (motverifikation skapas; metadata motverifikation_id/nr + orsak) |
+  | Radera verifikation (legacy/rollback) | `verification_deleted_current_legacy_flow` | trigger på `verifikationer` | `trg_audit_verifikation_del` (BEFORE DELETE; metadata `warning`, raderna sparas i `old_data`) |
   | Bokför leverantörsfaktura | `supplier_invoice_booked` | trigger på `supplier_invoices` | `trg_audit_supplier_invoice_booked` (`bokford` false→true) |
   | Bokför kundfaktura | `customer_invoice_booked` | trigger på `invoices` | `trg_audit_customer_invoice_booked` (`verifikation_id` null→satt) |
   | OCR/tolkning av underlag | `document_interpreted` | klient (`ocr`) | `tolkaDocument` → `log_accounting_audit` (endast vitlistade fält via `redactInterpretation`, aldrig råtext) |
@@ -168,8 +169,9 @@ superadmin/operations_admin/support_admin/billing_admin/read_only_admin (`src/li
 Underlag: upload (UI), e-postimport (`{archiveNumber}underlag@bokpilot.se` → IMAP → `inbound-email` → Inkorg), manuell koppling.
 Filtyper: PDF/JPG/PNG/WEBP (exe/script/HTML/ZIP avvisas). Lagring i Storage-bucket `underlag` (RLS). OCR via Gemini
 (`tolka-underlag`, verify_jwt=true) → strukturerad data + konteringsförslag; tolkning sparas i `documents.tolkning`.
-Arkivering: underlag + verifikationer + rader bevaras; radering av verifikation återställer faktura/underlag (SET NULL +
-revert-trigger). WhatsApp är **endast supportlänk**, aldrig kanal för underlag.
+Arkivering: underlag + verifikationer + rader bevaras; makulering sker via **motverifikation** (originalet bevaras,
+`makulera_verifikation` återställer faktura-/bankkopplingar); legacy delete-revert-trigger kvarstår endast för
+kompenserande rollback av ofullständig bokning. WhatsApp är **endast supportlänk**, aldrig kanal för underlag.
 
 ## 11. Felhantering
 
@@ -199,6 +201,7 @@ secrets/price-id saknas; webhook signaturverifierad, verify_jwt=false).
 | 2026-06-11 | Första versionen av SYSTEMDOKUMENTATION.md (as-built + lucksanalys) efter bindande redovisningsprotokoll. |
 | 2026-06-11 | Avvikelse 1 åtgärdad: behandlingshistorik för bokföring (`audit_log.source`/`metadata` + `log_accounting_audit` + triggers + `document_interpreted`). Se §6 och §16.1. |
 | 2026-06-11 | Avvikelse 2 åtgärdad: tvingande periodlås på DB-nivå (`assert_period_open` + triggers på `verifikationer`/`verifikation_rows`, avstämningsundantag, admin-bypass). Se §7 och §16.2. |
+| 2026-06-11 | Avvikelse 3 åtgärdad: makulering via motverifikation (`status`/`makulerad_av`/`motverkar` + `makulera_verifikation` + oföränderlighetsskydd; UI Bokföring/Kassa & Bank). Se §16.3. |
 
 ---
 
@@ -218,10 +221,14 @@ konflikten rapporteras**.
    `verifikation_rows` blockerar insert/update/delete i låst period (`bokforing_last_tom`) och utanför öppet räkenskapsår,
    för alla klienter. Bankavstämning (`avstamd`) undantagen; bypass endast för auditad admin-total-radering
    (`reset_company`/`purge_test_data`). Live-verifierat rollback-säkert (11 scenarier). Se §7.
-3. **Makulering förstör original (§2, §4).** Det finns ingen status (`aktiv/makulerad/rättad`) på `verifikationer`;
-   "makulering" sker via **radering** (`trg_verifikation_delete` återställer faktura/underlag) → originalet bevaras inte.
-   **Åtgärd:** statusfält + **motverifikation** (omvänd kontering) i stället för fysisk radering, så historik och spårbarhet
-   bevaras enligt god redovisningssed.
+3. **Makulering — ✅ ÅTGÄRDAD (2026-06-11, `supabase/makulering.sql`).** `verifikationer` har nu
+   `status (aktiv/makulerad/motverifikation)` + `makulerad_av`/`motverkar`. RPC `makulera_verifikation(ver_id, orsak)`
+   skapar **motverifikation** (omvänd kontering, samma serie/datum, inga negativa rader) och bevarar originalet
+   (`status='makulerad'`). Makulerade/motverifikationer är **oföränderliga** (skyddstriggers på ver + rader; endast
+   avstämningsflaggan undantagen). Faktura-/bankkopplingar återställs så underlaget kan bokföras om. Periodlåset gäller
+   (makulering i låst period blockeras → kräver framtida rättelseflöde, lucka 4). UI: Bokföring "Makulera"-knapp +
+   statusbadge; Kassa & Bank "Ångra" makulerar. **Kvarvarande fysisk radering:** endast kompenserande rollback i
+   bokför-flödet (`rollbackVer`, nyss skapad ofullständig ver) — auditas som `verification_deleted_current_legacy_flow`.
 4. **Rättelseflöde saknas (§2, §15).** Ändring av en bokförd post sker via direkt om-spara, inte via spårbar rättelse i
    ny verifikation. **Åtgärd:** rättelseflöde (rättelseverifikation, serie R) i låst/bokförd period.
 5. **Momsrapport-spårbarhet (§7).** Momsrapporten härleds inte rad-för-rad till verifikationsrader i nuläget.
@@ -229,9 +236,7 @@ konflikten rapporteras**.
 6. **Kundfaktura-kreditlogik (§12)** är inte härdad/testad i samma omfattning som leverantörsfakturan.
 7. **Skatt/deklaration (§8)** är inte byggt; ska byggas stegvis med tydlig regelkälla och separation bokförings-/deklarationsdata.
 
-**Konsekvens (bindande):** luckorna 1 (behandlingshistorik) och 2 (tvingande periodlås) är nu åtgärdade. **Kvarstående
-kritisk lucka: (3) makulering via motverifikation.** Tills den är åtgärdad "makulerar" BokPilot genom radering som inte
-bevarar originalet, vilket strider mot Bokföringslagen — dock numera endast möjligt i **öppen** period (periodlåset
-blockerar radering i låst period) och varje radering loggas med full radbild i behandlingshistoriken. Nästa
-redovisningsuppgift bör prioritera **(3) makulering via motverifikation** (statusfält + omvänd kontering i stället för
-fysisk radering), därefter (4) spårbart rättelseflöde.
+**Konsekvens (bindande):** de tre kritiska luckorna 1 (behandlingshistorik), 2 (tvingande periodlås) och 3 (makulering
+via motverifikation) är nu åtgärdade. Kvarstående luckor är 4–7 (rättelseflöde, momsrapport-spårbarhet rad-för-rad,
+kundfaktura-kreditlogik, skatt/deklaration). Nästa redovisningsuppgift bör prioritera **(4) spårbart rättelseflöde**
+(rättelseverifikation i serie R), som också är förutsättningen för att rätta poster i låst period.

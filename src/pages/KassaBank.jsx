@@ -170,14 +170,15 @@ export default function KassaBank() {
     setWorking(false)
   }
 
-  // Ångra en bokförd bankhändelse: radera verifikationen -> triggern återställer faktura + bankhändelse.
+  // Ångra en bokförd bankhändelse: verifikationen makuleras via motverifikation (BFL – originalet
+  // bevaras). RPC:n återställer bankhändelsen till ej bokförd och ev. fakturabetalning.
   async function angra(tx) {
     setRowMenu(null)
     if (!tx.verifikation_id) return
-    if (!confirm('Ångra bokföringen? Verifikationen tas bort, händelsen blir ej bokförd igen och ev. fakturabetalning återställs.')) return
-    const { error } = await supabase.from('verifikationer').delete().eq('id', tx.verifikation_id)
+    if (!confirm('Ångra bokföringen? Verifikationen makuleras (en motverifikation skapas och originalet bevaras), händelsen blir ej bokförd igen och ev. fakturabetalning återställs.')) return
+    const { error } = await supabase.rpc('makulera_verifikation', { p_ver_id: tx.verifikation_id })
     if (error) return toast.error('Kunde inte ångra: ' + error.message)
-    toast.success('Bokföring ångrad')
+    toast.success('Bokföring ångrad (motverifikation skapad)')
     load()
   }
 

@@ -4,6 +4,7 @@ import { ACCOUNTING_AUDIT_ACTIONS, AUDIT_SOURCES, redactInterpretation, isAuditM
 describe('audit-konstanter', () => {
   it('har de bokföringsactions som SQL-triggrarna använder', () => {
     expect(ACCOUNTING_AUDIT_ACTIONS.verificationCreated).toBe('verification_created')
+    expect(ACCOUNTING_AUDIT_ACTIONS.verificationVoided).toBe('verification_voided')
     expect(ACCOUNTING_AUDIT_ACTIONS.verificationDeletedLegacy).toBe('verification_deleted_current_legacy_flow')
     expect(ACCOUNTING_AUDIT_ACTIONS.supplierInvoiceBooked).toBe('supplier_invoice_booked')
     expect(ACCOUNTING_AUDIT_ACTIONS.customerInvoiceBooked).toBe('customer_invoice_booked')

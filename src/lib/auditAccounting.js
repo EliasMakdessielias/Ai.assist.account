@@ -7,6 +7,7 @@
 export const ACCOUNTING_AUDIT_ACTIONS = {
   verificationCreated: 'verification_created',
   verificationUpdated: 'verification_updated',
+  verificationVoided: 'verification_voided',
   verificationDeletedLegacy: 'verification_deleted_current_legacy_flow',
   supplierInvoiceBooked: 'supplier_invoice_booked',
   customerInvoiceBooked: 'customer_invoice_booked',

@@ -67,21 +67,15 @@ export default function Bokforing() {
 
   function rensa() { setSearch(''); setFilt({ ...emptyFilt }); setSerie('Alla'); setPage(0) }
 
-  // Den senaste (högsta numret) i varje serie får raderas.
-  const deletableIds = new Set()
-  const maxPerSerie = {}
-  verifikationer.forEach(v => {
-    const n = verNum(v)
-    if (!(v.ver_serie in maxPerSerie) || n > maxPerSerie[v.ver_serie].n) maxPerSerie[v.ver_serie] = { n, id: v.id }
-  })
-  Object.values(maxPerSerie).forEach(x => deletableIds.add(x.id))
-
-  async function deleteVer(e, v) {
+  // Makulering via motverifikation (BFL): originalet bevaras med status 'makulerad' och en
+  // motverifikation med omvänd kontering skapas i samma serie. Inga nummerluckor uppstår,
+  // så alla aktiva verifikationer kan makuleras (inte bara den senaste i serien).
+  async function makuleraVer(e, v) {
     e.stopPropagation()
-    if (!confirm(`Radera verifikation ${v.ver_nr}? Detta går inte att ångra.`)) return
-    const { error } = await supabase.from('verifikationer').delete().eq('id', v.id).eq('company_id', company.id)
-    if (error) { toast.error('Kunde inte radera: ' + error.message); return }
-    toast.success(`Verifikation ${v.ver_nr} raderad`)
+    if (!confirm(`Makulera verifikation ${v.ver_nr}? En motverifikation med omvänd kontering skapas och originalet bevaras.`)) return
+    const { data, error } = await supabase.rpc('makulera_verifikation', { p_ver_id: v.id })
+    if (error) { toast.error('Kunde inte makulera: ' + error.message); return }
+    toast.success(`Verifikation ${v.ver_nr} makulerad (motverifikation ${data?.motverifikation_nr || ''})`)
     loadVerifikationer()
   }
 
@@ -204,14 +198,18 @@ export default function Bokforing() {
                     </td></tr>
                   ) : pageRows.map(v => (
                     <tr key={v.id} className="cursor-pointer hover:bg-gray-50" onClick={() => navigate(`/bokforing/${v.id}`)}>
-                      <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{v.ver_nr}</td>
+                      <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+                        {v.ver_nr}
+                        {v.status === 'makulerad' && <span className="ml-2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-red-50 text-red-600">Makulerad</span>}
+                        {v.status === 'motverifikation' && <span className="ml-2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Motverifikation</span>}
+                      </td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{v.datum}</td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{v.beskrivning}</td>
                       <td className="px-4 py-2.5 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{fmt(v.total_debet)}</td>
                       <td className="px-4 py-2.5 border-b text-right whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                         <button className="btn text-xs py-1 px-2" title="Visa"><i className="ti ti-eye text-xs" /></button>
-                        {deletableIds.has(v.id) && (
-                          <button className="btn btn-danger text-xs py-1 px-2 ml-1.5" title="Radera (senaste i serien)" onClick={e => deleteVer(e, v)}><i className="ti ti-trash text-xs" /></button>
+                        {(v.status ?? 'aktiv') === 'aktiv' && (
+                          <button className="btn btn-danger text-xs py-1 px-2 ml-1.5" title="Makulera (motverifikation skapas)" onClick={e => makuleraVer(e, v)}><i className="ti ti-ban text-xs" /></button>
                         )}
                       </td>
                     </tr>
