@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { BRAND } from '../lib/brand'
+import { buildInvoiceLinkMap, invoiceRoute, splitDescriptionByInvoiceNr } from '../lib/kontoanalys'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const verNum = v => parseInt(String(v || '').replace(/\D/g, ''), 10) || 0
@@ -17,7 +18,7 @@ function parseKonto(str) {
 }
 const docType = serie => { const s = String(serie || ''); return s.includes(' - ') ? s.split(' - ')[1] : s }
 
-export default function Kontoanalys({ popout = false }) {
+export default function Kontoanalys({ popout = false, interactiveLinks = !popout }) {
   const { company } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -37,6 +38,7 @@ export default function Kontoanalys({ popout = false }) {
   const [doljKorr, setDoljKorr] = useState(params.get('hideCorrections') === '1')
   const [doktyp, setDoktyp] = useState(params.get('documentType') || 'Alla')
   const [page, setPage] = useState(0)
+  const [invoiceLinks, setInvoiceLinks] = useState({})   // verifikation_id → { kind, id, invoice_nr }
 
   useEffect(() => { if (company) load() }, [company?.id])
   async function load() {
@@ -52,6 +54,17 @@ export default function Kontoanalys({ popout = false }) {
       datum: x.verifikationer.datum, besk: x.verifikationer.beskrivning, belopp: (x.debet || 0) - (x.kredit || 0),
     })))
     setFy(f || [])
+    // Fakturalänkar: endast i interaktiv vy (ej popout). Explicit relation verifikation→faktura,
+    // hämtad scopat på company_id (+ RLS) → kan aldrig länka till annan kunds faktura.
+    if (interactiveLinks) {
+      const [{ data: si }, { data: ci }] = await Promise.all([
+        supabase.from('supplier_invoices').select('id, invoice_nr, verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
+        supabase.from('invoices').select('id, invoice_nr, verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
+      ])
+      setInvoiceLinks(buildInvoiceLinkMap(si, ci))
+    } else {
+      setInvoiceLinks({})
+    }
     // Auto-välj aktivt räkenskapsår – men inte om perioden redan kommer från URL (popout).
     const active = (f || []).find(y => y.status === 'active') || (f || [])[0]
     if (active && !urlHasPeriod) { setFrom(active.start_date); setTom(active.end_date) }
@@ -121,6 +134,15 @@ export default function Kontoanalys({ popout = false }) {
   function openPopout() { window.open(window.location.origin + popoutUrl(), 'bokpilot-kontoanalys-popout', 'width=1280,height=900') }
   // Stäng: stäng skript-öppnat fönster; annars (öppnat direkt/refresh) navigera tillbaka. Påverkar ej huvudappen.
   function stangPopout() { window.close(); setTimeout(() => { if (!window.closed) navigate('/kontoanalys') }, 150) }
+
+  // Beskrivning med klickbart fakturanummer – endast i interaktiv vy och när verifikationen
+  // är kopplad till exakt EN faktura (company-scopad relation). Annars vanlig text.
+  function renderBesk(r) {
+    const link = interactiveLinks ? invoiceLinks[r.ver_id] : null
+    const parts = link ? splitDescriptionByInvoiceNr(r.besk, link.invoice_nr) : null
+    if (!parts) return r.besk
+    return (<>{parts.before}<button className="text-blue-700 hover:underline font-medium" title={`Öppna faktura ${link.invoice_nr}`} onClick={() => navigate(invoiceRoute(link))}>{parts.match}</button>{parts.after}</>)
+  }
 
   return (
     <div>
@@ -201,9 +223,13 @@ export default function Kontoanalys({ popout = false }) {
                     const r = it.r
                     return (
                       <tr key={i} className="hover:bg-gray-50">
-                        <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}><button className="text-blue-700 hover:underline" onClick={() => navigate(`/bokforing/${r.ver_id}`)}>{r.ver_nr}</button></td>
+                        <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                          {interactiveLinks
+                            ? <button className="text-blue-700 hover:underline" onClick={() => navigate(`/bokforing/${r.ver_id}`)}>{r.ver_nr}</button>
+                            : <span className="text-gray-700">{r.ver_nr}</span>}
+                        </td>
                         <td className="px-4 py-2 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.datum}</td>
-                        <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.besk}</td>
+                        <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{renderBesk(r)}</td>
                         <td className="px-4 py-2 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{docType(r.serie)}</td>
                         <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)', color: r.belopp < 0 ? '#b91c1c' : '#1a1a1a' }}>{fmt(r.belopp)}</td>
                         <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{fmt(r.saldo)}</td>

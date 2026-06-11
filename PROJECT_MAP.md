@@ -474,6 +474,15 @@ fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
   skriva över en URL-period med aktivt räkenskapsår.
 - **"Stäng":** `window.close()` (skript-öppnat fönster); fallback `navigate('/kontoanalys')` om fönstret ej kan stängas
   (öppnat direkt/refresh). Påverkar aldrig huvudappen, rensar inga filter, loggar inte ut.
+- **Klickbart fakturanummer (endast normal vy, `interactiveLinks={!popout}`-prop):** fakturanumret i beskrivningsraden
+  blir en länk till fakturan. Bygger ALLTID på explicit relation `verifikation_id` → `supplier_invoices`/`invoices`
+  (hämtade scopat på `company_id` + RLS) – **aldrig globalt fakturanummer**, så ingen kund kan länkas till annans faktura.
+  Ren logik `src/lib/kontoanalys.js`: `buildInvoiceLinkMap` (flera fakturor på samma verifikation → ambiguös, ingen länk),
+  `invoiceRoute` (lev → `/leverantorsfakturor/{id}`, kund → `/fakturor/{id}`), `splitDescriptionByInvoiceNr` (matchar numret
+  som egen token, ej inuti större tal). **Verifikationsnumret** är klickbart i normal vy (oförändrat, → `/bokforing/{id}`).
+  **I popout** är BÅDE fakturanr och ver.nr vanlig text – ingen navigation bort (`interactiveLinks=false`, inga länk-queries).
+  Tester: `src/lib/kontoanalys.test.js` (10) + komponenttest (fakturanr klickbart→leverantörsfaktura, ver.nr klickbart i
+  normal, popout = ren text). Live-verifierat: Tele2/HEDIN/Spiris bokförda fakturor har numret i beskrivningen → klickbart.
 - **Tester** `src/pages/Kontoanalys.test.jsx` (6): knapp finns/URL byggs med filter + huvudvy ej rensad, popout-header
   (BokPilot·Kontoanalys) + Stäng + ingen "Öppna"-knapp, query params seedar filtren, `window.close` anropas, normal vy oförändrad.
 
