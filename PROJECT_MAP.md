@@ -647,3 +647,21 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   `NyLeverantorsfaktura.prevkontering.test.jsx` (ingen leverantör / utan historik / med historik → balanserad apply /
   Visa underlag aktiv) + live-verifiering: HEDIN FINANCIAL SERVICES senaste bokförda faktura hämtas korrekt
   (5615/5615/2440/6991/3740, 1 underlag) via exakt klientfråga.
+
+## Behandlingshistorik för bokföring (BFL avvikelse 1) – [AUDIT_BOKFORING]
+
+- **Migration** `supabase/audit_bokforing.sql` (applicerad, additiv): `audit_log` får `source` + `metadata`; central RPC
+  `log_accounting_audit(p_action,p_entity,p_entity_ref,p_source,p_metadata,p_company_id,p_before,p_after)` (SECURITY DEFINER).
+- **Observerande triggers** (ändrar **aldrig** bokföringslogiken, kan **aldrig** stoppa en bokföring – varje trigger sväljer
+  loggfel): `verifikationer` → `verification_created`/`verification_updated`/`verification_deleted_current_legacy_flow`
+  (BEFORE DELETE sparar raderna + `metadata.warning`); `supplier_invoices` (`bokford` false→true) → `supplier_invoice_booked`;
+  `invoices` (`verifikation_id` null→satt) → `customer_invoice_booked`. Befintlig `accounts_audit` (kontoplan) orörd.
+- **Klient** `src/lib/tolka.js`: `tolkaDocument` → `log_accounting_audit` (`document_interpreted`, source `ocr`), best-effort.
+  Sekretess-redaktion `src/lib/auditAccounting.js` (`redactInterpretation`/`SAFE_INTERPRETATION_KEYS`/`isAuditMetadataSafe`):
+  **aldrig** råtext/mailbody/konteringsrader/secrets – endast vitlistade fält (leverantör/org.nr/fakturanr/datum/belopp/moms/
+  valuta/typ), trunkerade. `source ∈ {ui,edge_function,worker,import,ocr,system}`. `document`-anrop härleder `company_id` +
+  kräver medlemskap (company_id-isolation).
+- **Bevis:** `src/lib/auditAccounting.test.js` (8) + `src/lib/tolka.test.js` (loggar `document_interpreted` utan känsligt;
+  audit-fel stoppar ej tolkning) + **live-verifierat rollback-säkert**: alla fem DB-händelser loggas med rätt action/source/
+  company_id/metadata, raderna fångas vid radering, kundfaktura loggas, `accounts_audit` opåverkad. Bygg + 585 tester gröna.
+- **Kvarstår (§16):** lucka 2 tvingande periodlås, lucka 3 makulering via motverifikation. **Ej ändrat i denna uppgift.**

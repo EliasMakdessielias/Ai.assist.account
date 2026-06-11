@@ -37,7 +37,7 @@ Lager:
 | `invoices` | Kundfakturor | `customer_id`, `invoice_nr`, `verifikation_id` |
 | `documents` | Underlag | `company_id`, `storage_path` (bucket `underlag`), `file_name`, `mime_type`, `kategori`, `tolkning` (json), `verifikation_id` |
 | `suppliers` / `customers` | Register | `company_id`, `name`, `org_nr`, betaluppgifter |
-| `audit_log` | Behandlingshistorik (delvis) | `company_id`, `entity`, `entity_ref`, `action`, `old_data`, `new_data`, `batch_id`, `changed_by`, `changed_by_email`, `created_at` |
+| `audit_log` | Behandlingshistorik (kontoplan + bokföring) | `company_id`, `entity`, `entity_ref`, `action`, `old_data`, `new_data`, `metadata`, `source`, `batch_id`, `changed_by`, `changed_by_email`, `created_at` |
 
 Specialloggar: `ai_usage_log` (OCR-användning), `inbound_email_log` (e-postmottagning, utan mailbody/base64),
 `download_audit_log` (nedladdning av underlag), `notification_events`/`notification_provider_logs`,
@@ -109,15 +109,28 @@ föredrar 2640 framför 2641 när båda finns. **Momsrapport** finns som sida (`
 Implementerat idag:
 - **`audit_log`** (trigger `accounts_audit` + RPC:er `import_chart_of_accounts`/`seed_bas_accounts`/`clear_chart_of_accounts`/
   `reset_company`/`purge_test_data`) → **kontoplansändringar** (create/import/replace/update/import_skip_locked) med before/after.
+- **`audit_log` – bokföringshändelser** (avvikelse 1 åtgärdad, `supabase/audit_bokforing.sql`) via central RPC
+  `log_accounting_audit(...)` (SECURITY DEFINER) + observerande triggers som **aldrig** ändrar bokföringslogiken och **aldrig**
+  kan stoppa en bokföring (varje trigger sväljer ev. loggfel):
+  | Händelse | Action | Källa | Trigger / anrop |
+  |---|---|---|---|
+  | Skapa verifikation | `verification_created` | trigger på `verifikationer` | `trg_audit_verifikation_ins` (AFTER INSERT) |
+  | Ändra verifikation | `verification_updated` | trigger på `verifikationer` | `trg_audit_verifikation_upd` (AFTER UPDATE) |
+  | Makulera/radera verifikation | `verification_deleted_current_legacy_flow` | trigger på `verifikationer` | `trg_audit_verifikation_del` (BEFORE DELETE; metadata `warning`, raderna sparas i `old_data`) |
+  | Bokför leverantörsfaktura | `supplier_invoice_booked` | trigger på `supplier_invoices` | `trg_audit_supplier_invoice_booked` (`bokford` false→true) |
+  | Bokför kundfaktura | `customer_invoice_booked` | trigger på `invoices` | `trg_audit_customer_invoice_booked` (`verifikation_id` null→satt) |
+  | OCR/tolkning av underlag | `document_interpreted` | klient (`ocr`) | `tolkaDocument` → `log_accounting_audit` (endast vitlistade fält via `redactInterpretation`, aldrig råtext) |
+
+  Kvitto/dagskassa/momsrapport bokförs som verifikationer och fångas därmed av `verification_created` (egna ledger-händelser
+  kräver egen datamodell – ej i denna uppgift). `source ∈ {ui, edge_function, worker, import, ocr, system}`; klientanrop för
+  `document` härleder `company_id` från `documents` och kräver medlemskap (company_id-isolation).
 - **`platform_audit_log`** (`log_platform_audit`) → adminåtgärder (service_state, roller, support).
 - **`download_audit_log`** (`log_inbox_download`) → nedladdning av underlag (user/company/antal, aldrig filinnehåll).
 - **`ai_usage_log`** (`record_ai_usage`) → OCR-användning. **`inbound_email_log`** → e-postmottagning (utan mailbody/base64).
 - **`stripe_event_log`** → idempotens. **`report_system_error`** → systemfel utan secrets/kortdata/rå body.
 
-**Aldrig loggat:** API-nycklar, lösenord, kortdata, rå OCR-/mailbody med känsligt innehåll, secrets.
-
-> **VIKTIG LUCKA:** `audit_log` täcker idag **inte** kärnhändelserna *skapa verifikation*, *bokför*, *makulering*, *rättelse*,
-> *momsrapport*. Se §16.
+**Aldrig loggat:** API-nycklar, lösenord, kortdata, rå OCR-/mailbody med känsligt innehåll, secrets, konteringsrader eller
+beskrivningstext i `document_interpreted` (endast leverantör/org.nr/fakturanr/datum/belopp/moms/valuta/typ – trunkerade).
 
 ## 7. Räkenskapsår och periodlåsning
 
@@ -174,6 +187,7 @@ secrets/price-id saknas; webhook signaturverifierad, verify_jwt=false).
 | Datum | Ändring |
 |---|---|
 | 2026-06-11 | Första versionen av SYSTEMDOKUMENTATION.md (as-built + lucksanalys) efter bindande redovisningsprotokoll. |
+| 2026-06-11 | Avvikelse 1 åtgärdad: behandlingshistorik för bokföring (`audit_log.source`/`metadata` + `log_accounting_audit` + triggers + `document_interpreted`). Se §6 och §16.1. |
 
 ---
 
@@ -183,10 +197,12 @@ Områden där nuvarande implementation **inte fullt ut** uppfyller det bindande 
 respektive flöde kan anses lagenligt komplett, och **en framtida uppgift som bokför utan att täcka dem ska stoppas och
 konflikten rapporteras**.
 
-1. **Behandlingshistorik för bokföring saknas (§1, §2, §6).** `audit_log` loggar idag kontoplan men **inte** skapa
-   verifikation / bokför / makulering / rättelse / momsrapport. **Åtgärd:** trigger/RPC som skriver `audit_log` (entity
-   `verifikation`/`supplier_invoice` …, action `bokford`/`makulerad`/`rattad`, old/new, `source`) vid dessa händelser.
-   `audit_log` saknar dessutom `source`-fält (ui/edge/worker) som protokollet kräver.
+1. **Behandlingshistorik för bokföring — ✅ ÅTGÄRDAD (2026-06-11, `supabase/audit_bokforing.sql`).** `audit_log` har nu
+   `source` + `metadata` (additivt) och central RPC `log_accounting_audit(...)`. Observerande triggers loggar
+   `verification_created` / `verification_updated` / `verification_deleted_current_legacy_flow` / `supplier_invoice_booked` /
+   `customer_invoice_booked`, och klienten loggar `document_interpreted` (se §6). Bokföringslogiken är **oförändrad** och audit
+   kan **aldrig** stoppa en bokföring. Live-verifierat (rollback-säkert) och täckt av tester (`auditAccounting.test.js`,
+   `tolka.test.js`). **Kvarstår:** dedikerade ledger-händelser för moms/skatt (egen datamodell) – se lucka 5.
 2. **Periodlås ej tvingande (§2, §15).** `companies.bokforing_last_tom` visas men ingen DB-trigger hindrar bokföring i låst
    period eller utanför öppet räkenskapsår. **Åtgärd:** BEFORE INSERT/UPDATE-trigger på `verifikationer` som validerar
    `datum` mot öppet `fiscal_years` och `bokforing_last_tom`.
@@ -201,6 +217,7 @@ konflikten rapporteras**.
 6. **Kundfaktura-kreditlogik (§12)** är inte härdad/testad i samma omfattning som leverantörsfakturan.
 7. **Skatt/deklaration (§8)** är inte byggt; ska byggas stegvis med tydlig regelkälla och separation bokförings-/deklarationsdata.
 
-**Konsekvens (bindande):** tills luckorna 1–3 är åtgärdade kan BokPilot bokföra utan fullständig behandlingshistorik och utan
-tvingande periodlås, vilket strider mot Bokföringslagen. Detta är dokumenterat som känd avvikelse; nästa redovisningsuppgift
-bör prioritera **(1) audit av bokföring, (2) tvingande periodlås, (3) makulering via motverifikation**.
+**Konsekvens (bindande):** lucka 1 (behandlingshistorik för bokföring) är nu åtgärdad. **Kvarstående kritiska luckor: (2)
+tvingande periodlås och (3) makulering via motverifikation.** Tills dessa två är åtgärdade kan BokPilot fortfarande bokföra i
+låst period/utanför öppet räkenskapsår och "makulera" genom radering som inte bevarar originalet, vilket strider mot
+Bokföringslagen. Nästa redovisningsuppgift bör prioritera **(2) tvingande periodlås** och **(3) makulering via motverifikation**.

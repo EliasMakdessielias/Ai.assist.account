@@ -1,4 +1,16 @@
 import { supabase } from './supabase'
+import { ACCOUNTING_AUDIT_ACTIONS, redactInterpretation } from './auditAccounting'
+
+// Behandlingshistorik (BFL): logga att ett underlag tolkats. Best-effort – audit får ALDRIG
+// stoppa tolkningen. Endast redigerade (vitlistade) fält loggas, aldrig råtext/mailbody.
+async function logDocumentInterpreted(documentId, result) {
+  try {
+    await supabase.rpc('log_accounting_audit', {
+      p_action: ACCOUNTING_AUDIT_ACTIONS.documentInterpreted, p_entity: 'document', p_entity_ref: documentId,
+      p_source: 'ocr', p_metadata: redactInterpretation(result),
+    })
+  } catch { /* audit får aldrig stoppa tolkningen */ }
+}
 
 function isQuota(e) { return /\b429\b|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(e?.message || '') }
 // Service-lås (företaget pausat/blockerat) – kontrollerad affärsavvisning, gör INGET omförsök.
@@ -45,15 +57,18 @@ async function callOnce(id, accessToken) {
 // omförsök, det bränner bara mer kvot) eller vid utgången session.
 export async function tolkaDocument(id) {
   const token = await requireAccessToken()
-  try { return await callOnce(id, token) }
+  let result
+  try { result = await callOnce(id, token) }
   catch (e) {
     if (isQuota(e)) throw friendly()
     if (e?.code === 'session_expired') throw e
     if (isServiceLocked(e)) throw e   // affärsavvisning – inget omförsök
-    try { return await callOnce(id, token) }
+    try { result = await callOnce(id, token) }
     catch (e2) {
       if (isQuota(e2)) throw friendly()
       throw e2
     }
   }
+  await logDocumentInterpreted(id, result)   // behandlingshistorik (best-effort)
+  return result
 }

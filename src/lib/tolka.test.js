@@ -3,8 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // Mocka supabase-klienten som tolka.js importerar.
 const invoke = vi.fn()
 const getSession = vi.fn()
+const rpc = vi.fn()
 vi.mock('./supabase', () => ({
-  supabase: { functions: { invoke: (...a) => invoke(...a) }, auth: { getSession: () => getSession() } },
+  supabase: { functions: { invoke: (...a) => invoke(...a) }, auth: { getSession: () => getSession() }, rpc: (...a) => rpc(...a) },
 }))
 
 import { tolkaDocument } from './tolka'
@@ -12,7 +13,7 @@ import { tolkaDocument } from './tolka'
 const withSession = (token = 'user-token-abc') => getSession.mockResolvedValue({ data: { session: { access_token: token } } })
 const noSession = () => getSession.mockResolvedValue({ data: { session: null } })
 
-beforeEach(() => { invoke.mockReset(); getSession.mockReset() })
+beforeEach(() => { invoke.mockReset(); getSession.mockReset(); rpc.mockReset().mockResolvedValue({ data: null, error: null }) })
 
 describe('tolkaDocument – auth (Tolka-flödet)', () => {
   it('inloggad användare kan tolka och får resultatet', async () => {
@@ -82,5 +83,30 @@ describe('tolkaDocument – auth (Tolka-flödet)', () => {
     const r = await tolkaDocument('doc-1')
     expect(r.beskrivning).toBe('ok')
     expect(invoke).toHaveBeenCalledTimes(2)
+  })
+
+  it('loggar document_interpreted (behandlingshistorik) utan råtext/känsligt (BFL)', async () => {
+    withSession()
+    invoke.mockResolvedValue({ data: { result: { leverantor: 'Acme AB', belopp_inkl_moms: 1250, moms_belopp: 250, invoice_type: 'debit', beskrivning: 'känslig råtext här', konteringsrader: [{ konto: '4000' }], ocr: '999' } }, error: null })
+    await tolkaDocument('doc-1')
+    expect(rpc).toHaveBeenCalledTimes(1)
+    const [fn, args] = rpc.mock.calls[0]
+    expect(fn).toBe('log_accounting_audit')
+    expect(args.p_action).toBe('document_interpreted')
+    expect(args.p_entity).toBe('document')
+    expect(args.p_entity_ref).toBe('doc-1')
+    expect(args.p_source).toBe('ocr')
+    expect(args.p_metadata).toMatchObject({ leverantor: 'Acme AB', belopp_inkl_moms: 1250, invoice_type: 'debit' })
+    expect(JSON.stringify(args.p_metadata)).not.toContain('känslig')   // ingen råtext
+    expect(args.p_metadata.konteringsrader).toBeUndefined()
+    expect(args.p_metadata.beskrivning).toBeUndefined()
+  })
+
+  it('audit-fel stoppar INTE tolkningen (best-effort)', async () => {
+    withSession()
+    invoke.mockResolvedValue({ data: { result: { beskrivning: 'ok' } }, error: null })
+    rpc.mockRejectedValueOnce(new Error('audit nere'))
+    const r = await tolkaDocument('doc-1')
+    expect(r.beskrivning).toBe('ok')
   })
 })
