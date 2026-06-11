@@ -183,7 +183,8 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
     const link = interactiveLinks ? invoiceLinks[r.ver_id] : null
     const parts = link ? splitDescriptionByInvoiceNr(r.besk, link.invoice_nr) : null
     if (!parts) return r.besk
-    return (<>{parts.before}<button className="text-blue-700 hover:underline font-medium" title={`Öppna faktura ${link.invoice_nr}`} onClick={() => navigate(invoiceRoute(link))}>{parts.match}</button>{parts.after}</>)
+    // stopPropagation: klick på fakturanumret navigerar utan att toggla den klickbara raden.
+    return (<>{parts.before}<button className="text-blue-700 hover:underline font-medium" title={`Öppna faktura ${link.invoice_nr}`} onClick={e => { e.stopPropagation(); navigate(invoiceRoute(link)) }}>{parts.match}</button>{parts.after}</>)
   }
 
   // Inline-detaljer för en verifikation (från redan laddad data – ingen ny fetch). Visar
@@ -241,8 +242,8 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
             </div>
           )}
           <div className="flex gap-2 mt-1">
-            {interactiveLinks && <button className="btn text-xs py-1 px-3" onClick={() => navigate(`/bokforing/${vid}`)}><i className="ti ti-pencil" /> Redigera</button>}
-            <button className="btn text-xs py-1 px-3" onClick={() => window.print()}><i className="ti ti-file-type-pdf" /> Skapa pdf</button>
+            {interactiveLinks && <button className="btn text-xs py-1 px-3" onClick={e => { e.stopPropagation(); navigate(`/bokforing/${vid}`) }}><i className="ti ti-pencil" /> Redigera</button>}
+            <button className="btn text-xs py-1 px-3" onClick={e => { e.stopPropagation(); window.print() }}><i className="ti ti-file-type-pdf" /> Skapa pdf</button>
           </div>
         </div>
       </td>
@@ -437,23 +438,24 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
                     const r = it.r
                     const rowKey = `${r.account_nr}:${r.ver_id}`
                     const open = expandedKey === rowKey
+                    const panelId = `verpanel-${r.account_nr}-${r.ver_id}`
+                    const toggle = () => setExpandedKey(k => (k === rowKey ? null : rowKey))
                     return (
                       <Fragment key={i}>
-                      <tr className="hover:bg-gray-50">
-                        <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                          {/* Ver.nr expanderar/collapsar inline – ALDRIG navigation (varken normal eller popout). */}
-                          <button className="text-blue-700 hover:underline inline-flex items-center gap-1 cursor-pointer" aria-expanded={open}
-                            onClick={() => setExpandedKey(k => (k === rowKey ? null : rowKey))}>
-                            <i className={`ti ti-chevron-${open ? 'down' : 'right'} text-xs`} />{r.ver_nr}
-                          </button>
-                        </td>
+                      {/* Hela raden togglar detaljpanelen (ingen pilikon). Tangentbord: Enter/Space.
+                          Fakturanummerlänken stoppar propagation så den navigerar utan att toggla. */}
+                      <tr className={`cursor-pointer hover:bg-gray-50 ${open ? 'bg-purple-50/60' : ''}`} tabIndex={0}
+                        aria-expanded={open} aria-controls={open ? panelId : undefined}
+                        onClick={toggle}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}>
+                        <td className="px-4 py-2 border-b font-medium text-gray-700" style={{ borderColor: 'rgba(0,0,0,0.06)', borderLeft: open ? '3px solid #6d28d9' : '3px solid transparent' }}>{r.ver_nr}</td>
                         <td className="px-4 py-2 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.datum}</td>
                         <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{renderBesk(r)}</td>
                         <td className="px-4 py-2 border-b text-gray-500" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{docType(r.serie)}</td>
                         <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)', color: r.belopp < 0 ? '#b91c1c' : '#1a1a1a' }}>{fmt(r.belopp)}</td>
                         <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{fmt(r.saldo)}</td>
                       </tr>
-                      {open && <tr className="bg-white"><VerDetail r={r} /></tr>}
+                      {open && <tr id={panelId} className="bg-white"><VerDetail r={r} /></tr>}
                       </Fragment>
                     )
                   })}

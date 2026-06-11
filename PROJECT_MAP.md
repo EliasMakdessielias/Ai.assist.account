@@ -481,8 +481,11 @@ fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
   `invoiceRoute` (lev → `/leverantorsfakturor/{id}`, kund → `/fakturor/{id}`), `splitDescriptionByInvoiceNr` (matchar numret
   som egen token, ej inuti större tal). **I popout** är fakturanr vanlig text (`interactiveLinks=false`).
   Tester: `src/lib/kontoanalys.test.js` + komponenttest. Live-verifierat: Tele2/HEDIN/Spiris fakturanr i beskrivningen → klickbart.
-- **Ver.nr expanderar inline (BÅDA vyer, ALDRIG navigation):** klick på t.ex. L2 fäller ut en panel direkt under raden
-  (vänster lila accentlinje, ingen modal, `aria-expanded`, `<button>` = keyboard-aktiverbar). Panelen visar verifikationens
+- **Hela transaktionsraden expanderar inline (BÅDA vyer, ALDRIG navigation):** klick var som helst på raden fäller ut en
+  panel direkt under raden – **ingen pilikon**. Raden är `tabIndex=0` med `onClick`/`onKeyDown` (Enter/Space), `aria-expanded`
+  + `aria-controls` → panelens id; öppen rad får lätt lila bakgrund + vänster accentlinje, `cursor-pointer` + hover. Klickbara
+  barn skyddas med `stopPropagation`: fakturanummerlänken navigerar (normal vy) utan att toggla; Redigera/Skapa pdf togglar inte.
+  Panelen visar verifikationens
   rader (**Konto + benämning, Momskod = `accounts.vat_code`, Projekt (saknas i datamodellen → tom), Debet, Kredit**),
   dokumenttyp/datum/belopp, **bilaga-indikator** (`documents.verifikation_id`-set), **relaterade verifikationer**
   (`buildRelatedVerMap` via `supplier_invoices.verifikation_id ↔ betalning_ver_id`) samt **Redigera** (endast normal vy →

@@ -38,6 +38,8 @@ vi.mock('../lib/supabase', () => {
 
 const renderAt = (path = '/kontoanalys', props = {}) =>
   render(<MemoryRouter initialEntries={[path]}><Kontoanalys {...props} /></MemoryRouter>)
+// Hela transaktionsraden är klickbar (ingen pilikon) – hitta <tr> via verifikationsnumret.
+const rowByVer = name => screen.getAllByText(name)[0].closest('tr')
 
 beforeEach(() => { cleanup(); vi.restoreAllMocks(); nav.mockReset(); fromSpy.mockClear() })
 afterEach(() => cleanup())
@@ -97,11 +99,12 @@ describe('Kontoanalys – Öppna i eget fönster (popout)', () => {
 })
 
 describe('Kontoanalys – klickbart fakturanummer (normal vy, oförändrat)', () => {
-  it('fakturanummer i beskrivningen är klickbart → öppnar leverantörsfakturan', async () => {
+  it('fakturanummer är klickbart → öppnar leverantörsfakturan men togglar INTE raden', async () => {
     renderAt('/kontoanalys')
     const btn = (await screen.findAllByRole('button', { name: '3419' }))[0]
     fireEvent.click(btn)
     expect(nav).toHaveBeenCalledWith('/leverantorsfakturor/si1')   // company-scopad relation, ej globalt nr
+    expect(screen.queryByText('Relaterade verifikationer')).toBeNull()   // stopPropagation → raden expanderade inte
   })
 
   it('popout: fakturanummer är INTE klickbart (vanlig text)', async () => {
@@ -111,50 +114,72 @@ describe('Kontoanalys – klickbart fakturanummer (normal vy, oförändrat)', ()
   })
 })
 
-describe('Kontoanalys – Ver.nr expanderar inline (ingen navigation)', () => {
-  it('klick på Ver.nr expanderar raden; klick igen collapsar; ALDRIG navigation', async () => {
+describe('Kontoanalys – hela raden expanderar (ingen pilikon, ingen navigation)', () => {
+  it('ingen chevron/pil i raden; klick på hela raden expanderar/collapsar; aria-expanded uppdateras', async () => {
     renderAt('/kontoanalys')
-    const ver = (await screen.findAllByRole('button', { name: /L5/ }))[0]
-    expect(ver.tagName).toBe('BUTTON')                      // keyboard-aktiverbar semantik
-    expect(ver.getAttribute('aria-expanded')).toBe('false')
+    await screen.findAllByText('L5')
+    const row = rowByVer('L5')
+    expect(row.tagName).toBe('TR')
+    expect(row.querySelector('[class*="ti-chevron"]')).toBeNull()      // ingen pilikon kvar
+    expect(row.getAttribute('aria-expanded')).toBe('false')
 
-    fireEvent.click(ver)
-    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()   // panel öppnad
-    expect(screen.getByText('48')).toBeTruthy()             // momskod (2641) – konton/momskod/debet/kredit visas
-    expect(screen.getAllByRole('button', { name: /L5/ })[0].getAttribute('aria-expanded')).toBe('true')
-    expect(nav).not.toHaveBeenCalled()                      // BEVIS: ingen navigation
+    fireEvent.click(row)                                                // klick var som helst på raden
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()
+    expect(screen.getByText('48')).toBeTruthy()
+    expect(rowByVer('L5').getAttribute('aria-expanded')).toBe('true')
+    expect(nav).not.toHaveBeenCalled()                                 // ingen navigation
 
-    fireEvent.click(screen.getAllByRole('button', { name: /L5/ })[0])   // collapse
+    fireEvent.click(rowByVer('L5'))                                     // klick igen → collapse
     await waitFor(() => expect(screen.queryByText('Relaterade verifikationer')).toBeNull())
     expect(nav).not.toHaveBeenCalled()
   })
 
+  it('Enter expanderar och Space collapsar (keyboard-accessible)', async () => {
+    renderAt('/kontoanalys')
+    await screen.findAllByText('L5')
+    fireEvent.keyDown(rowByVer('L5'), { key: 'Enter' })
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()
+    expect(rowByVer('L5').getAttribute('aria-expanded')).toBe('true')
+    fireEvent.keyDown(rowByVer('L5'), { key: ' ' })
+    await waitFor(() => expect(screen.queryByText('Relaterade verifikationer')).toBeNull())
+  })
+
   it('endast en verifikation expanderad åt gången', async () => {
     renderAt('/kontoanalys')
-    await screen.findAllByRole('button', { name: /L5/ })
-    fireEvent.click(screen.getAllByRole('button', { name: /L5/ })[0])
-    expect(await screen.findByText('48')).toBeTruthy()          // L5-panelen (momskod 48)
-    fireEvent.click(screen.getAllByRole('button', { name: /M33/ })[0])   // öppna annan verifikation
-    await waitFor(() => expect(screen.queryByText('48')).toBeNull())     // L5-panelen stängd
+    await screen.findAllByText('L5')
+    fireEvent.click(rowByVer('L5'))
+    expect(await screen.findByText('48')).toBeTruthy()
+    fireEvent.click(rowByVer('M33'))
+    await waitFor(() => expect(screen.queryByText('48')).toBeNull())
   })
 
   it('expand använder redan laddad data – ingen extra fetch per verifikation', async () => {
     renderAt('/kontoanalys')
-    await screen.findAllByRole('button', { name: /L5/ })
+    await screen.findAllByText('L5')
     const before = fromSpy.mock.calls.filter(c => c[0] === 'verifikation_rows').length
-    fireEvent.click(screen.getAllByRole('button', { name: /L5/ })[0])
+    fireEvent.click(rowByVer('L5'))
     expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()
     const after = fromSpy.mock.calls.filter(c => c[0] === 'verifikation_rows').length
-    expect(after).toBe(before)                              // ingen on-demand-hämtning vid expand
+    expect(after).toBe(before)
   })
 
-  it('popout: Ver.nr expanderar men navigerar inte, och Redigera (navigation) visas inte', async () => {
+  it('klick på "Skapa pdf" i panelen togglar INTE raden', async () => {
+    vi.spyOn(window, 'print').mockImplementation(() => {})
+    renderAt('/kontoanalys')
+    await screen.findAllByText('L5')
+    fireEvent.click(rowByVer('L5'))
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Skapa pdf/ }))
+    expect(screen.getByText('Relaterade verifikationer')).toBeTruthy()   // fortfarande öppen
+  })
+
+  it('popout: hela raden expanderar men navigerar inte; Redigera (navigation) visas inte', async () => {
     renderAt('/kontoanalys/popout', { popout: true })
-    const ver = (await screen.findAllByRole('button', { name: /L5/ }))[0]
-    fireEvent.click(ver)
-    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()   // expanderar
+    await screen.findAllByText('L5')
+    fireEvent.click(rowByVer('L5'))
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()
     expect(screen.getByText('48')).toBeTruthy()
-    expect(nav).not.toHaveBeenCalled()                                          // ingen navigation
-    expect(screen.queryByRole('button', { name: /Redigera/ })).toBeNull()       // Redigera (navigerar) dolt i popout
+    expect(nav).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /Redigera/ })).toBeNull()
   })
 })
