@@ -494,6 +494,21 @@ fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
   Live-verifierat: Tele2-faktura 400355542921 → rader 2440/2641(momskod 48)/3740/6200, relaterad betalning + 1 bilaga.
 - **Tester** `src/pages/Kontoanalys.test.jsx`: popout-knapp/URL byggs med filter + huvudvy ej rensad, popout-header
   (BokPilot·Kontoanalys) + Stäng (`window.close`) + ingen "Öppna"-knapp, query params seedar filtren; fakturanr + Ver.nr-expand (se ovan).
+- **Balansräkning (hierarkisk BAS-rapport)** `src/lib/balansrakning.js` (`BALANCE_STRUCTURE`, `buildBalansReport`, `isBalansKonto`):
+  sektion → grupp (hopfällbar) → undergrupp → konton → summor, med tre kolumner **Vid periodens början / Förändring /
+  Vid periodens slut**. Kontoklasser: **1xxx = Tillgångar** (Anläggnings-/Omsättningstillgångar), **2xxx = Eget kapital
+  och skulder** (Eget kapital, Obeskattade reserver, Avsättningar, Långfristiga, Kortfristiga – tomma grupper utelämnas).
+  3xxx–8xxx tas EJ med som balanskonton. **IB** = ingående balans + rörelse FÖRE från-datum; **Förändring** = rörelse inom
+  perioden; **UB** = IB + Förändring (en pass över raderna i `balRorelse`). Skulder/EK tecknas kredit-positivt (sign −1).
+  **Årets resultat** beräknas från 3xxx–8xxx och injiceras som EK-rad → balansen går ihop. **Kontrollsumma**: Summa
+  tillgångar vs Summa eget kapital och skulder + **Differens**; svensk **varning** om differens ≠ 0. **Egen filterrad**
+  (Visa period, Bokföringsdatum, Visa kolumner [enda alt.], Bokföring låst t.o.m. = `companies.bokforing_last_tom`,
+  **Visa alla konton** [visar nollkonton], Dölj korrigeringar). **Projekt** utelämnas (saknas i datamodellen – ingen falsk
+  kontroll). **Konto-klick** → intern flikväxling till Huvudbok filtrerad på kontot (ingen route-navigation → funkar i popout).
+  Print: rapporten ligger i `#printable`, filter/sidhuvud/tabbar är `no-print`. Tester: `src/lib/balansrakning.test.js` (10) +
+  `src/pages/Kontoanalys.balans.test.jsx` (8). Live-verifierat (BokPilot AB): Tillgångar = EK+skulder + Årets resultat → Differens 0.
+  **Begränsning:** Årets resultat visas som EK-rad men bokförs inte till 2099 förrän bokslut (befintlig modell); ingen separat
+  resultatdisposition ännu.
 
 ## Övrigt (urval)
 - Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,

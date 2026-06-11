@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { BRAND } from '../lib/brand'
 import { buildInvoiceLinkMap, buildRelatedVerMap, invoiceRoute, splitDescriptionByInvoiceNr } from '../lib/kontoanalys'
+import { buildBalansReport } from '../lib/balansrakning'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const verNum = v => parseInt(String(v || '').replace(/\D/g, ''), 10) || 0
@@ -42,6 +43,8 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
   const [relatedVer, setRelatedVer] = useState({})       // verifikation_id → [relaterade verifikation_id]
   const [docSet, setDocSet] = useState(() => new Set())  // verifikation_id med kopplat underlag
   const [expandedKey, setExpandedKey] = useState(null)   // inline-expanderad rad (konto:ver, en åt gången)
+  const [visaAlla, setVisaAlla] = useState(false)        // Balansräkning: visa även nollkonton
+  const [balCollapsed, setBalCollapsed] = useState(() => new Set())  // hopfällda balansgrupper
 
   useEffect(() => { if (company) load() }, [company?.id])
   async function load() {
@@ -119,6 +122,42 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
   const saldoUB = nr => accOB(nr) + rows.filter(r => r.account_nr === nr && r.datum <= tom && matchRad(r)).reduce((s, r) => s + r.belopp, 0)
   const periodSum = nr => rows.filter(r => r.account_nr === nr && r.datum >= from && r.datum <= tom && matchRad(r)).reduce((s, r) => s + r.belopp, 0)
   const rapportRader = (test, sign) => accounts.filter(a => test(a.account_nr)).map(a => ({ nr: a.account_nr, namn: a.name, v: sign * (tab === 'balans' ? saldoUB(a.account_nr) : periodSum(a.account_nr)) })).filter(x => Math.abs(x.v) > 0.005)
+
+  // ---- Balansräkning ----
+  // Balansräkningen respekterar bara "Dölj korrigeringar" (ej dokumenttyp/text-sök som hör till Huvudbok).
+  const matchBal = r => !(doljKorr && /^R/.test(r.serie || ''))
+  // En pass över raderna: per konto, rörelse FÖRE från-datum (→ ingående) och INOM perioden (→ förändring).
+  const balRorelse = useMemo(() => {
+    const m = {}
+    for (const r of rows) {
+      if (!matchBal(r)) continue
+      const k = r.account_nr
+      const e = m[k] || (m[k] = { before: 0, period: 0 })
+      if (r.datum < from) e.before += r.belopp
+      else if (r.datum <= tom) e.period += r.belopp
+    }
+    return m
+  }, [rows, from, tom, doljKorr])
+  // Årets resultat (3xxx–8xxx) – tecknat för Eget kapital (vinst positiv = ökar EK). Gör att balansen går ihop.
+  const aretsResultat = useMemo(() => {
+    let before = 0, period = 0
+    for (const r of rows) {
+      if (!matchBal(r) || !/^[3-8]/.test(r.account_nr)) continue
+      if (r.datum < from) before += r.belopp
+      else if (r.datum <= tom) period += r.belopp
+    }
+    return { ib: -before, change: -period, ub: -(before + period) }
+  }, [rows, from, tom, doljKorr])
+  const balReport = useMemo(() => buildBalansReport(
+    accounts,
+    nr => { const e = balRorelse[nr]; const ib = accOB(nr) + (e?.before || 0); const change = e?.period || 0; return { ib, change, ub: ib + change } },
+    { showZero: visaAlla, aretsResultat },
+  ), [accounts, balRorelse, visaAlla, aretsResultat])
+
+  // Drilldown: klick på konto i Balansräkning → filtrera Huvudbok på samma konto (samma period).
+  // INTERN flikväxling – ingen route-navigation, fungerar även i popout.
+  function goToKonto(nr) { if (!nr) return; setKontoSok(nr); setPage(0); setTab('huvudbok') }
+  const toggleBalGrupp = key => setBalCollapsed(s => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n })
 
   // Bygg popout-URL med nuvarande filter så det egna fönstret öppnas med samma urval.
   function popoutUrl() {
@@ -210,6 +249,91 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
     )
   }
 
+  // Hierarkisk Balansräkning (BAS): sektion → grupp (hopfällbar) → undergrupp → konton → summor.
+  function BalansView() {
+    const { sektioner, tillgangar, ekskuld, differens, balanserar } = balReport
+    const Amt = ({ v, bold }) => <td className={`px-4 py-1.5 text-right tabular-nums ${bold ? 'font-semibold' : ''}`} style={{ color: v < -0.005 ? '#b91c1c' : undefined }}>{fmt(v)}</td>
+    const hasData = sektioner.length > 0
+    return (
+      <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+              <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Konto</th>
+              <th className="text-right px-4 py-2.5 border-b w-40" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Vid periodens början</th>
+              <th className="text-right px-4 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Förändring</th>
+              <th className="text-right px-4 py-2.5 border-b w-40" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Vid periodens slut</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!hasData && <tr><td colSpan="4" className="text-center py-12 text-gray-400">Inga balanskonton i perioden.</td></tr>}
+            {sektioner.map(sec => (
+              <Fragment key={sec.key}>
+                <tr><td colSpan="4" className="px-4 pt-4 pb-1 text-[15px] font-bold text-gray-900">{sec.rubrik}</td></tr>
+                {sec.grupper.map(gr => {
+                  const gk = `${sec.key}:${gr.key}`
+                  const collapsed = balCollapsed.has(gk)
+                  return (
+                    <Fragment key={gr.key}>
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-1.5" colSpan="4">
+                          <button className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-700 cursor-pointer" aria-expanded={!collapsed}
+                            onClick={() => toggleBalGrupp(gk)}>
+                            <i className={`ti ti-chevron-${collapsed ? 'right' : 'down'} text-xs text-green-700`} />{gr.rubrik}
+                          </button>
+                        </td>
+                      </tr>
+                      {!collapsed && gr.undergrupper.map((ug, ui) => (
+                        <Fragment key={ui}>
+                          {ug.rubrik && <tr><td colSpan="4" className="px-4 pt-1.5 pb-0.5 pl-9 text-[13px] font-medium text-gray-600">{ug.rubrik}</td></tr>}
+                          {ug.konton.map((k, ki) => (
+                            <tr key={ki} className="hover:bg-gray-50">
+                              <td className="px-4 py-1 pl-12">
+                                {k.nr
+                                  ? <button className="text-blue-700 hover:underline" onClick={() => goToKonto(k.nr)} title={`Visa ${k.nr} i Huvudbok`}>{k.nr} {k.namn}</button>
+                                  : <span className="text-gray-700 italic">{k.namn}</span>}
+                              </td>
+                              <Amt v={k.ib} /><Amt v={k.change} /><Amt v={k.ub} />
+                            </tr>
+                          ))}
+                          <tr className="border-t" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                            <td className="px-4 py-1 pl-9 text-[13px] font-semibold text-gray-700">Summa {ug.rubrik.toLowerCase()}</td>
+                            <Amt v={ug.sum.ib} bold /><Amt v={ug.sum.change} bold /><Amt v={ug.sum.ub} bold />
+                          </tr>
+                        </Fragment>
+                      ))}
+                      <tr className="border-t bg-gray-50" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>
+                        <td className="px-4 py-1.5 text-sm font-semibold text-gray-800">Summa {gr.rubrik.toLowerCase()}</td>
+                        <Amt v={gr.sum.ib} bold /><Amt v={gr.sum.change} bold /><Amt v={gr.sum.ub} bold />
+                      </tr>
+                    </Fragment>
+                  )
+                })}
+                <tr className="border-t-2" style={{ borderColor: 'rgba(0,0,0,0.15)', background: 'rgba(109,40,217,0.06)' }}>
+                  <td className="px-4 py-2 text-sm font-bold text-gray-900 uppercase tracking-wide">Summa {sec.rubrik.toLowerCase()}</td>
+                  <Amt v={sec.sum.ib} bold /><Amt v={sec.sum.change} bold /><Amt v={sec.sum.ub} bold />
+                </tr>
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+        {hasData && (
+          <div className="px-4 py-3 border-t" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>
+            <div className="flex items-center justify-between text-sm py-0.5"><span className="text-gray-600">Summa tillgångar</span><span className="tabular-nums font-medium">{fmt(tillgangar.ub)}</span></div>
+            <div className="flex items-center justify-between text-sm py-0.5"><span className="text-gray-600">Summa eget kapital och skulder</span><span className="tabular-nums font-medium">{fmt(ekskuld.ub)}</span></div>
+            <div className="flex items-center justify-between text-sm pt-1 mt-1 border-t" style={{ borderColor: 'rgba(0,0,0,0.06)' }}><span className="font-semibold">Differens</span><span className="tabular-nums font-semibold" style={{ color: balanserar ? '#1a7a2e' : '#b91c1c' }}>{fmt(differens.ub)}</span></div>
+            {!balanserar && (
+              <div className="mt-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-[13px] text-red-700">
+                <i className="ti ti-alert-triangle text-red-500 mt-0.5" />
+                <span>Balansräkningen balanserar inte för vald period. Differens: <b className="tabular-nums">{fmt(differens.ub)}</b> kr.</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between no-print" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -245,6 +369,7 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
         ))}
       </div>
 
+      {tab !== 'balans' && (
       <div className="px-7 py-4 grid grid-cols-[1.3fr_1.4fr] gap-6 items-start no-print">
         <div className="space-y-2">
           <div className="relative"><input className="input pl-8" placeholder="Sök konto t.ex. 1510, 3050-3053" value={kontoSok} onChange={e => { setKontoSok(e.target.value); setPage(0) }} /><i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" /></div>
@@ -263,6 +388,29 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
           <select className="input" value={doktyp} onChange={e => { setDoktyp(e.target.value); setPage(0) }}>{doktyper.map(d => <option key={d} value={d}>{d}</option>)}</select>
         </div>
       </div>
+      )}
+
+      {/* Balansräkningens egen filterrad */}
+      {tab === 'balans' && (
+      <div className="px-7 py-4 grid grid-cols-[1.3fr_1fr] gap-6 items-start no-print">
+        <div className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-2">
+          <label className="text-sm text-gray-600">Visa period</label>
+          <select className="input" value={`${from}|${tom}`} onChange={e => { const [f, t] = e.target.value.split('|'); setFrom(f); setTom(t) }}>
+            <option value={`${from}|${tom}`}>Vald period</option>
+            {fy.map(y => <option key={y.id} value={`${y.start_date}|${y.end_date}`}>{y.year} ({y.start_date} – {y.end_date})</option>)}
+          </select>
+          <label className="text-sm text-gray-600">Bokföringsdatum</label>
+          <div className="flex items-center gap-2"><input className="input" type="date" value={from} onChange={e => setFrom(e.target.value)} /><span className="text-gray-400">–</span><input className="input" type="date" value={tom} onChange={e => setTom(e.target.value)} /></div>
+          <label className="text-sm text-gray-600">Visa kolumner</label>
+          <select className="input" defaultValue="ib-change-ub"><option value="ib-change-ub">Vid periodens början, Förändring, Vid periodens slut</option></select>
+          {company?.bokforing_last_tom && <><label className="text-sm text-gray-600">Bokföring låst t.o.m.</label><span className="text-sm text-gray-700">{company.bokforing_last_tom}</span></>}
+        </div>
+        <div className="space-y-2 pt-0.5">
+          <label className="flex items-center gap-2.5 text-sm text-gray-600"><input type="checkbox" checked={visaAlla} onChange={e => setVisaAlla(e.target.checked)} /> Visa alla konton</label>
+          <label className="flex items-center gap-2.5 text-sm text-gray-600"><input type="checkbox" checked={doljKorr} onChange={e => setDoljKorr(e.target.checked)} /> Dölj korrigeringar</label>
+        </div>
+      </div>
+      )}
 
       <div className="px-7 pb-10" id="printable">
         {loading ? <div className="text-gray-400 py-12 text-center">Laddar…</div> : tab === 'huvudbok' ? (
@@ -323,10 +471,7 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
             )}
           </>
         ) : tab === 'balans' ? (
-          <Rapport titel="Balansräkning" sektioner={[
-            { rubrik: 'Tillgångar', rader: rapportRader(nr => /^1/.test(nr), 1) },
-            { rubrik: 'Eget kapital och skulder', rader: rapportRader(nr => /^2/.test(nr), -1) },
-          ]} />
+          <BalansView />
         ) : (
           <Rapport titel={`Resultaträkning ${from} – ${tom}`} sektioner={[
             { rubrik: 'Intäkter', rader: rapportRader(nr => /^3/.test(nr), -1) },
