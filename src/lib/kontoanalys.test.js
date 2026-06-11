@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildInvoiceLinkMap, invoiceRoute, splitDescriptionByInvoiceNr } from './kontoanalys'
+import { buildInvoiceLinkMap, buildRelatedVerMap, invoiceRoute, splitDescriptionByInvoiceNr } from './kontoanalys'
 
 describe('buildInvoiceLinkMap', () => {
   it('mappar leverantörs- och kundfakturor på verifikation_id', () => {
@@ -24,6 +24,18 @@ describe('buildInvoiceLinkMap', () => {
       [{ id: 'si1', invoice_nr: '3419', verifikation_id: null }, { id: 'si2', invoice_nr: '', verifikation_id: 'v3' }],
       [],
     )
+    expect(map).toEqual({})
+  })
+})
+
+describe('buildRelatedVerMap', () => {
+  it('länkar bokförings- och betalningsverifikation bidirektionellt', () => {
+    const map = buildRelatedVerMap([{ verifikation_id: 'v1', betalning_ver_id: 'v2' }])
+    expect(map.v1).toEqual(['v2'])
+    expect(map.v2).toEqual(['v1'])
+  })
+  it('hoppar över faktura utan betalningsverifikation', () => {
+    const map = buildRelatedVerMap([{ verifikation_id: 'v1', betalning_ver_id: null }])
     expect(map).toEqual({})
   })
 })

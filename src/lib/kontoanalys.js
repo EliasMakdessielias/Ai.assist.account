@@ -34,6 +34,16 @@ export function invoiceRoute(link) {
   return link.kind === 'kund' ? `/fakturor/${link.id}` : `/leverantorsfakturor/${link.id}`
 }
 
+// Bygger karta verifikation_id → [relaterade verifikation_id] via fakturans bokförings-
+// och betalningsverifikation (supplier_invoices.verifikation_id ↔ betalning_ver_id).
+// Bidirektionellt: bokföringsver pekar på betalningsver och vice versa.
+export function buildRelatedVerMap(supplierInvoices = []) {
+  const map = {}
+  const link = (a, b) => { if (!a || !b || a === b) return; (map[a] ||= []); if (!map[a].includes(b)) map[a].push(b) }
+  for (const si of supplierInvoices || []) { link(si?.verifikation_id, si?.betalning_ver_id); link(si?.betalning_ver_id, si?.verifikation_id) }
+  return map
+}
+
 // Hittar fakturanumret som en HEL token i beskrivningen och delar upp texten runt det.
 // Returnerar { before, match, after } eller null om numret inte finns som egen token
 // (så "3419" inte matchar inuti "34190"). \w-gränser: numret får inte gränsa till bokstav/siffra.

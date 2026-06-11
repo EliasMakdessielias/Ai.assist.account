@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { BRAND } from '../lib/brand'
-import { buildInvoiceLinkMap, invoiceRoute, splitDescriptionByInvoiceNr } from '../lib/kontoanalys'
+import { buildInvoiceLinkMap, buildRelatedVerMap, invoiceRoute, splitDescriptionByInvoiceNr } from '../lib/kontoanalys'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const verNum = v => parseInt(String(v || '').replace(/\D/g, ''), 10) || 0
@@ -39,14 +39,23 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
   const [doktyp, setDoktyp] = useState(params.get('documentType') || 'Alla')
   const [page, setPage] = useState(0)
   const [invoiceLinks, setInvoiceLinks] = useState({})   // verifikation_id → { kind, id, invoice_nr }
+  const [relatedVer, setRelatedVer] = useState({})       // verifikation_id → [relaterade verifikation_id]
+  const [docSet, setDocSet] = useState(() => new Set())  // verifikation_id med kopplat underlag
+  const [expandedKey, setExpandedKey] = useState(null)   // inline-expanderad rad (konto:ver, en åt gången)
 
   useEffect(() => { if (company) load() }, [company?.id])
   async function load() {
     setLoading(true)
-    const [{ data: acc }, { data: r }, { data: f }] = await Promise.all([
-      supabase.from('accounts').select('account_nr, name, opening_balance').eq('company_id', company.id).order('account_nr'),
+    // Allt scopat på company_id (+ RLS) → ingen data från andra företag. supplier_invoices/
+    // invoices/documents används för fakturalänk (interaktiv vy), relaterade verifikationer och
+    // bilaga-indikator i den inline-expanderade panelen.
+    const [{ data: acc }, { data: r }, { data: f }, { data: si }, { data: ci }, { data: dox }] = await Promise.all([
+      supabase.from('accounts').select('account_nr, name, opening_balance, vat_code').eq('company_id', company.id).order('account_nr'),
       supabase.from('verifikation_rows').select('account_nr, debet, kredit, verifikationer!inner(id, ver_nr, ver_serie, datum, beskrivning, company_id)').eq('verifikationer.company_id', company.id),
       supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('year', { ascending: false }),
+      supabase.from('supplier_invoices').select('id, invoice_nr, verifikation_id, betalning_ver_id').eq('company_id', company.id),
+      supabase.from('invoices').select('id, invoice_nr, verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
+      supabase.from('documents').select('verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
     ])
     setAccounts(acc || [])
     setRows((r || []).map(x => ({
@@ -54,17 +63,10 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
       datum: x.verifikationer.datum, besk: x.verifikationer.beskrivning, belopp: (x.debet || 0) - (x.kredit || 0),
     })))
     setFy(f || [])
-    // Fakturalänkar: endast i interaktiv vy (ej popout). Explicit relation verifikation→faktura,
-    // hämtad scopat på company_id (+ RLS) → kan aldrig länka till annan kunds faktura.
-    if (interactiveLinks) {
-      const [{ data: si }, { data: ci }] = await Promise.all([
-        supabase.from('supplier_invoices').select('id, invoice_nr, verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
-        supabase.from('invoices').select('id, invoice_nr, verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
-      ])
-      setInvoiceLinks(buildInvoiceLinkMap(si, ci))
-    } else {
-      setInvoiceLinks({})
-    }
+    // Fakturalänk används bara i interaktiv vy (renderBesk gate:ar på interactiveLinks).
+    setInvoiceLinks(buildInvoiceLinkMap((si || []).filter(x => x.verifikation_id), ci))
+    setRelatedVer(buildRelatedVerMap(si))
+    setDocSet(new Set((dox || []).map(d => d.verifikation_id).filter(Boolean)))
     // Auto-välj aktivt räkenskapsår – men inte om perioden redan kommer från URL (popout).
     const active = (f || []).find(y => y.status === 'active') || (f || [])[0]
     if (active && !urlHasPeriod) { setFrom(active.start_date); setTom(active.end_date) }
@@ -73,6 +75,7 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
 
   const accName = nr => accounts.find(a => a.account_nr === nr)?.name || ''
   const accOB = nr => accounts.find(a => a.account_nr === nr)?.opening_balance || 0
+  const accVat = nr => accounts.find(a => a.account_nr === nr)?.vat_code || ''   // momskod från kontoplanen
   const doktyper = useMemo(() => ['Alla', ...[...new Set(rows.map(r => docType(r.serie)).filter(Boolean))].sort()], [rows])
 
   const kontoMatch = parseKonto(kontoSok)
@@ -142,6 +145,69 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
     const parts = link ? splitDescriptionByInvoiceNr(r.besk, link.invoice_nr) : null
     if (!parts) return r.besk
     return (<>{parts.before}<button className="text-blue-700 hover:underline font-medium" title={`Öppna faktura ${link.invoice_nr}`} onClick={() => navigate(invoiceRoute(link))}>{parts.match}</button>{parts.after}</>)
+  }
+
+  // Inline-detaljer för en verifikation (från redan laddad data – ingen ny fetch). Visar
+  // konto/momskod/projekt/debet/kredit, dokumenttyp/datum/belopp/bilaga, relaterade
+  // verifikationer samt knappar. Ingen navigation sker från Ver.nr-klicket självt.
+  function VerDetail({ r }) {
+    const vid = r.ver_id
+    const detail = rows.filter(x => x.ver_id === vid).sort((a, b) => String(a.account_nr).localeCompare(String(b.account_nr)))
+    const total = detail.reduce((s, d) => s + (d.belopp > 0 ? d.belopp : 0), 0)
+    const related = (relatedVer[vid] || []).map(rid => {
+      const rr = rows.find(x => x.ver_id === rid); if (!rr) return null
+      const tot = rows.filter(x => x.ver_id === rid).reduce((s, x) => s + (x.belopp > 0 ? x.belopp : 0), 0)
+      return { ver_id: rid, ver_nr: rr.ver_nr, besk: rr.besk, serie: rr.serie, datum: rr.datum, total: tot }
+    }).filter(Boolean)
+    return (
+      <td colSpan="6" className="p-0 border-b" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>
+        <div className="px-4 py-3" style={{ borderLeft: '3px solid #6d28d9', background: 'rgba(109,40,217,0.04)' }}>
+          <table className="w-full text-sm mb-2">
+            <thead>
+              <tr className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="text-left py-1">Konto</th><th className="text-left">Momskod</th><th className="text-left">Projekt</th>
+                <th className="text-right">Debet</th><th className="text-right">Kredit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.map((d, ix) => (
+                <tr key={ix}>
+                  <td className="py-1 text-gray-700">{d.account_nr} – {accName(d.account_nr)}</td>
+                  <td className="text-gray-600">{accVat(d.account_nr)}</td>
+                  <td className="text-gray-600" />
+                  <td className="text-right tabular-nums">{d.belopp > 0 ? fmt(d.belopp) : ''}</td>
+                  <td className="text-right tabular-nums">{d.belopp < 0 ? fmt(-d.belopp) : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex items-center gap-4 text-[12px] text-gray-500 mb-2">
+            <span>{docType(r.serie)}</span>
+            <span>{r.datum}</span>
+            <span className="tabular-nums">{fmt(total)}</span>
+            {docSet.has(vid) && <span className="flex items-center gap-1 text-gray-600"><i className="ti ti-paperclip" /> Bilaga</span>}
+          </div>
+          {related.length > 0 && (
+            <div className="mb-2">
+              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Relaterade verifikationer</div>
+              {related.map(rv => (
+                <div key={rv.ver_id} className="flex gap-3 text-[13px] py-0.5">
+                  <span className="text-gray-700 font-medium w-12 shrink-0">{rv.ver_nr}</span>
+                  <span className="text-gray-600 flex-1 truncate">{rv.besk}</span>
+                  <span className="text-gray-500 w-28 shrink-0">{docType(rv.serie)}</span>
+                  <span className="text-gray-500 w-24 shrink-0">{rv.datum}</span>
+                  <span className="tabular-nums text-gray-700 w-24 text-right shrink-0">{fmt(rv.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 mt-1">
+            {interactiveLinks && <button className="btn text-xs py-1 px-3" onClick={() => navigate(`/bokforing/${vid}`)}><i className="ti ti-pencil" /> Redigera</button>}
+            <button className="btn text-xs py-1 px-3" onClick={() => window.print()}><i className="ti ti-file-type-pdf" /> Skapa pdf</button>
+          </div>
+        </div>
+      </td>
+    )
   }
 
   return (
@@ -221,12 +287,17 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
                     if (it.type === 'ib') return <tr key={i}><td colSpan="5" /><td className="px-4 py-1.5 text-right tabular-nums text-gray-600 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{fmt(it.g.ib)}</td></tr>
                     if (it.type === 'ub') return <tr key={i} className="font-medium"><td colSpan="5" className="px-4 py-1.5 text-right text-gray-500 border-b" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>Utgående saldo:</td><td className="px-4 py-1.5 text-right tabular-nums border-b" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>{fmt(it.g.ub)}</td></tr>
                     const r = it.r
+                    const rowKey = `${r.account_nr}:${r.ver_id}`
+                    const open = expandedKey === rowKey
                     return (
-                      <tr key={i} className="hover:bg-gray-50">
+                      <Fragment key={i}>
+                      <tr className="hover:bg-gray-50">
                         <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
-                          {interactiveLinks
-                            ? <button className="text-blue-700 hover:underline" onClick={() => navigate(`/bokforing/${r.ver_id}`)}>{r.ver_nr}</button>
-                            : <span className="text-gray-700">{r.ver_nr}</span>}
+                          {/* Ver.nr expanderar/collapsar inline – ALDRIG navigation (varken normal eller popout). */}
+                          <button className="text-blue-700 hover:underline inline-flex items-center gap-1 cursor-pointer" aria-expanded={open}
+                            onClick={() => setExpandedKey(k => (k === rowKey ? null : rowKey))}>
+                            <i className={`ti ti-chevron-${open ? 'down' : 'right'} text-xs`} />{r.ver_nr}
+                          </button>
                         </td>
                         <td className="px-4 py-2 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.datum}</td>
                         <td className="px-4 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{renderBesk(r)}</td>
@@ -234,6 +305,8 @@ export default function Kontoanalys({ popout = false, interactiveLinks = !popout
                         <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)', color: r.belopp < 0 ? '#b91c1c' : '#1a1a1a' }}>{fmt(r.belopp)}</td>
                         <td className="px-4 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{fmt(r.saldo)}</td>
                       </tr>
+                      {open && <tr className="bg-white"><VerDetail r={r} /></tr>}
+                      </Fragment>
                     )
                   })}
                 </tbody>

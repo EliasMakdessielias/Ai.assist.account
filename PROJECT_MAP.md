@@ -479,12 +479,21 @@ fönster** för parallellt arbete bredvid t.ex. en leverantörsfaktura.
   (hämtade scopat på `company_id` + RLS) – **aldrig globalt fakturanummer**, så ingen kund kan länkas till annans faktura.
   Ren logik `src/lib/kontoanalys.js`: `buildInvoiceLinkMap` (flera fakturor på samma verifikation → ambiguös, ingen länk),
   `invoiceRoute` (lev → `/leverantorsfakturor/{id}`, kund → `/fakturor/{id}`), `splitDescriptionByInvoiceNr` (matchar numret
-  som egen token, ej inuti större tal). **Verifikationsnumret** är klickbart i normal vy (oförändrat, → `/bokforing/{id}`).
-  **I popout** är BÅDE fakturanr och ver.nr vanlig text – ingen navigation bort (`interactiveLinks=false`, inga länk-queries).
-  Tester: `src/lib/kontoanalys.test.js` (10) + komponenttest (fakturanr klickbart→leverantörsfaktura, ver.nr klickbart i
-  normal, popout = ren text). Live-verifierat: Tele2/HEDIN/Spiris bokförda fakturor har numret i beskrivningen → klickbart.
-- **Tester** `src/pages/Kontoanalys.test.jsx` (6): knapp finns/URL byggs med filter + huvudvy ej rensad, popout-header
-  (BokPilot·Kontoanalys) + Stäng + ingen "Öppna"-knapp, query params seedar filtren, `window.close` anropas, normal vy oförändrad.
+  som egen token, ej inuti större tal). **I popout** är fakturanr vanlig text (`interactiveLinks=false`).
+  Tester: `src/lib/kontoanalys.test.js` + komponenttest. Live-verifierat: Tele2/HEDIN/Spiris fakturanr i beskrivningen → klickbart.
+- **Ver.nr expanderar inline (BÅDA vyer, ALDRIG navigation):** klick på t.ex. L2 fäller ut en panel direkt under raden
+  (vänster lila accentlinje, ingen modal, `aria-expanded`, `<button>` = keyboard-aktiverbar). Panelen visar verifikationens
+  rader (**Konto + benämning, Momskod = `accounts.vat_code`, Projekt (saknas i datamodellen → tom), Debet, Kredit**),
+  dokumenttyp/datum/belopp, **bilaga-indikator** (`documents.verifikation_id`-set), **relaterade verifikationer**
+  (`buildRelatedVerMap` via `supplier_invoices.verifikation_id ↔ betalning_ver_id`) samt **Redigera** (endast normal vy →
+  `/bokforing/{id}`) + **Skapa pdf** (`window.print()`). Detaljerna kommer från **redan laddad `rows`-state** (priority 1 –
+  ingen on-demand fetch). Expand-state per **rad** (`konto:ver_id`, en åt gången). **Popout:** Ver.nr expanderar men navigerar
+  aldrig; Redigera (navigerar) döljs. company_id-isolation via RLS + filter.
+  Tester: `src/lib/kontoanalys.test.js` (`buildRelatedVerMap`) + `Kontoanalys.test.jsx` (expand/collapse, en-åt-gången,
+  ingen-navigation-bevis, panelinnehåll, relaterade ver., ingen extra fetch, popout-expand-utan-nav, keyboard/aria).
+  Live-verifierat: Tele2-faktura 400355542921 → rader 2440/2641(momskod 48)/3740/6200, relaterad betalning + 1 bilaga.
+- **Tester** `src/pages/Kontoanalys.test.jsx`: popout-knapp/URL byggs med filter + huvudvy ej rensad, popout-header
+  (BokPilot·Kontoanalys) + Stäng (`window.close`) + ingen "Öppna"-knapp, query params seedar filtren; fakturanr + Ver.nr-expand (se ovan).
 
 ## Övrigt (urval)
 - Auto Fit = **fit-to-width** (`computeAutoScale` i `src/lib/docPreview.js`): `scale = (containerW - pad) / naturalW`,

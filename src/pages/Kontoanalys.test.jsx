@@ -5,28 +5,41 @@ import { MemoryRouter } from 'react-router-dom'
 import Kontoanalys from './Kontoanalys'
 import { BRAND } from '../lib/brand'
 
-const { nav } = vi.hoisted(() => ({ nav: vi.fn() }))
+const { nav, fromSpy } = vi.hoisted(() => ({ nav: vi.fn(), fromSpy: vi.fn() }))
 vi.mock('react-router-dom', async (importOriginal) => { const actual = await importOriginal(); return { ...actual, useNavigate: () => nav } })
 vi.mock('../hooks/useAuth', () => { const auth = { company: { id: 'c1' } }; return { useAuth: () => auth } })
 vi.mock('../lib/supabase', () => {
+  const ver = (id, ver_nr, serie, datum, besk) => ({ id, ver_nr, ver_serie: serie, datum, beskrivning: besk, company_id: 'c1' })
+  const V1 = ver('v1', 'L5', 'L - Leverantörsfakturor', '2026-03-15', 'Lev.faktura AcountX Redovisningsbyrå AB 3419')
+  const V2 = ver('v2', 'M33', 'U - Utbetalningar', '2026-01-12', 'Betalning till AcountX Redovisningsbyrå AB 3419')
   const DATA = {
-    accounts: [{ account_nr: '1510', name: 'Kundfordringar', opening_balance: 0 }, { account_nr: '2440', name: 'Leverantörsskulder', opening_balance: 0 }],
-    verifikation_rows: [{
-      account_nr: '2440', debet: 0, kredit: 5000,
-      verifikationer: { id: 'v1', ver_nr: 'L5', ver_serie: 'L - Leverantörsfakturor', datum: '2026-03-15', beskrivning: 'Lev.faktura AcountX Redovisningsbyrå AB 3419', company_id: 'c1' },
-    }],
+    accounts: [
+      { account_nr: '1510', name: 'Kundfordringar', opening_balance: 0, vat_code: '' },
+      { account_nr: '1930', name: 'Företagskonto', opening_balance: 0, vat_code: '' },
+      { account_nr: '2440', name: 'Leverantörsskulder', opening_balance: 0, vat_code: '' },
+      { account_nr: '2641', name: 'Debiterad ingående moms', opening_balance: 0, vat_code: '48' },
+      { account_nr: '6530', name: 'Redovisningstjänster', opening_balance: 0, vat_code: '' },
+    ],
+    verifikation_rows: [
+      { account_nr: '2440', debet: 0, kredit: 3125, verifikationer: V1 },
+      { account_nr: '2641', debet: 625, kredit: 0, verifikationer: V1 },
+      { account_nr: '6530', debet: 2500, kredit: 0, verifikationer: V1 },
+      { account_nr: '2440', debet: 3125, kredit: 0, verifikationer: V2 },
+      { account_nr: '1930', debet: 0, kredit: 3125, verifikationer: V2 },
+    ],
     fiscal_years: [{ id: 'fy1', year: 2026, status: 'active', start_date: '2026-01-01', end_date: '2026-12-31' }],
-    supplier_invoices: [{ id: 'si1', invoice_nr: '3419', verifikation_id: 'v1' }],
+    supplier_invoices: [{ id: 'si1', invoice_nr: '3419', verifikation_id: 'v1', betalning_ver_id: 'v2' }],
     invoices: [],
+    documents: [{ verifikation_id: 'v1' }],
   }
   const make = (table) => { const p = {}; const ret = () => p; p.select = ret; p.eq = ret; p.order = ret; p.not = ret; p.then = (r) => r({ data: DATA[table] ?? [], error: null }); return p }
-  return { supabase: { from: (t) => make(t) } }
+  return { supabase: { from: (t) => { fromSpy(t); return make(t) } } }
 })
 
 const renderAt = (path = '/kontoanalys', props = {}) =>
   render(<MemoryRouter initialEntries={[path]}><Kontoanalys {...props} /></MemoryRouter>)
 
-beforeEach(() => { cleanup(); vi.restoreAllMocks(); nav.mockReset() })
+beforeEach(() => { cleanup(); vi.restoreAllMocks(); nav.mockReset(); fromSpy.mockClear() })
 afterEach(() => cleanup())
 
 describe('Kontoanalys – Öppna i eget fönster (popout)', () => {
@@ -83,28 +96,65 @@ describe('Kontoanalys – Öppna i eget fönster (popout)', () => {
   })
 })
 
-describe('Kontoanalys – klickbart fakturanummer (A: normal vy)', () => {
+describe('Kontoanalys – klickbart fakturanummer (normal vy, oförändrat)', () => {
   it('fakturanummer i beskrivningen är klickbart → öppnar leverantörsfakturan', async () => {
     renderAt('/kontoanalys')
-    const btn = await screen.findByRole('button', { name: '3419' })
+    const btn = (await screen.findAllByRole('button', { name: '3419' }))[0]
     fireEvent.click(btn)
     expect(nav).toHaveBeenCalledWith('/leverantorsfakturor/si1')   // company-scopad relation, ej globalt nr
   })
 
-  it('verifikationsnummer förblir klickbart i normal vy (oförändrat beteende)', async () => {
-    renderAt('/kontoanalys')
-    const ver = await screen.findByRole('button', { name: 'L5' })
-    fireEvent.click(ver)
-    expect(nav).toHaveBeenCalledWith('/bokforing/v1')
+  it('popout: fakturanummer är INTE klickbart (vanlig text)', async () => {
+    renderAt('/kontoanalys/popout', { popout: true })
+    await waitFor(() => expect(screen.getAllByText(/AcountX/).length).toBeGreaterThan(0))
+    expect(screen.queryByRole('button', { name: '3419' })).toBeNull()
   })
 })
 
-describe('Kontoanalys – popout är ren läsvy (B)', () => {
-  it('fakturanummer och verifikationsnummer är vanlig text, inga navigationslänkar', async () => {
+describe('Kontoanalys – Ver.nr expanderar inline (ingen navigation)', () => {
+  it('klick på Ver.nr expanderar raden; klick igen collapsar; ALDRIG navigation', async () => {
+    renderAt('/kontoanalys')
+    const ver = (await screen.findAllByRole('button', { name: /L5/ }))[0]
+    expect(ver.tagName).toBe('BUTTON')                      // keyboard-aktiverbar semantik
+    expect(ver.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(ver)
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()   // panel öppnad
+    expect(screen.getByText('48')).toBeTruthy()             // momskod (2641) – konton/momskod/debet/kredit visas
+    expect(screen.getAllByRole('button', { name: /L5/ })[0].getAttribute('aria-expanded')).toBe('true')
+    expect(nav).not.toHaveBeenCalled()                      // BEVIS: ingen navigation
+
+    fireEvent.click(screen.getAllByRole('button', { name: /L5/ })[0])   // collapse
+    await waitFor(() => expect(screen.queryByText('Relaterade verifikationer')).toBeNull())
+    expect(nav).not.toHaveBeenCalled()
+  })
+
+  it('endast en verifikation expanderad åt gången', async () => {
+    renderAt('/kontoanalys')
+    await screen.findAllByRole('button', { name: /L5/ })
+    fireEvent.click(screen.getAllByRole('button', { name: /L5/ })[0])
+    expect(await screen.findByText('48')).toBeTruthy()          // L5-panelen (momskod 48)
+    fireEvent.click(screen.getAllByRole('button', { name: /M33/ })[0])   // öppna annan verifikation
+    await waitFor(() => expect(screen.queryByText('48')).toBeNull())     // L5-panelen stängd
+  })
+
+  it('expand använder redan laddad data – ingen extra fetch per verifikation', async () => {
+    renderAt('/kontoanalys')
+    await screen.findAllByRole('button', { name: /L5/ })
+    const before = fromSpy.mock.calls.filter(c => c[0] === 'verifikation_rows').length
+    fireEvent.click(screen.getAllByRole('button', { name: /L5/ })[0])
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()
+    const after = fromSpy.mock.calls.filter(c => c[0] === 'verifikation_rows').length
+    expect(after).toBe(before)                              // ingen on-demand-hämtning vid expand
+  })
+
+  it('popout: Ver.nr expanderar men navigerar inte, och Redigera (navigation) visas inte', async () => {
     renderAt('/kontoanalys/popout', { popout: true })
-    await waitFor(() => expect(screen.getByText(/AcountX/)).toBeTruthy())
-    expect(screen.queryByRole('button', { name: '3419' })).toBeNull()   // fakturanr ej klickbart
-    expect(screen.queryByRole('button', { name: 'L5' })).toBeNull()     // ver.nr ej klickbart
-    expect(screen.getByText('L5')).toBeTruthy()                          // visas som text
+    const ver = (await screen.findAllByRole('button', { name: /L5/ }))[0]
+    fireEvent.click(ver)
+    expect(await screen.findByText('Relaterade verifikationer')).toBeTruthy()   // expanderar
+    expect(screen.getByText('48')).toBeTruthy()
+    expect(nav).not.toHaveBeenCalled()                                          // ingen navigation
+    expect(screen.queryByRole('button', { name: /Redigera/ })).toBeNull()       // Redigera (navigerar) dolt i popout
   })
 })
