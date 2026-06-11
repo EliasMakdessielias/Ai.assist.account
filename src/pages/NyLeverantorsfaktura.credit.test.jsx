@@ -155,13 +155,17 @@ describe('NyLeverantorsfaktura – Kreditfaktura-kryssrutans placering', () => {
     const label = checkbox.closest('label')
     expect(label.textContent).toMatch(/Kreditfaktura/)
 
+    // Stabil lokalisering via data-testid; wrappern hör till beloppsgruppen
+    const wrapper = screen.getByTestId('supplier-invoice-credit-toggle-form')
+    expect(wrapper.contains(checkbox)).toBe(true)
+
     // INTE i verktygsraden (raden med Kopiera/Kreditupplysning)
     const toolbar = screen.getByText('Kreditupplysning').closest('div')
     expect(toolbar.contains(checkbox)).toBe(false)
 
     // Sitter direkt ovanför Total/Moms-gridden (egen rad, nästa syskon = beloppsgridden)
     const totalGrid = document.getElementById('lev-total').closest('.grid')
-    expect(label.parentElement.nextElementSibling).toBe(totalGrid)
+    expect(wrapper.nextElementSibling).toBe(totalGrid)
     // och före Total i dokumentordning
     expect(label.compareDocumentPosition(document.getElementById('lev-total')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })

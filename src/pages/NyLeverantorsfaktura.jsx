@@ -492,7 +492,7 @@ export default function NyLeverantorsfaktura() {
 
         {/* Kreditfaktura – fakturatyp (styr Total/Moms-tecken + omvänd kontering). Ligger vid
             beloppen, ej i toolbaren. Egen rad, högerjusterad ovanför Total/Moms-gruppen. */}
-        <div className="flex justify-end mb-1.5">
+        <div data-testid="supplier-invoice-credit-toggle-form" className="flex justify-end mb-1.5">
           <label className={`inline-flex items-center gap-1.5 text-[13px] cursor-pointer select-none whitespace-nowrap ${kreditfaktura ? 'text-purple-700 font-medium' : 'text-gray-600 hover:text-gray-900'}`} title="Bocka i för att skapa en kreditfaktura (omvänd kontering på Total, Moms och konton)">
             <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={kreditfaktura} onChange={toggleKredit} />
             <i className="ti ti-file-minus" /> Kreditfaktura
