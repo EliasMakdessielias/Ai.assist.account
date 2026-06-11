@@ -1,5 +1,8 @@
 # PROJECT_MAP – BokPilot
 
+> ⚖️ **Bindande redovisningsprotokoll:** se `SYSTEMDOKUMENTATION.md`. BokPilot får aldrig bokföra utan verifikation,
+> huvudbokspåverkan, spårbart underlag, debet=kredit, korrekt moms/räkenskapsår/period, behandlingshistorik och audit trail.
+> Strider en uppgift mot detta → **stoppa och rapportera konflikten innan kod ändras**. Kända luckor: §16 i SYSTEMDOKUMENTATION.md.
 > Karta över systemets delar. För arbetssätt/historik se `HANDOFF.md`.
 > Stack: React 18 + Vite + Tailwind + React Router · Supabase (Postgres, RLS,
 > Storage, Edge Functions) · Vercel (app.bokpilot.se) · Gemini (AI edge functions).
