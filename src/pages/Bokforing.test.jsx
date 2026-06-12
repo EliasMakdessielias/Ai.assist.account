@@ -6,9 +6,10 @@ import Bokforing from './Bokforing'
 
 // Stabil referens – annars triggar useEffect([company]) en oändlig render-loop.
 // vi.hoisted: tillgängliga inne i mock-factories (som hissas över vanliga const).
-const { mockCompany, rpc, verData, rowData } = vi.hoisted(() => ({
+const { mockCompany, rpc, del, verData, rowData } = vi.hoisted(() => ({
   mockCompany: { id: 'c1' },
   rpc: vi.fn(),
+  del: vi.fn(),
   verData: { current: [] },
   rowData: { current: [] },
 }))
@@ -18,16 +19,17 @@ vi.mock('../hooks/useAuth', () => {
 })
 vi.mock('../lib/supabase', () => {
   // Tabellmedveten thenable-kedja: verifikationer -> verData, verifikation_rows -> rowData.
-  const mk = get => {
+  const mk = (table, get) => {
     const q = {
       select: () => q, eq: () => q, order: () => q,
+      delete: () => { del(table); return q },
       then: (res, rej) => Promise.resolve({ data: get(), error: null }).then(res, rej),
     }
     return q
   }
   return {
     supabase: {
-      from: t => mk(() => (t === 'verifikation_rows' ? rowData.current : verData.current)),
+      from: t => mk(t, () => (t === 'verifikation_rows' ? rowData.current : verData.current)),
       rpc: (...a) => rpc(...a),
     },
   }
@@ -46,6 +48,7 @@ beforeEach(() => {
   rowData.current = []
   delete mockCompany.bokforing_last_tom
   rpc.mockReset().mockResolvedValue({ data: null, error: null })
+  del.mockReset()
 })
 
 describe('Bokföring – dokumentpanel i registreringsflikar (krav 1)', () => {
@@ -200,5 +203,55 @@ describe('Bokföring – spårbart rättelseflöde (BFL)', () => {
     expect(screen.getByText(/Datumet ligger i låst period/)).toBeTruthy()
     expect(screen.getByText('Skapa rättelse').disabled).toBe(true)
     expect(rpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('Bokföring – ta bort senaste verifikationen i serien', () => {
+  const m1 = { id: 'v1', ver_nr: 'M1', ver_serie: 'M', datum: '2026-06-01', beskrivning: 'Äldre', total_debet: 100, total_kredit: 100, status: 'aktiv' }
+  const m2 = { id: 'v2', ver_nr: 'M2', ver_serie: 'M', datum: '2026-06-02', beskrivning: 'Senaste i M', total_debet: 50, total_kredit: 50, status: 'aktiv' }
+  const a1 = { id: 'v3', ver_nr: 'A1', ver_serie: 'A', datum: '2026-06-03', beskrivning: 'Senaste i A', total_debet: 70, total_kredit: 70, status: 'aktiv' }
+
+  it('endast SENASTE aktiva i varje serie har Ta bort-knapp', async () => {
+    verData.current = [m1, m2, a1]
+    renderPage()
+    await screen.findByText('M1')
+    // En per serie (M2 + A1) – aldrig på äldre M1.
+    expect(screen.getAllByTitle('Ta bort (senaste i serien)')).toHaveLength(2)
+    // Rätta/Makulera finns kvar på ALLA aktiva.
+    expect(screen.getAllByTitle('Makulera (motverifikation skapas)')).toHaveLength(3)
+  })
+
+  it('senaste i serien som är makulerad/motverifikation kan INTE tas bort', async () => {
+    verData.current = [
+      m1,
+      { ...m2, status: 'makulerad' },
+      { id: 'v4', ver_nr: 'M3', ver_serie: 'M', datum: '2026-06-02', beskrivning: 'Motver', total_debet: 50, total_kredit: 50, status: 'motverifikation' },
+    ]
+    renderPage()
+    await screen.findByText('M1')
+    expect(screen.queryByTitle('Ta bort (senaste i serien)')).toBeNull()   // M3 är senaste men motverifikation
+  })
+
+  it('Ta bort + bekräfta raderar verifikationen (loggas i behandlingshistoriken av DB-triggern)', async () => {
+    verData.current = [m1, m2]
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderPage()
+    await screen.findByText('M2')
+    fireEvent.click(screen.getByTitle('Ta bort (senaste i serien)'))
+    expect(confirmSpy.mock.calls[0][0]).toContain('Ta bort verifikation M2')
+    expect(confirmSpy.mock.calls[0][0]).toContain('loggas i behandlingshistoriken')
+    await screen.findByText('M1')   // vänta ut omladdningen
+    expect(del).toHaveBeenCalledWith('verifikationer')
+    confirmSpy.mockRestore()
+  })
+
+  it('avbruten confirm raderar INTE', async () => {
+    verData.current = [m1, m2]
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    renderPage()
+    await screen.findByText('M2')
+    fireEvent.click(screen.getByTitle('Ta bort (senaste i serien)'))
+    expect(del).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
   })
 })

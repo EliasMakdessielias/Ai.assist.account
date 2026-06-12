@@ -711,8 +711,11 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
 - **UI:** `Bokforing.jsx` – "Radera (senaste i serien)" ersatt med **Makulera** (alla aktiva verifikationer, ti-ban-ikon,
   status-badge Makulerad/Motverifikation i listan); `KassaBank.jsx` – "Ångra bokföring" makulerar i stället för raderar.
   Rapporter/SIE inkluderar både original och motverifikation (nettar till noll) – korrekt enligt BFL.
-- **Kvarvarande fysisk radering (medveten):** endast `rollbackVer` i `NyLeverantorsfaktura.jsx` (kompenserande cleanup
-  av nyss skapad ofullständig bokning) – auditas som `verification_deleted_current_legacy_flow`.
+- **Kvarvarande fysisk radering (medvetna undantag):** (a) `rollbackVer` i `NyLeverantorsfaktura.jsx` (kompenserande
+  cleanup av nyss skapad ofullständig bokning); (b) **"Ta bort (senaste i serien)"** i `Bokforing.jsx` (2026-06-12) –
+  endast den AKTIVA verifikationen med högst nummer per serie (`deletableIds`, ingen nummerlucka; Fortnox-mönstret).
+  Båda auditas med full radbild; DB-triggers blockerar låst period + skyddade statusar. 4 komponenttester
+  (knapp endast på senaste aktiva per serie, ej på makulerad/motver, confirm-flöde, avbrott).
 - **Bevis:** live-verifierat rollback-säkert (original bevarad m. rader, motver omvänd + netto 0, audit `verification_voided`,
   faktura återställd, dubbelmakulering/mot-makulering/ändra/radera blockerade, avstämning tillåten, låst period blockerad)
   + `Bokforing.test.jsx` (3 nya: knapp endast på aktiv + rpc-anrop, badge + ingen knapp på makulerad, avbruten confirm)

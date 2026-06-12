@@ -69,6 +69,27 @@ export default function Bokforing() {
 
   function rensa() { setSearch(''); setFilt({ ...emptyFilt }); setSerie('Alla'); setPage(0) }
 
+  // Senaste verifikationen (högsta numret) i varje serie kan tas bort fysiskt – ingen
+  // nummerlucka uppstår. Raderingen loggas med full radbild i behandlingshistoriken och
+  // DB-triggers blockerar låst period samt makulerade/rättade poster. Äldre verifikationer
+  // hanteras via Makulera/Rätta (spårbar kedja).
+  const deletableIds = new Set()
+  const maxPerSerie = {}
+  verifikationer.forEach(v => {
+    const n = verNum(v)
+    if (!(v.ver_serie in maxPerSerie) || n > maxPerSerie[v.ver_serie].n) maxPerSerie[v.ver_serie] = { n, id: v.id, status: v.status }
+  })
+  Object.values(maxPerSerie).forEach(x => { if ((x.status ?? 'aktiv') === 'aktiv') deletableIds.add(x.id) })
+
+  async function deleteVer(e, v) {
+    e.stopPropagation()
+    if (!confirm(`Ta bort verifikation ${v.ver_nr}? Den är senaste i sin serie och tas bort permanent. Raderingen loggas i behandlingshistoriken.`)) return
+    const { error } = await supabase.from('verifikationer').delete().eq('id', v.id).eq('company_id', company.id)
+    if (error) { toast.error('Kunde inte ta bort: ' + error.message); return }
+    toast.success(`Verifikation ${v.ver_nr} borttagen`)
+    loadVerifikationer()
+  }
+
   // Makulering via motverifikation (BFL): originalet bevaras med status 'makulerad' och en
   // motverifikation med omvänd kontering skapas i samma serie. Inga nummerluckor uppstår,
   // så alla aktiva verifikationer kan makuleras (inte bara den senaste i serien).
@@ -233,6 +254,9 @@ export default function Bokforing() {
                           <>
                             <button className="btn text-xs py-1 px-2 ml-1.5" title="Rätta (spårbar rättelsekedja)" onClick={e => { e.stopPropagation(); setRattaVer(v) }}><i className="ti ti-pencil-minus text-xs" /></button>
                             <button className="btn btn-danger text-xs py-1 px-2 ml-1.5" title="Makulera (motverifikation skapas)" onClick={e => makuleraVer(e, v)}><i className="ti ti-ban text-xs" /></button>
+                            {deletableIds.has(v.id) && (
+                              <button className="btn btn-danger text-xs py-1 px-2 ml-1.5" title="Ta bort (senaste i serien)" onClick={e => deleteVer(e, v)}><i className="ti ti-trash text-xs" /></button>
+                            )}
                           </>
                         )}
                       </td>

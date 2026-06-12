@@ -232,8 +232,13 @@ konflikten rapporteras**.
    (`status='makulerad'`). Makulerade/motverifikationer är **oföränderliga** (skyddstriggers på ver + rader; endast
    avstämningsflaggan undantagen). Faktura-/bankkopplingar återställs så underlaget kan bokföras om. Periodlåset gäller
    (makulering i låst period blockeras → kräver framtida rättelseflöde, lucka 4). UI: Bokföring "Makulera"-knapp +
-   statusbadge; Kassa & Bank "Ångra" makulerar. **Kvarvarande fysisk radering:** endast kompenserande rollback i
-   bokför-flödet (`rollbackVer`, nyss skapad ofullständig ver) — auditas som `verification_deleted_current_legacy_flow`.
+   statusbadge; Kassa & Bank "Ångra" makulerar. **Kvarvarande fysisk radering (medvetna undantag):**
+   (a) kompenserande rollback i bokför-flödet (`rollbackVer`, nyss skapad ofullständig ver) och
+   (b) **"Ta bort (senaste i serien)"** i Bokföring (2026-06-12) — endast den AKTIVA verifikationen med högst
+   nummer per serie (ingen nummerlucka; Fortnox-mönstret). Båda auditas som
+   `verification_deleted_current_legacy_flow` med full radbild; periodlåset blockerar radering i låst period och
+   skyddstriggrarna blockerar makulerade/motverifikationer/rättade/rättelser. Äldre verifikationer hanteras
+   alltid via makulering/rättelse.
 4. **Rättelseflöde — ✅ ÅTGÄRDAD (2026-06-11, `supabase/rattelse.sql`).** Spårbar kedja
    **original (`status='rattad'`) → rättelseverifikation (serie R, omvända rader, `status='rattelse'`) →
    ersättningsverifikation (vanlig aktiv verifikation med relation `ersatter`)** via RPC
