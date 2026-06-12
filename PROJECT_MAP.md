@@ -751,3 +751,19 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
 - **Bevis:** live rollback-säkert (kedja, audit ×4, omvända rader/netto 0/inga negativa, låst original→rättelse på första
   öppna datum + `period_locked_original=true`, valt låst datum blockerat, makulerad/motver/rättad/rättelse kan inte rättas,
   ersatter mot aktiv blockerad) + `rattelse.test.js` (9) + `Bokforing.test.jsx` (5 nya modal-/badge-tester). Bygg + 600 tester gröna.
+
+## Bankavstämning: matcha (granska) → spara (acceptera) – [AVSTAMNING]  *(2026-06-12)*
+
+- **Flöde i `StamAvKonto.jsx`** (Bokföring → Stäm av konto): **Matcha transaktioner** bygger en UNIK 1:1-matchning
+  (varje bokföringsrad och banktransaktion ingår i högst ETT par) och visar den som GRANSKNINGSLÄGE – parade poster
+  blåmarkeras med parnummer (P1, P2 …) på BÅDA sidor, checkboxar låses. INGET skrivs till databasen i detta steg.
+  **Spara** = användarens acceptans → `avstamd=true` skrivs för båda sidorna. **Avbryt** lämnar granskningsläget.
+- **Parningslogik** `src/lib/avstamning.js` `buildUniqueMatches(bok, bank, { maxDagar=7 })` (ren, testad): samma
+  belopp (±0,01, tecknet räknas) + datum inom 7 dagar; alla kandidatpar sorteras globalt på datumavstånd och plockas
+  unikt (närmast vinner – inte radordningen). Knappen visar antal möjliga par; gulmarkering förhandsvisar kandidater.
+- **Manuellt urval:** markeringar begränsar parningen till de markerade; markerade som inte kan paras 1:1 men vars
+  summor stämmer (±0,01) erbjuds som **gruppmatchning** (G-badge, en grupp) – också via granska→Spara.
+  Gamla "Föreslå matchningar"-knappen borttagen (ersatt av Matcha-stegets preview).
+- **Bevis:** `avstamning.test.js` (6: unikhet, dubblettbelopp, globalt närmaste datum, 7-dagarsgräns, tecken, tomt)
+  + `StamAvKonto.test.jsx` (4: granskningsläge utan DB-skrivning, Spara skriver båda sidor, Avbryt skriver inget,
+  omatchad post får aldrig parnummer). Bygg + 625 tester gröna.

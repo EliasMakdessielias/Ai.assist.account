@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { buildUniqueMatches } from '../lib/avstamning'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -18,6 +19,10 @@ export default function StamAvKonto() {
   const [selBank, setSelBank] = useState(new Set())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  // Granskningsläge: Matcha bygger unika par som visas (P1, P2 …) men skriver INGET –
+  // användaren accepterar med Spara. { pairs, bokNo: Map id->parnr, bankNo: Map id->parnr }
+  // eller { group: true, bokIds, bankIds } för manuell gruppmatchning av markerade poster.
+  const [pending, setPending] = useState(null)
 
   useEffect(() => { if (company) loadAccounts() }, [company?.id])
   useEffect(() => { if (company && konto) load() }, [company?.id, konto, from, tom])
@@ -44,6 +49,7 @@ export default function StamAvKonto() {
       .map(t => ({ id: t.id, datum: t.datum, besk: t.text, belopp: t.amount || 0, avstamd: !!t.avstamd }))
       .filter(t => inP(t.datum)).sort((a, b) => a.datum.localeCompare(b.datum)))
     setSelBok(new Set()); setSelBank(new Set())
+    setPending(null)
     setLoading(false)
   }
 
@@ -52,42 +58,43 @@ export default function StamAvKonto() {
   const bankVis = bank.filter(t => !doljMatchade || !t.avstamd)
   const sumBok = bok.filter(r => selBok.has(r.id)).reduce((s, r) => s + r.belopp, 0)
   const sumBank = bank.filter(t => selBank.has(t.id)).reduce((s, t) => s + t.belopp, 0)
-  const kanMatcha = (selBok.size > 0 || selBank.size > 0)
 
-  // Auto-förslag: para ihop ej-avstämda poster med samma belopp, närmaste datum inom 7 dagar.
-  const dateDiff = (a, b) => Math.abs((new Date(b) - new Date(a)) / 86400000)
-  const pairs = (() => {
-    const used = new Set(); const out = []
-    bok.filter(r => !r.avstamd).forEach(r => {
-      let best = null, bd = Infinity
-      bank.filter(t => !t.avstamd).forEach(t => {
-        if (used.has(t.id) || Math.abs(t.belopp - r.belopp) > 0.01) return
-        const d = dateDiff(r.datum, t.datum)
-        if (d <= 7 && d < bd) { best = t; bd = d }
-      })
-      if (best) { used.add(best.id); out.push({ bok: r.id, bank: best.id }) }
-    })
-    return out
-  })()
-  const suggBok = new Set(pairs.map(p => p.bok))
-  const suggBank = new Set(pairs.map(p => p.bank))
-  function markeraForslag() {
-    if (!pairs.length) return toast('Inga säkra förslag (samma belopp inom 7 dagar)', { icon: 'ℹ️' })
-    setSelBok(new Set(pairs.map(p => p.bok)))
-    setSelBank(new Set(pairs.map(p => p.bank)))
-    toast.success(`${pairs.length} förslag markerade – granska och klicka Matcha`)
+  // Möjliga unika par bland ej avstämda (visas som antal på Matcha-knappen + gulmarkering).
+  const possiblePairs = buildUniqueMatches(bok.filter(r => !r.avstamd), bank.filter(t => !t.avstamd))
+  const suggBok = new Set(possiblePairs.map(p => p.bokId))
+  const suggBank = new Set(possiblePairs.map(p => p.bankId))
+
+  // Steg 1 – Matcha: bygg UNIK 1:1-matchning (varje post i högst ett par) och visa den som
+  // granskningsläge. Finns markeringar begränsas parningen till de markerade posterna.
+  // Markerade som inte kan paras 1:1 men vars summor stämmer erbjuds som gruppmatchning.
+  // INGET skrivs till databasen i detta steg.
+  function matchaTransaktioner() {
+    const bokKand = bok.filter(r => !r.avstamd && (selBok.size ? selBok.has(r.id) : true))
+    const bankKand = bank.filter(t => !t.avstamd && (selBank.size ? selBank.has(t.id) : true))
+    const pairs = buildUniqueMatches(bokKand, bankKand)
+    if (!pairs.length) {
+      if (selBok.size && selBank.size && Math.abs(sumBok - sumBank) <= 0.01) {
+        setPending({ group: true, bokIds: new Set(selBok), bankIds: new Set(selBank) })
+        return
+      }
+      return toast('Inga matchningar hittades (samma belopp, datum inom 7 dagar). Markera poster med lika summor på båda sidor för gruppmatchning.', { icon: 'ℹ️' })
+    }
+    const bokNo = new Map(pairs.map((p, i) => [p.bokId, i + 1]))
+    const bankNo = new Map(pairs.map((p, i) => [p.bankId, i + 1]))
+    const omatchade = [...selBok].filter(id => !bokNo.has(id)).length + [...selBank].filter(id => !bankNo.has(id)).length
+    setPending({ pairs, bokNo, bankNo, bokIds: new Set(bokNo.keys()), bankIds: new Set(bankNo.keys()) })
+    if (omatchade) toast(`${omatchade} markerade poster kunde inte paras unikt och ingår inte`, { icon: 'ℹ️' })
   }
 
-  async function matcha() {
-    if (!kanMatcha) return
-    if (selBok.size > 0 && selBank.size > 0 && Math.abs(sumBok - sumBank) > 0.01) {
-      if (!confirm(`Markerade summor skiljer sig (${fmt(sumBok)} vs ${fmt(sumBank)}). Matcha ändå?`)) return
-    }
+  // Steg 2 – Spara: användarens acceptans av granskad matchning → skriv avstämningen.
+  async function sparaAvstamning() {
+    if (!pending) return
     setSaving(true)
     try {
-      if (selBok.size) await supabase.from('verifikation_rows').update({ avstamd: true }).in('id', [...selBok])
-      if (selBank.size) await supabase.from('bank_transactions').update({ avstamd: true }).in('id', [...selBank])
-      toast.success('Transaktioner avstämda')
+      if (pending.bokIds.size) await supabase.from('verifikation_rows').update({ avstamd: true }).in('id', [...pending.bokIds])
+      if (pending.bankIds.size) await supabase.from('bank_transactions').update({ avstamd: true }).in('id', [...pending.bankIds])
+      toast.success(pending.group ? 'Gruppmatchning sparad' : `Avstämning sparad (${pending.pairs.length} matchningar)`)
+      setPending(null)
       await load()
     } catch (e) { toast.error('Fel: ' + e.message) }
     setSaving(false)
@@ -99,7 +106,7 @@ export default function StamAvKonto() {
     load()
   }
 
-  const Col = ({ title, rows, sel, onToggle, side, showVer, sugg }) => (
+  const Col = ({ title, rows, sel, onToggle, side, showVer, sugg, pendNo, pendGroup }) => (
     <div className="bg-white rounded-xl overflow-hidden flex-1" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
       <div className="px-4 py-2 text-sm font-medium border-b flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span>{title}</span>
@@ -119,19 +126,24 @@ export default function StamAvKonto() {
           <tbody>
             {rows.length === 0 ? (
               <tr><td colSpan={showVer ? 5 : 4} className="text-center py-10 text-gray-400 text-sm">Inga poster</td></tr>
-            ) : rows.map(r => (
-              <tr key={r.id} className={r.avstamd ? 'bg-green-50/50' : sugg?.has(r.id) ? 'bg-amber-50/50' : 'hover:bg-gray-50'}>
+            ) : rows.map(r => {
+              const parNr = pendNo?.get(r.id)
+              const iPending = !!parNr || (pendGroup?.has(r.id))
+              return (
+              <tr key={r.id} className={r.avstamd ? 'bg-green-50/50' : iPending ? 'bg-blue-50/60' : sugg?.has(r.id) ? 'bg-amber-50/50' : 'hover:bg-gray-50'}>
                 <td className="px-2 py-2 border-b text-center" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
                   {r.avstamd
                     ? <button title="Ångra avstämning" className="text-green-600" onClick={() => avmarkera(side, r.id)}><i className="ti ti-circle-check-filled" /></button>
-                    : <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} className="w-4 h-4 cursor-pointer" title={sugg?.has(r.id) ? 'Föreslagen matchning' : ''} />}
+                    : iPending
+                      ? <span className="inline-block min-w-7 text-[10px] font-bold px-1 py-0.5 rounded bg-blue-100 text-blue-700 tabular-nums" title={parNr ? `Matchning ${parNr}` : 'Gruppmatchning'}>{parNr ? `P${parNr}` : 'G'}</span>
+                      : <input type="checkbox" checked={sel.has(r.id)} onChange={() => onToggle(r.id)} disabled={!!pending} className="w-4 h-4 cursor-pointer" title={sugg?.has(r.id) ? 'Föreslagen matchning' : ''} />}
                 </td>
                 {showVer && <td className="px-2 py-2 border-b text-blue-700 font-medium" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.ver}</td>}
                 <td className="px-2 py-2 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.datum}</td>
                 <td className="px-2 py-2 border-b" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>{r.besk}</td>
                 <td className="px-3 py-2 border-b text-right tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.06)', color: r.belopp < 0 ? '#b91c1c' : '#1a7a2e' }}>{fmt(r.belopp)}</td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>
@@ -160,24 +172,37 @@ export default function StamAvKonto() {
         <label className="flex items-center gap-2 text-sm text-gray-600 ml-2 pb-2">
           <input type="checkbox" checked={doljMatchade} onChange={e => setDoljMatchade(e.target.checked)} /> Dölj matchade
         </label>
-        <button className="btn ml-auto pb-2" onClick={markeraForslag} disabled={loading} title="Markera poster med samma belopp (datum inom 7 dagar)">
-          <i className="ti ti-wand mr-1.5" />Föreslå matchningar{pairs.length ? ` (${pairs.length})` : ''}
-        </button>
       </div>
 
       {loading ? <div className="text-gray-400 py-12 text-center">Laddar…</div> : (
         <>
           <div className="flex gap-4 items-start">
-            <Col title="Bokföringstransaktioner" rows={bokVis} sel={selBok} onToggle={toggle(setSelBok)} side="bok" showVer sugg={suggBok} />
-            <Col title="Inlästa transaktioner" rows={bankVis} sel={selBank} onToggle={toggle(setSelBank)} side="bank" sugg={suggBank} />
+            <Col title="Bokföringstransaktioner" rows={bokVis} sel={selBok} onToggle={toggle(setSelBok)} side="bok" showVer
+              sugg={suggBok} pendNo={pending?.bokNo} pendGroup={pending?.group ? pending.bokIds : null} />
+            <Col title="Inlästa transaktioner" rows={bankVis} sel={selBank} onToggle={toggle(setSelBank)} side="bank"
+              sugg={suggBank} pendNo={pending?.bankNo} pendGroup={pending?.group ? pending.bankIds : null} />
           </div>
-          <div className="flex justify-end mt-4">
-            <button className="btn btn-green px-6" onClick={matcha} disabled={!kanMatcha || saving}>
-              {saving ? 'Matchar…' : 'Matcha transaktioner'}
-            </button>
-          </div>
+          {pending ? (
+            <div className="flex justify-end items-center gap-3 mt-4">
+              <span className="text-sm text-gray-600">
+                {pending.group
+                  ? `Gruppmatchning av ${pending.bokIds.size + pending.bankIds.size} markerade poster – granska och spara`
+                  : `${pending.pairs.length} unika matchningar (P1–P${pending.pairs.length}) – granska paren och spara`}
+              </span>
+              <button className="btn" onClick={() => setPending(null)} disabled={saving}>Avbryt</button>
+              <button className="btn btn-green px-6" onClick={sparaAvstamning} disabled={saving}>
+                {saving ? 'Sparar…' : 'Spara'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-end mt-4">
+              <button className="btn btn-green px-6" onClick={matchaTransaktioner} disabled={loading || saving}>
+                Matcha transaktioner{possiblePairs.length ? ` (${possiblePairs.length})` : ''}
+              </button>
+            </div>
+          )}
           <div className="text-xs text-gray-400 mt-3">
-            <b>Föreslå matchningar</b> markerar automatiskt poster med samma belopp (datum inom 7 dagar, gulmarkerade) – granska och klicka <b>Matcha</b>. Eller bocka i manuellt på båda sidor (summorna visas). Avstämda poster blir gröna; klicka den gröna bocken för att ångra. Banktransaktioner läses in under <b>Kassa och bank → Klistra in kontoutdrag</b>.
+            <b>Matcha transaktioner</b> parar ihop poster med samma belopp (datum inom 7 dagar) – varje post ingår i högst EN matchning, parade poster blåmarkeras med parnummer. Granska och klicka <b>Spara</b> för att godkänna avstämningen, eller <b>Avbryt</b>. Markera poster manuellt på båda sidor för att begränsa matchningen eller gruppmatcha lika summor. Avstämda poster blir gröna; klicka den gröna bocken för att ångra. Banktransaktioner läses in under <b>Kassa och bank → Klistra in kontoutdrag</b>.
           </div>
         </>
       )}
