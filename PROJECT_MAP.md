@@ -647,6 +647,11 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   `NyLeverantorsfaktura.prevkontering.test.jsx` (ingen leverantör / utan historik / med historik → balanserad apply /
   Visa underlag aktiv) + live-verifiering: HEDIN FINANCIAL SERVICES senaste bokförda faktura hämtas korrekt
   (5615/5615/2440/6991/3740, 1 underlag) via exakt klientfråga.
+- **En kostnadsrad per konto (2026-06-12):** tolkningens specifikationsrader och förra fakturans dubbelrader
+  aggregeras per konto – `costRowsFromKontering` och `konteringStructureFromRows` slår ihop rader med samma
+  kontonummer (summerat belopp, första icke-tomma benämning, ordning = första förekomst). Konteringen splittrar
+  aldrig samma konto (SEB-fakturan: 6540 ×3 + 6570 ×4 → 6540 225,55 + 6570 65,10). Manuell inmatning av samma
+  konto på flera rader auto-mergas INTE (medvetet – t.ex. olika transaktionsinfo). 4 nya lib-tester.
 - **Momsrad-sync utan dubblett (bugfix 2026-06-12):** Total/Moms-blur synkade tidigare mot hårdkodat konto `2640` –
   med momsen på `2641` (t.ex. från förra fakturans kontering) skapades en parallell 2640-rad → dubbel moms och
   differens = momsbeloppet (Bokför blockerades, men användaren fastnade). Nu: `syncRowsWithHeader` +

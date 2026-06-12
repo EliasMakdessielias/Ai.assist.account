@@ -389,3 +389,71 @@ describe('syncRowsWithHeader – momsraden dubbleras ALDRIG', () => {
     expect(next.find(r => r.konto === '2440').kredit).toBe(fmt(5510))
   })
 })
+
+describe('aggregering per konto – samma konto splittras aldrig', () => {
+  it('regression (SEB-fakturan): tolkningens specifikationsrader slås ihop per konto', () => {
+    const { costRows } = costRowsFromKontering([
+      { konto: '6540', benamning: 'IT-tjänster', debet: 190, kredit: 0 },
+      { konto: '6570', benamning: 'Bankkostnader', debet: 11.10, kredit: 0 },
+      { konto: '6570', benamning: 'Bankkostnader', debet: 10.50, kredit: 0 },
+      { konto: '6570', benamning: 'Bankkostnader', debet: 18.50, kredit: 0 },
+      { konto: '6540', benamning: 'IT-tjänster', debet: 5.55, kredit: 0 },
+      { konto: '6540', benamning: 'IT-tjänster', debet: 30, kredit: 0 },
+      { konto: '6570', benamning: 'Bankkostnader', debet: 25, kredit: 0 },
+      { konto: '2440', benamning: 'Leverantörsskulder', debet: 0, kredit: 290.65 },
+    ])
+    expect(costRows).toEqual([
+      { nr: '6540', name: 'IT-tjänster', amount: 225.55 },
+      { nr: '6570', name: 'Bankkostnader', amount: 65.10 },
+    ])
+    // Hela konteringen balanserar med EN rad per konto.
+    const p = buildSupplierInvoicePosting({ isCreditInvoice: false, total: 290.65, vat: 0, rows: costRows })
+    expect(row(p.rows, '6540').debet).toBe(225.55)
+    expect(row(p.rows, '6570').debet).toBe(65.10)
+    expect(row(p.rows, '2440').kredit).toBe(290.65)
+    expect(p.balanced).toBe(true)
+    expect(p.rows.filter(r => r.nr === '6540')).toHaveLength(1)
+    expect(p.rows.filter(r => r.nr === '6570')).toHaveLength(1)
+  })
+
+  it('namn fylls från första raden med benämning; ordning = första förekomst', () => {
+    const { costRows } = costRowsFromKontering([
+      { konto: '6570', benamning: '', debet: 10, kredit: 0 },
+      { konto: '6540', benamning: 'IT-tjänster', debet: 5, kredit: 0 },
+      { konto: '6570', benamning: 'Bankkostnader', debet: 20, kredit: 0 },
+    ])
+    expect(costRows).toEqual([
+      { nr: '6570', name: 'Bankkostnader', amount: 30 },
+      { nr: '6540', name: 'IT-tjänster', amount: 5 },
+    ])
+  })
+
+  it('konteringStructureFromRows: förra fakturans dubbelrader (5615 ×2) blir EN kostnadspost', () => {
+    const s = konteringStructureFromRows([
+      { account_nr: '5615', account_name: 'Leasing av personbilar', debet: 4347.77, kredit: 0 },
+      { account_nr: '5615', account_name: 'Leasing av personbilar', debet: 1000, kredit: 0 },
+      { account_nr: '6991', account_name: 'Övriga externa kostnader', debet: 60, kredit: 0 },
+      { account_nr: '2641', account_name: 'Debiterad ingående moms', debet: 1101.94, kredit: 0 },
+      { account_nr: '2440', account_name: 'Leverantörsskulder', debet: 0, kredit: 6509.71 },
+    ])
+    expect(s.costAccounts).toEqual([
+      { nr: '5615', name: 'Leasing av personbilar', prevAmount: 5347.77 },
+      { nr: '6991', name: 'Övriga externa kostnader', prevAmount: 60 },
+    ])
+  })
+
+  it('buildKonteringFromPrevious efter aggregering: en rad per konto, proportionell och balanserad', () => {
+    const prev = [
+      { account_nr: '5615', account_name: 'Leasing', debet: 4000, kredit: 0 },
+      { account_nr: '5615', account_name: 'Leasing', debet: 1000, kredit: 0 },   // dubbelrad i förra vern
+      { account_nr: '2641', account_name: 'Moms', debet: 1250, kredit: 0 },
+      { account_nr: '2440', account_name: 'Leverantörsskulder', debet: 0, kredit: 6250 },
+    ]
+    const { rows, needsManualAmounts } = buildKonteringFromPrevious(prev, { total: 1250, vat: 250 })
+    expect(needsManualAmounts).toBe(false)
+    expect(rows.filter(r => r.nr === '5615')).toHaveLength(1)   // aldrig ärvd radsplittring
+    expect(row(rows, '5615').debet).toBe(1000)                  // hela nettot (ett kostnadskonto)
+    expect(row(rows, '2641').debet).toBe(250)
+    expect(row(rows, '2440').kredit).toBe(1250)
+  })
+})

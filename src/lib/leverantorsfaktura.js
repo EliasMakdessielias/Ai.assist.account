@@ -206,10 +206,12 @@ export function buildSupplierInvoicePosting({
 
 // Delar upp OCR:ns konteringsrader i kostnadsrader (magnituder) samt identifierar
 // momskonto. Leverantörsskuld (244x) och momskonto (264x) plockas bort ur kostnaderna.
+// Flera tolkade rader på SAMMA konto (t.ex. fakturans specifikationsrader) slås ihop
+// till EN kostnadsrad per konto – konteringen ska aldrig splittra samma konto.
 export function costRowsFromKontering(kontering) {
   const list = Array.isArray(kontering) ? kontering : []
   let vatAccount = null
-  const costRows = []
+  const byNr = new Map()   // bevarar första förekomstens ordning
   for (const r of list) {
     const nr = String(r?.konto ?? r?.nr ?? '').trim()
     if (!nr) continue
@@ -217,9 +219,13 @@ export function costRowsFromKontering(kontering) {
     if (/^244/.test(nr)) continue                 // leverantörsskuld – byggs separat
     if (/^264/.test(nr)) { vatAccount = nr; continue } // moms – byggs separat
     if (/^374/.test(nr)) continue                 // öresavrundning – byggs/återskapas separat
-    if (amt > 0.005) costRows.push({ nr, name: r.benamning || r.name || r.namn || '', amount: amt })
+    if (amt <= 0.005) continue
+    const name = r.benamning || r.name || r.namn || ''
+    const ex = byNr.get(nr)
+    if (ex) { ex.amount = round2(ex.amount + amt); if (!ex.name && name) ex.name = name }
+    else byNr.set(nr, { nr, name, amount: amt })
   }
-  return { costRows, vatAccount }
+  return { costRows: [...byNr.values()], vatAccount }
 }
 
 // Stämmer av OCR:ns kostnadsrader mot ett tillförlitligt netto (Total − Moms). OCR
@@ -262,10 +268,12 @@ export function reconcileCostRows(costRows, netTarget, tol = 1.5) {
 //   costAccounts: kostnadskonton (allt utom 244x/264x/374x) med tidigare magnitud (för proportion),
 //   vatAccount/payableAccount: momskonto (264x) resp. leverantörsskuld (244x) med benämning.
 // Accepterar både verifikation_rows (account_nr/account_name) och interna rader (nr/konto).
+// Flera tidigare rader på SAMMA kostnadskonto slås ihop (summerad prevAmount) –
+// den nya konteringen ska ha EN rad per konto, inte ärva gammal radsplittring.
 export function konteringStructureFromRows(rows) {
   const list = Array.isArray(rows) ? rows : []
   let vatAccount = null, vatName = '', payableAccount = '2440', payableName = 'Leverantörsskulder'
-  const costAccounts = []
+  const byNr = new Map()   // bevarar första förekomstens ordning
   for (const r of list) {
     const nr = String(r?.account_nr ?? r?.konto ?? r?.nr ?? '').trim()
     if (!nr) continue
@@ -274,9 +282,11 @@ export function konteringStructureFromRows(rows) {
     if (/^244/.test(nr)) { payableAccount = nr; if (name) payableName = name; continue }
     if (/^264/.test(nr)) { vatAccount = nr; if (name) vatName = name; continue }
     if (/^374/.test(nr)) continue   // öresavrundning – återskapas av byggaren
-    costAccounts.push({ nr, name, prevAmount: amt })
+    const ex = byNr.get(nr)
+    if (ex) { ex.prevAmount = round2(ex.prevAmount + amt); if (!ex.name && name) ex.name = name }
+    else byNr.set(nr, { nr, name, prevAmount: amt })
   }
-  return { costAccounts, vatAccount, vatName, payableAccount, payableName }
+  return { costAccounts: [...byNr.values()], vatAccount, vatName, payableAccount, payableName }
 }
 
 // Bygger NY kontering utifrån en tidigare fakturas kontostruktur + NYA total/moms.
