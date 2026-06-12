@@ -124,6 +124,36 @@ export function signedHeaderAmount(value, isCreditInvoice) {
   return isCreditInvoice ? -mag : mag
 }
 
+// Ingående moms-konton (BAS 264x): 2640 Ingående moms, 2641 Debiterad ingående moms,
+// 2645 Beräknad ingående moms på förvärv från utlandet m.fl.
+export function isIngaendeMomsKonto(nr) { return /^264\d$/.test(String(nr || '')) }
+
+// Synkar konteringsraderna med fakturahuvudet (Total/Moms) utan att duplicera momsraden.
+// - 2440-raden får Total på skuldsidan (debet vid kreditfaktura, annars kredit).
+// - Finns EXAKT EN ingående momsrad (264x) uppdateras DEN och kontot bevaras (t.ex. 2641
+//   från "Kontering från förra fakturan") – det skapas ALDRIG en parallell 2640-rad.
+// - Saknas momsrad och moms > 0 skapas en 2640-rad.
+// - Finns FLERA momsrader (t.ex. EU-förvärv med 2645) lämnas momsraderna orörda –
+//   avancerad momskontering auto-synkas inte.
+// Radbeloppen är alltid positiva: kreditfaktura styr SIDAN, aldrig tecknet.
+// `rows` är UI-rader ({ konto, namn, info, debet, kredit } med formaterade strängar);
+// `format` formaterar tal till radsträng (svensk visning i UI, identitet i tester).
+export function syncRowsWithHeader(rows, { total, moms, isCreditInvoice = false, accMap = {}, format = v => v } = {}) {
+  const t = amountMagnitude(total), m = amountMagnitude(moms)
+  const skuldSide = isCreditInvoice ? 'debet' : 'kredit'
+  const momsSide = isCreditInvoice ? 'kredit' : 'debet'
+  const next = rows.map(r => r.konto === '2440' ? { ...r, [skuldSide]: t ? format(t) : '', [momsSide]: '' } : r)
+  const momsIdx = next.reduce((acc, r, i) => (isIngaendeMomsKonto(r.konto) ? [...acc, i] : acc), [])
+  if (momsIdx.length === 1) {
+    if (m > 0.005) next[momsIdx[0]] = { ...next[momsIdx[0]], [momsSide]: format(m), [skuldSide]: '' }
+    else next.splice(momsIdx[0], 1)
+  } else if (momsIdx.length === 0 && m > 0.005) {
+    const ins = next.length > 1 ? 1 : next.length
+    next.splice(ins, 0, { konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: '', kredit: '', [momsSide]: format(m), [skuldSide]: '' })
+  }
+  return next
+}
+
 // ---------------------------------------------------------------------------
 // Konteringsbyggare
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import {
   detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows,
   signedHeaderAmount, amountMagnitude,
   konteringStructureFromRows, buildKonteringFromPrevious,
+  syncRowsWithHeader, isIngaendeMomsKonto,
 } from './leverantorsfaktura'
 
 const sum = (rows, k) => Math.round(rows.reduce((s, r) => s + r[k], 0) * 100) / 100
@@ -317,5 +318,74 @@ describe('buildKonteringFromPrevious (Kontering från förra fakturan)', () => {
     const { rows } = buildKonteringFromPrevious(GRENKE, { total: 1250, vat: 250 })
     expect(row(rows, '2641')).toBeTruthy()
     expect(row(rows, '2640')).toBeUndefined()
+  })
+})
+
+describe('isIngaendeMomsKonto', () => {
+  it('matchar hela 264x-gruppen, inget annat', () => {
+    expect(isIngaendeMomsKonto('2640')).toBe(true)
+    expect(isIngaendeMomsKonto('2641')).toBe(true)
+    expect(isIngaendeMomsKonto('2645')).toBe(true)
+    expect(isIngaendeMomsKonto('2440')).toBe(false)
+    expect(isIngaendeMomsKonto('2611')).toBe(false)
+    expect(isIngaendeMomsKonto('264')).toBe(false)
+    expect(isIngaendeMomsKonto(null)).toBe(false)
+  })
+})
+
+describe('syncRowsWithHeader – momsraden dubbleras ALDRIG', () => {
+  const accMap = { 2640: 'Ingående moms' }
+  const ui = (konto, debet = '', kredit = '') => ({ konto, namn: '', info: '', debet, kredit })
+  const momsRader = rows => rows.filter(r => isIngaendeMomsKonto(r.konto))
+
+  it('regression (HEDIN-kreditfakturan): befintlig 2641-rad uppdateras – ingen parallell 2640-rad', () => {
+    // "Kontering från förra fakturan" på en kreditfaktura: kostnader/moms kredit, 2440 debet.
+    const rows = [ui('5615', '', 4347.77), ui('2641'), ui('6991', '', 60), ui('2440')]
+    const next = syncRowsWithHeader(rows, { total: -5510, moms: -1101.94, isCreditInvoice: true, accMap })
+    expect(momsRader(next)).toHaveLength(1)                  // exakt EN momsrad
+    const moms = next.find(r => r.konto === '2641')
+    expect(moms.kredit).toBe(1101.94)                        // kontot bevaras, kreditsidan, positivt
+    expect(moms.debet).toBe('')
+    expect(next.find(r => r.konto === '2440').debet).toBe(5510)
+    expect(next.find(r => r.konto === '2440').kredit).toBe('')
+    expect(next.find(r => r.konto === '2640')).toBeUndefined()
+  })
+
+  it('normal faktura utan momsrad: 2640 skapas på debetsidan', () => {
+    const rows = [ui('2440'), ui('4000', 1000)]
+    const next = syncRowsWithHeader(rows, { total: 1250, moms: 250, isCreditInvoice: false, accMap })
+    const moms = next.find(r => r.konto === '2640')
+    expect(moms).toMatchObject({ namn: 'Ingående moms', debet: 250, kredit: '' })
+    expect(next.find(r => r.konto === '2440').kredit).toBe(1250)
+  })
+
+  it('befintlig 2640-rad uppdateras som tidigare (ingen regression)', () => {
+    const rows = [ui('2440'), ui('2640', 200), ui('4000', 800)]
+    const next = syncRowsWithHeader(rows, { total: 1250, moms: 250, isCreditInvoice: false, accMap })
+    expect(momsRader(next)).toHaveLength(1)
+    expect(next.find(r => r.konto === '2640').debet).toBe(250)
+  })
+
+  it('moms 0: den enda momsraden tas bort', () => {
+    const rows = [ui('2440'), ui('2641', 250), ui('4000', 1000)]
+    const next = syncRowsWithHeader(rows, { total: 1000, moms: 0, isCreditInvoice: false, accMap })
+    expect(momsRader(next)).toHaveLength(0)
+  })
+
+  it('FLERA momsrader (t.ex. EU-förvärv 2641+2645): lämnas orörda, endast 2440 synkas', () => {
+    const rows = [ui('2440'), ui('2641', 100), ui('2645', 150), ui('4056', 1000)]
+    const next = syncRowsWithHeader(rows, { total: 1250, moms: 250, isCreditInvoice: false, accMap })
+    expect(next.find(r => r.konto === '2641').debet).toBe(100)   // orörd
+    expect(next.find(r => r.konto === '2645').debet).toBe(150)   // orörd
+    expect(momsRader(next)).toHaveLength(2)                      // ingen 2640 tillagd
+    expect(next.find(r => r.konto === '2440').kredit).toBe(1250)
+  })
+
+  it('formaterar radbelopp via format-funktionen (UI:ets svenska visning)', () => {
+    const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const rows = [ui('2440'), ui('2641'), ui('5615', 4407.77)]
+    const next = syncRowsWithHeader(rows, { total: 5510, moms: 1101.94, isCreditInvoice: false, accMap, format: fmt })
+    expect(next.find(r => r.konto === '2641').debet).toBe(fmt(1101.94))
+    expect(next.find(r => r.konto === '2440').kredit).toBe(fmt(5510))
   })
 })

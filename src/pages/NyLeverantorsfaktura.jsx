@@ -7,7 +7,7 @@ import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
-import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude } from '../lib/leverantorsfaktura'
+import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude, syncRowsWithHeader, isIngaendeMomsKonto } from '../lib/leverantorsfaktura'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -189,21 +189,13 @@ export default function NyLeverantorsfaktura() {
   const hEnter = (e, nextId, before) => { if (e.key !== 'Enter') return; e.preventDefault(); if (before) before(); if (nextId) focusId(nextId) }
   const focusFirstEmptyKonto = () => { const idx = rows.findIndex(r => !r.konto); focusId(`lev-konto-${idx < 0 ? rows.length - 1 : idx}`) }
 
-  // Normal faktura: 2440 kredit = Total, 2640 debet = Moms.
-  // Kreditfaktura: omvänt (2440 debet = Total, 2640 kredit = Moms). Auto vid blur.
+  // Normal faktura: 2440 kredit = Total, momsraden debet = Moms. Kreditfaktura: omvänt.
+  // Auto vid blur. Den BEFINTLIGA ingående momsraden (264x, t.ex. 2641 från "Kontering från
+  // förra fakturan") uppdateras – en parallell 2640-rad får aldrig skapas (dubbel moms).
+  // Magnituder: konteringsraderna har alltid positiva belopp – kreditfaktura styr SIDAN.
   function syncHeader(nextTotal = total, nextMoms = moms, kredit = kreditfaktura) {
-    // Magnituder: konteringsraderna ska alltid ha positiva belopp – tecknet på Total/Moms
-    // i fakturahuvudet styr inte radbeloppen, utan kreditfaktura-flaggan styr SIDAN.
-    const t = amountMagnitude(nextTotal), m = amountMagnitude(nextMoms)
-    const skuldSide = kredit ? 'debet' : 'kredit', momsSide = kredit ? 'kredit' : 'debet'
     setRows(rs => {
-      let next = rs.map(r => r.konto === '2440' ? { ...r, [skuldSide]: t ? fmt(t) : '', [momsSide]: '' } : r)
-      const momsIdx = next.findIndex(r => r.konto === '2640')
-      if (m > 0.005) {
-        const momsRow = { [momsSide]: fmt(m), [skuldSide]: '' }
-        if (momsIdx >= 0) next[momsIdx] = { ...next[momsIdx], ...momsRow }
-        else { const ins = next.length > 1 ? 1 : next.length; next.splice(ins, 0, { konto: '2640', namn: accMap['2640'] || 'Ingående moms', info: '', debet: '', kredit: '', ...momsRow }) }
-      } else if (momsIdx >= 0) next.splice(momsIdx, 1)
+      const next = syncRowsWithHeader(rs, { total: nextTotal, moms: nextMoms, isCreditInvoice: kredit, accMap, format: fmt })
       if (!next.length || (next[next.length - 1].konto || next[next.length - 1].debet || next[next.length - 1].kredit)) next.push(emptyRow())
       return next
     })
@@ -372,7 +364,8 @@ export default function NyLeverantorsfaktura() {
     setSaving(true)
     try {
       // Kostnadskontot ligger på debet vid normal faktura, på kredit vid kreditfaktura.
-      const costRow = krows.find(r => (kreditfaktura ? r.kredit > 0 : r.debet > 0) && r.nr !== '2640')
+      // Moms- (264x) och öresutjämningsrader (3740) är aldrig kostnadskontot.
+      const costRow = krows.find(r => (kreditfaktura ? r.kredit > 0 : r.debet > 0) && !isIngaendeMomsKonto(r.nr) && r.nr !== '3740')
       const sign = kreditfaktura ? -1 : 1
       const invPayload = {
         company_id: company.id, supplier_id: supplierId, invoice_nr: fakturanummer || null, ocr: ocr || null,

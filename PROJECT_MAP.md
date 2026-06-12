@@ -647,6 +647,13 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   `NyLeverantorsfaktura.prevkontering.test.jsx` (ingen leverantör / utan historik / med historik → balanserad apply /
   Visa underlag aktiv) + live-verifiering: HEDIN FINANCIAL SERVICES senaste bokförda faktura hämtas korrekt
   (5615/5615/2440/6991/3740, 1 underlag) via exakt klientfråga.
+- **Momsrad-sync utan dubblett (bugfix 2026-06-12):** Total/Moms-blur synkade tidigare mot hårdkodat konto `2640` –
+  med momsen på `2641` (t.ex. från förra fakturans kontering) skapades en parallell 2640-rad → dubbel moms och
+  differens = momsbeloppet (Bokför blockerades, men användaren fastnade). Nu: `syncRowsWithHeader` +
+  `isIngaendeMomsKonto` (ren logik i `src/lib/leverantorsfaktura.js`) – uppdaterar den BEFINTLIGA 264x-raden och
+  bevarar kontot; skapar 2640 endast när momsrad saknas; FLERA momsrader (EU-förvärv) lämnas orörda. Kostnadskonto-
+  detekteringen vid bokföring exkluderar nu hela 264x + 3740 (inte bara 2640). Tester: 7 nya i
+  `leverantorsfaktura.test.js` (inkl. HEDIN-kreditfaktura-regressionen).
 
 ## Behandlingshistorik för bokföring (BFL avvikelse 1) – [AUDIT_BOKFORING]
 
