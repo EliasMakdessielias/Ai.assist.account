@@ -63,9 +63,12 @@ export default function NyVerifikation() {
   const initialDoc = searchParams.get('underlag')
   const autoTolka = searchParams.get('tolka') === '1'
   const tolkadRef = useRef(false)
-  const rattaId = searchParams.get('ratta')
-  const [rattaInfo, setRattaInfo] = useState(null)   // { id, ver_nr } om vi rättar en verifikation
-  const [orsak, setOrsak] = useState('')
+  // Ersättningsverifikation i rättelsekedjan (?ersatter=<original-id>&datum=<öppet datum>).
+  // RPC:n ratta_verifikation har redan skapat rättelseverifikationen som nollar originalet;
+  // här bokförs den KORREKTA verifikationen, länkad via kolumnen `ersatter`.
+  const ersatterId = searchParams.get('ersatter')
+  const ersatterDatum = searchParams.get('datum')
+  const [ersatterInfo, setErsatterInfo] = useState(null)   // { id, ver_nr } om vi bokför en ersättning
 
   // Förvalt underlag från Inkorgen: koppla det direkt.
   useEffect(() => {
@@ -88,32 +91,30 @@ export default function NyVerifikation() {
     })()
   }, [initialDoc, autoTolka, accounts.length])
 
-  // Rättelse-läge: ladda originalet och förifyll med en motbokning (redigerbar).
+  // Ersättningsläge: förifyll med originalets rader rakt av (rättelseverifikationen har redan
+  // vänt dem) – användaren ändrar det som var fel och bokför den korrekta verifikationen.
   useEffect(() => {
-    if (rattaId && company) loadOriginal(rattaId)
-  }, [rattaId, company])
+    if (ersatterId && company) loadOriginal(ersatterId)
+  }, [ersatterId, company])
 
   async function loadOriginal(origId) {
     const { data: v } = await supabase.from('verifikationer').select('*').eq('id', origId).single()
     const { data: r } = await supabase.from('verifikation_rows').select('*').eq('verifikation_id', origId).order('sort_order')
     if (!v) return
-    setRattaInfo({ id: v.id, ver_nr: v.ver_nr })
-    setBeskrivning(`Rättelse av ${v.ver_nr}`)
+    setErsatterInfo({ id: v.id, ver_nr: v.ver_nr })
+    setBeskrivning(v.beskrivning || '')
     setSerie(v.ver_serie || 'A - Redovisning')
-    const rev = (r || []).map(row => {
-      const rd = row.kredit || 0   // motbokning: debet <- ursprunglig kredit
-      const rk = row.debet || 0    // motbokning: kredit <- ursprunglig debet
-      return {
-        konto: row.account_nr,
-        benamning: row.account_name,
-        info: `Rättelse av ${v.ver_nr}`,
-        debet: rd > 0 ? fmtSEK(rd) : '',
-        kredit: rk > 0 ? fmtSEK(rk) : '',
-        debetLocked: rk > 0,
-        kreditLocked: rd > 0,
-      }
-    })
-    setRows(rev.length ? rev : [emptyRow(), emptyRow(), emptyRow()])
+    if (ersatterDatum) setDatum(ersatterDatum)
+    const kopior = (r || []).map(row => ({
+      konto: row.account_nr,
+      benamning: row.account_name,
+      info: row.transaction_info || '',
+      debet: (row.debet || 0) > 0 ? fmtSEK(row.debet) : '',
+      kredit: (row.kredit || 0) > 0 ? fmtSEK(row.kredit) : '',
+      debetLocked: (row.kredit || 0) > 0,
+      kreditLocked: (row.debet || 0) > 0,
+    }))
+    setRows(kopior.length ? kopior : [emptyRow(), emptyRow(), emptyRow()])
   }
 
   // Förifyll från en inläst banktransaktion (Kassa och bank).
@@ -354,7 +355,6 @@ export default function NyVerifikation() {
     if (badRow) return toast.error(`Konto "${badRow.konto}" finns inte i kontoplanen`)
     if (!isBalanced) return toast.error('Debet och kredit balanserar inte!')
     if (!beskrivning) return toast.error('Ange en beskrivning')
-    if (rattaInfo && !orsak.trim()) return toast.error('Ange en orsak till rättelsen')
 
     setSaving(true)
     try {
@@ -375,6 +375,7 @@ export default function NyVerifikation() {
           total_debet: totalDebet,
           total_kredit: totalKredit,
           created_by: user.id,
+          ersatter: ersatterInfo?.id || null,   // rättelsekedja: länka ersättningen till originalet
         })
         .select()
         .single()
@@ -409,21 +410,17 @@ export default function NyVerifikation() {
         return
       }
 
-      // Rättelse-läge: logga ändringen och gå till den nya verifikationen.
-      if (rattaInfo) {
-        await supabase.from('verifikation_andringar').insert({
-          company_id: company.id, original_id: rattaInfo.id, rattelse_id: ver.id,
-          orsak: orsak.trim(), utford_av_epost: user.email,
-        })
-        toast.success(`Rättelseverifikation ${ver.ver_nr} skapad`)
-        setSaving(false)
-        navigate(`/bokforing/${ver.id}`)
-        return
-      }
-
       // Koppla valda underlag till den nya verifikationen (lämnar då Inkorgen).
       if (attachIds.length) {
         await supabase.from('documents').update({ verifikation_id: ver.id }).in('id', attachIds)
+      }
+
+      // Ersättningsläge: rättelsekedjan är komplett (original → rättelse → ersättning).
+      if (ersatterInfo) {
+        toast.success(`Ersättningsverifikation ${ver.ver_nr} bokförd (ersätter ${ersatterInfo.ver_nr})`)
+        setSaving(false)
+        navigate(`/bokforing/${ver.id}`)
+        return
       }
 
       toast.success(`Verifikation ${ver.ver_nr} bokförd!`)
@@ -448,7 +445,7 @@ export default function NyVerifikation() {
       <div className="flex flex-col flex-1 overflow-hidden">
       {/* Top bar */}
       <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0 sticky top-0 z-10" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-[15px] font-bold tracking-tight">{rattaInfo ? 'VERIFIKATION – RÄTTELSE' : 'VERIFIKATION – NY'}</span>
+        <span className="text-[15px] font-bold tracking-tight">{ersatterInfo ? 'VERIFIKATION – ERSÄTTNING' : 'VERIFIKATION – NY'}</span>
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={bokfor} disabled={saving}><i className="ti ti-plus" /> Skapa verifikation</button>
           <button className="btn btn-primary" onClick={() => navigate('/bokforing')}><i className="ti ti-list" /> Visa lista</button>
@@ -465,13 +462,10 @@ export default function NyVerifikation() {
 
       {/* Form */}
       <div id="printable" className="p-7 flex-1 overflow-y-auto">
-        {rattaInfo && (
+        {ersatterInfo && (
           <div className="mb-4 max-w-4xl px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg no-print">
-            <div className="text-sm font-semibold text-amber-800 flex items-center gap-1.5 mb-1"><i className="ti ti-pencil-minus" /> Rättelse av verifikation {rattaInfo.ver_nr}</div>
-            <p className="text-xs text-amber-800 mb-2">Raderna är förifyllda som en motbokning av originalet. Stryk rader, ändra belopp eller lägg till nya konton så att rättelsen blir korrekt.</p>
-            <label className="block text-xs font-medium text-amber-800 mb-1">Orsak till rättelsen *</label>
-            <textarea className="input bg-white" rows={2} value={orsak} onChange={e => setOrsak(e.target.value)}
-              placeholder="T.ex. Bokfört på fel konto – skulle vara 1930 i stället för 1910" />
+            <div className="text-sm font-semibold text-amber-800 flex items-center gap-1.5 mb-1"><i className="ti ti-pencil-minus" /> Ersätter verifikation {ersatterInfo.ver_nr}</div>
+            <p className="text-xs text-amber-800">En rättelseverifikation har redan nollat originalet. Raderna nedan är kopierade från originalet – ändra det som var fel och bokför den korrekta verifikationen.</p>
           </div>
         )}
         {kommentarOpen && (
@@ -586,7 +580,7 @@ export default function NyVerifikation() {
           <button className="btn px-5 py-2" onClick={() => navigate('/bokforing')}>Avbryt</button>
           <button id="bokfor-btn" className="btn btn-green px-5 py-2" onClick={bokfor} disabled={saving}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); bokfor() } }}>
-            {saving ? 'Sparar...' : rattaInfo ? 'Bokför rättelse' : 'Bokför'}
+            {saving ? 'Sparar...' : ersatterInfo ? 'Bokför ersättning' : 'Bokför'}
           </button>
         </div>
       </div>

@@ -8,6 +8,7 @@ import Kvitto from '../components/Kvitto'
 import StamAvKonto from '../components/StamAvKonto'
 import SokBelopp from '../components/SokBelopp'
 import AccountingUnderlagPanel from '../components/AccountingUnderlagPanel'
+import RattaVerifikationModal from '../components/RattaVerifikationModal'
 import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
@@ -32,6 +33,7 @@ export default function Bokforing() {
   const [loading, setLoading] = useState(true)
   const [dagskassaDoc, setDagskassaDoc] = useState(null)
   const [kvittoDoc, setKvittoDoc] = useState(null)
+  const [rattaVer, setRattaVer] = useState(null)   // verifikation som rättas (modal öppen)
   const { panelW, open, setOpen, dragging, startResize } = useDocumentViewerLayout({
     widthKey: 'bokpilot.bokforing.registrera.viewerW',
     openKey: 'bokpilot.bokforing.registrera.viewerOpen',
@@ -78,6 +80,17 @@ export default function Bokforing() {
     toast.success(`Verifikation ${v.ver_nr} makulerad (motverifikation ${data?.motverifikation_nr || ''})`)
     loadVerifikationer()
   }
+
+  // Rättelse (BFL, spårbar kedja): RPC:n har skapat rättelseverifikationen och markerat
+  // originalet som rättat – öppna ersättningsverifikationen förifylld med originalets rader.
+  function rattadKlar(v, res) {
+    setRattaVer(null)
+    toast.success(`Rättelseverifikation ${res?.rattelse_nr || ''} skapad – bokför nu den korrigerade verifikationen`)
+    navigate(`/bokforing/ny?ersatter=${v.id}&datum=${res?.datum || ''}`)
+  }
+
+  // ver_nr-uppslag för "Ersätter X"-länken på ersättningsverifikationer.
+  const verNrById = Object.fromEntries(verifikationer.map(v => [v.id, v.ver_nr]))
 
   const Field = ({ label, k, type = 'text' }) => (
     <div>
@@ -202,6 +215,14 @@ export default function Bokforing() {
                         {v.ver_nr}
                         {v.status === 'makulerad' && <span className="ml-2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-red-50 text-red-600">Makulerad</span>}
                         {v.status === 'motverifikation' && <span className="ml-2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Motverifikation</span>}
+                        {v.status === 'rattad' && <span className="ml-2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">Rättad</span>}
+                        {v.status === 'rattelse' && <span className="ml-2 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">Rättelse</span>}
+                        {v.ersatter && verNrById[v.ersatter] && (
+                          <button className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-50 text-green-700 hover:underline"
+                            onClick={e => { e.stopPropagation(); navigate(`/bokforing/${v.ersatter}`) }}>
+                            Ersätter {verNrById[v.ersatter]}
+                          </button>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{v.datum}</td>
                       <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{v.beskrivning}</td>
@@ -209,7 +230,10 @@ export default function Bokforing() {
                       <td className="px-4 py-2.5 border-b text-right whitespace-nowrap" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                         <button className="btn text-xs py-1 px-2" title="Visa"><i className="ti ti-eye text-xs" /></button>
                         {(v.status ?? 'aktiv') === 'aktiv' && (
-                          <button className="btn btn-danger text-xs py-1 px-2 ml-1.5" title="Makulera (motverifikation skapas)" onClick={e => makuleraVer(e, v)}><i className="ti ti-ban text-xs" /></button>
+                          <>
+                            <button className="btn text-xs py-1 px-2 ml-1.5" title="Rätta (spårbar rättelsekedja)" onClick={e => { e.stopPropagation(); setRattaVer(v) }}><i className="ti ti-pencil-minus text-xs" /></button>
+                            <button className="btn btn-danger text-xs py-1 px-2 ml-1.5" title="Makulera (motverifikation skapas)" onClick={e => makuleraVer(e, v)}><i className="ti ti-ban text-xs" /></button>
+                          </>
                         )}
                       </td>
                     </tr>
@@ -230,6 +254,10 @@ export default function Bokforing() {
           </div>
         )}
       </div>
+      {rattaVer && (
+        <RattaVerifikationModal ver={rattaVer} company={company}
+          onClose={() => setRattaVer(null)} onDone={res => rattadKlar(rattaVer, res)} />
+      )}
     </div>
   )
 

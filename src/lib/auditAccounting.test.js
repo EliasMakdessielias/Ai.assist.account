@@ -5,6 +5,10 @@ describe('audit-konstanter', () => {
   it('har de bokföringsactions som SQL-triggrarna använder', () => {
     expect(ACCOUNTING_AUDIT_ACTIONS.verificationCreated).toBe('verification_created')
     expect(ACCOUNTING_AUDIT_ACTIONS.verificationVoided).toBe('verification_voided')
+    expect(ACCOUNTING_AUDIT_ACTIONS.verificationCorrectionStarted).toBe('verification_correction_started')
+    expect(ACCOUNTING_AUDIT_ACTIONS.verificationReversalCreated).toBe('verification_reversal_created')
+    expect(ACCOUNTING_AUDIT_ACTIONS.verificationReplacementCreated).toBe('verification_replacement_created')
+    expect(ACCOUNTING_AUDIT_ACTIONS.verificationCorrected).toBe('verification_corrected')
     expect(ACCOUNTING_AUDIT_ACTIONS.verificationDeletedLegacy).toBe('verification_deleted_current_legacy_flow')
     expect(ACCOUNTING_AUDIT_ACTIONS.supplierInvoiceBooked).toBe('supplier_invoice_booked')
     expect(ACCOUNTING_AUDIT_ACTIONS.customerInvoiceBooked).toBe('customer_invoice_booked')

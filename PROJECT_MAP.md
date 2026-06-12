@@ -705,3 +705,34 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   faktura återställd, dubbelmakulering/mot-makulering/ändra/radera blockerade, avstämning tillåten, låst period blockerad)
   + `Bokforing.test.jsx` (3 nya: knapp endast på aktiv + rpc-anrop, badge + ingen knapp på makulerad, avbruten confirm)
   + `auditAccounting.test.js`. Bygg + 588 tester gröna.
+
+## Spårbart rättelseflöde (BFL avvikelse 4) – [RATTELSE]
+
+- **Kedja:** original (`status='rattad'`, `rattad_av`) → rättelseverifikation (serie `R - Rättelser`, omvända rader,
+  `status='rattelse'`, `rattar`) → ersättningsverifikation (vanlig **aktiv** ver med relation `ersatter` – kan själv
+  makuleras/rättas). **Rättelse ≠ makulering:** makulering nollar (samma serie/datum); rättelse nollar + ersätts med
+  korrekt bokföring.
+- **Migration** `supabase/rattelse.sql` (applicerad): kolumnerna `rattad_av`/`rattar`/`ersatter`, status-check utökad,
+  `first_open_booking_date(company)`, RPC **`ratta_verifikation(p_ver_id, p_orsak, p_datum)`** (medlemskap, statuskontroll,
+  atomär: rättelsever + rader + originalstatus + audit). `validate_verifikation_links` (BEFORE INSERT) hindrar missbruk:
+  status `makulerad`/`rattad` kan inte skapas; `motverifikation`/`rattelse` endast via systemets RPC:er (GUC
+  `app.makulera_insert`, numera satt FÖRE ver-insert i båda RPC:erna); `ersatter` måste peka på `rattad` ver i samma företag.
+- **Låst period:** originalet ändras ALDRIG – statuslänkningen går via GUC `app.rattelse_link` som periodlås-triggern
+  släpper igenom **endast** om inget bokföringsinnehåll ändras (kolumnvis jämförelse). Rättelsen bokförs på originalets
+  datum (öppen period) eller `first_open_booking_date` (låst); valt låst datum → PERIODLÅST-fel. Oföränderlighetsskydden
+  utökade till `rattad`/`rattelse`; rättade kan inte makuleras/rättas igen.
+- **UI:** `Bokforing.jsx` Rätta-knapp (endast aktiva) → **`RattaVerifikationModal`** (originalrader som läsbar källa,
+  orsak*, datum med låst period-info "Originalverifikationen ligger i låst period. Rättelsen bokförs i öppen period.",
+  klientvalidering via `src/lib/rattelse.js`: `lockEndDate`/`arLastDatum`/`foreslaRattelsedatum`) → RPC → navigerar till
+  `NyVerifikation ?ersatter=<id>&datum=<öppet>` (raderna kopierade rakt av, användaren ändrar, insert med `ersatter`).
+  Badges: Rättad/Rättelse + länk "Ersätter {nr}". `VisaVerifikation.jsx`: status-banners för hela kedjan (makulerad/motver/
+  rättad/rättelse/ersättning med korslänkar) + Rätta via samma modal. **Legacy `?ratta=`-läget borttaget** (osynlig
+  rättelse utan kedja); gamla rättelser i `verifikation_andringar` visas fortfarande (läs-fallback).
+- **Audit:** `verification_correction_started`/`verification_reversal_created` (RPC) +
+  `verification_replacement_created`/`verification_corrected` (trigger på insert med `ersatter`) – metadata med hela
+  kedjan + reason/correction_date/period_locked_original.
+- **Rapporter/SIE:** inga specialfall – alla tre verifikationer ingår per bokföringsdatum; kedjan nettar till exakt den
+  korrekta bokföringen (live-bevisat: fel 1930→0, korrekt 1910=100, 2440=−100).
+- **Bevis:** live rollback-säkert (kedja, audit ×4, omvända rader/netto 0/inga negativa, låst original→rättelse på första
+  öppna datum + `period_locked_original=true`, valt låst datum blockerat, makulerad/motver/rättad/rättelse kan inte rättas,
+  ersatter mot aktiv blockerad) + `rattelse.test.js` (9) + `Bokforing.test.jsx` (5 nya modal-/badge-tester). Bygg + 600 tester gröna.

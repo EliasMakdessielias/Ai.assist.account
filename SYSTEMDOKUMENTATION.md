@@ -117,6 +117,10 @@ Implementerat idag:
   | Skapa verifikation | `verification_created` | trigger på `verifikationer` | `trg_audit_verifikation_ins` (AFTER INSERT) |
   | Ändra verifikation | `verification_updated` | trigger på `verifikationer` | `trg_audit_verifikation_upd` (AFTER UPDATE) |
   | Makulera verifikation | `verification_voided` | RPC | `makulera_verifikation` (motverifikation skapas; metadata motverifikation_id/nr + orsak) |
+  | Rättelse påbörjad | `verification_correction_started` | RPC | `ratta_verifikation` (metadata original/reason/correction_date/period_locked_original) |
+  | Rättelseverifikation skapad | `verification_reversal_created` | RPC | `ratta_verifikation` (metadata original/reversal/reason/correction_date/period_locked_original) |
+  | Ersättningsverifikation bokförd | `verification_replacement_created` | trigger | insert med `ersatter` satt (metadata original/replacement/correction_date) |
+  | Rättelsekedja komplett | `verification_corrected` | trigger | loggas på ORIGINALET med hela kedjan (original/reversal/replacement) |
   | Radera verifikation (legacy/rollback) | `verification_deleted_current_legacy_flow` | trigger på `verifikationer` | `trg_audit_verifikation_del` (BEFORE DELETE; metadata `warning`, raderna sparas i `old_data`) |
   | Bokför leverantörsfaktura | `supplier_invoice_booked` | trigger på `supplier_invoices` | `trg_audit_supplier_invoice_booked` (`bokford` false→true) |
   | Bokför kundfaktura | `customer_invoice_booked` | trigger på `invoices` | `trg_audit_customer_invoice_booked` (`verifikation_id` null→satt) |
@@ -202,6 +206,7 @@ secrets/price-id saknas; webhook signaturverifierad, verify_jwt=false).
 | 2026-06-11 | Avvikelse 1 åtgärdad: behandlingshistorik för bokföring (`audit_log.source`/`metadata` + `log_accounting_audit` + triggers + `document_interpreted`). Se §6 och §16.1. |
 | 2026-06-11 | Avvikelse 2 åtgärdad: tvingande periodlås på DB-nivå (`assert_period_open` + triggers på `verifikationer`/`verifikation_rows`, avstämningsundantag, admin-bypass). Se §7 och §16.2. |
 | 2026-06-11 | Avvikelse 3 åtgärdad: makulering via motverifikation (`status`/`makulerad_av`/`motverkar` + `makulera_verifikation` + oföränderlighetsskydd; UI Bokföring/Kassa & Bank). Se §16.3. |
+| 2026-06-11 | Avvikelse 4 åtgärdad: spårbart rättelseflöde (original→rättelseverifikation serie R→ersättning; `ratta_verifikation`, `rattad_av`/`rattar`/`ersatter`, rättelse i låst period på öppet datum). Se §16.4. |
 
 ---
 
@@ -229,14 +234,27 @@ konflikten rapporteras**.
    (makulering i låst period blockeras → kräver framtida rättelseflöde, lucka 4). UI: Bokföring "Makulera"-knapp +
    statusbadge; Kassa & Bank "Ångra" makulerar. **Kvarvarande fysisk radering:** endast kompenserande rollback i
    bokför-flödet (`rollbackVer`, nyss skapad ofullständig ver) — auditas som `verification_deleted_current_legacy_flow`.
-4. **Rättelseflöde saknas (§2, §15).** Ändring av en bokförd post sker via direkt om-spara, inte via spårbar rättelse i
-   ny verifikation. **Åtgärd:** rättelseflöde (rättelseverifikation, serie R) i låst/bokförd period.
+4. **Rättelseflöde — ✅ ÅTGÄRDAD (2026-06-11, `supabase/rattelse.sql`).** Spårbar kedja
+   **original (`status='rattad'`) → rättelseverifikation (serie R, omvända rader, `status='rattelse'`) →
+   ersättningsverifikation (vanlig aktiv verifikation med relation `ersatter`)** via RPC
+   `ratta_verifikation(ver_id, orsak, datum)`. **Skillnad mot makulering:** makulering NOLLAR en post
+   (motverifikation i samma serie/datum); rättelse nollar OCH ersätts med korrekt bokföring.
+   **Låst period:** originalet ändras aldrig (endast spårbarhetslänkning status/`rattad_av`, som inte är
+   bokföringsinnehåll); rättelsen bokförs på första öppna datum (`first_open_booking_date`) eller användarens
+   valda öppna datum — valt låst datum blockeras (PERIODLÅST). Rättade original + rättelseverifikationer är
+   **oföränderliga**; rättade kan inte makuleras eller rättas igen; endast rättade kan ersättas
+   (`validate_verifikation_links`). Statusar: `aktiv`/`makulerad`/`motverifikation`/`rattad`/`rattelse`
+   (ersättningen är `aktiv` + relation, kan själv makuleras/rättas). Det gamla osynliga rättelseläget
+   (`?ratta=` i Ny verifikation + tabellen `verifikation_andringar`) är ersatt; tabellen behålls läsbar för
+   historiska rättelser. **Rapporter/SIE:** alla tre verifikationer ingår efter bokföringsdatum utan
+   specialfall — kedjan nettar till exakt den korrekta bokföringen.
 5. **Momsrapport-spårbarhet (§7).** Momsrapporten härleds inte rad-för-rad till verifikationsrader i nuläget.
    **Åtgärd:** koppling momsrapport → underliggande `verifikation_rows` med period/momskod.
 6. **Kundfaktura-kreditlogik (§12)** är inte härdad/testad i samma omfattning som leverantörsfakturan.
 7. **Skatt/deklaration (§8)** är inte byggt; ska byggas stegvis med tydlig regelkälla och separation bokförings-/deklarationsdata.
 
-**Konsekvens (bindande):** de tre kritiska luckorna 1 (behandlingshistorik), 2 (tvingande periodlås) och 3 (makulering
-via motverifikation) är nu åtgärdade. Kvarstående luckor är 4–7 (rättelseflöde, momsrapport-spårbarhet rad-för-rad,
-kundfaktura-kreditlogik, skatt/deklaration). Nästa redovisningsuppgift bör prioritera **(4) spårbart rättelseflöde**
-(rättelseverifikation i serie R), som också är förutsättningen för att rätta poster i låst period.
+**Konsekvens (bindande):** luckorna 1–4 (behandlingshistorik, tvingande periodlås, makulering via motverifikation,
+spårbart rättelseflöde) är nu åtgärdade. Kvarstående luckor är 5–7 (momsrapport-spårbarhet rad-för-rad,
+kundfaktura-kreditlogik, skatt/deklaration). Verifikationskedjan uppfyller därmed BFL:s kärnkrav: ingen tyst ändring,
+ingen fysisk radering i användarflöden, oföränderliga historikposter, tvingande periodlås och fullständig
+behandlingshistorik.

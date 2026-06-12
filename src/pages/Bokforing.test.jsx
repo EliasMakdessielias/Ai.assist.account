@@ -5,15 +5,32 @@ import { MemoryRouter } from 'react-router-dom'
 import Bokforing from './Bokforing'
 
 // Stabil referens – annars triggar useEffect([company]) en oändlig render-loop.
+// vi.hoisted: tillgängliga inne i mock-factories (som hissas över vanliga const).
+const { mockCompany, rpc, verData, rowData } = vi.hoisted(() => ({
+  mockCompany: { id: 'c1' },
+  rpc: vi.fn(),
+  verData: { current: [] },
+  rowData: { current: [] },
+}))
 vi.mock('../hooks/useAuth', () => {
-  const auth = { company: { id: 'c1' }, user: { id: 'u1' } }
+  const auth = { company: mockCompany, user: { id: 'u1' } }
   return { useAuth: () => auth }
 })
-const rpc = vi.fn()
-const verData = { current: [] }
 vi.mock('../lib/supabase', () => {
-  const q = { select: () => q, eq: async () => ({ data: verData.current, error: null }) }
-  return { supabase: { from: () => q, rpc: (...a) => rpc(...a) } }
+  // Tabellmedveten thenable-kedja: verifikationer -> verData, verifikation_rows -> rowData.
+  const mk = get => {
+    const q = {
+      select: () => q, eq: () => q, order: () => q,
+      then: (res, rej) => Promise.resolve({ data: get(), error: null }).then(res, rej),
+    }
+    return q
+  }
+  return {
+    supabase: {
+      from: t => mk(() => (t === 'verifikation_rows' ? rowData.current : verData.current)),
+      rpc: (...a) => rpc(...a),
+    },
+  }
 })
 // Stubba tunga barn – vi testar layouten, inte deras innehåll.
 vi.mock('../components/Dagskassa', () => ({ default: () => <div data-testid="dagskassa-form" /> }))
@@ -26,6 +43,8 @@ const renderPage = () => render(<MemoryRouter><Bokforing /></MemoryRouter>)
 beforeEach(() => {
   cleanup(); localStorage.clear()
   verData.current = []
+  rowData.current = []
+  delete mockCompany.bokforing_last_tom
   rpc.mockReset().mockResolvedValue({ data: null, error: null })
 })
 
@@ -111,5 +130,75 @@ describe('Bokföring – makulering via motverifikation (BFL)', () => {
     fireEvent.click(screen.getByTitle('Makulera (motverifikation skapas)'))
     expect(rpc).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
+  })
+})
+
+describe('Bokföring – spårbart rättelseflöde (BFL)', () => {
+  const aktiv = { id: 'v1', ver_nr: 'M1', ver_serie: 'M', datum: '2026-06-01', beskrivning: 'Aktiv post', total_debet: 100, total_kredit: 100, status: 'aktiv' }
+  const rattad = { id: 'v2', ver_nr: 'M2', ver_serie: 'M', datum: '2026-06-02', beskrivning: 'Fel post', total_debet: 50, total_kredit: 50, status: 'rattad', rattad_av: 'v3' }
+  const rattelse = { id: 'v3', ver_nr: 'R1', ver_serie: 'R - Rättelser', datum: '2026-06-02', beskrivning: 'Rättelse av verifikation M2', total_debet: 50, total_kredit: 50, status: 'rattelse', rattar: 'v2' }
+  const ersattning = { id: 'v4', ver_nr: 'M3', ver_serie: 'M', datum: '2026-06-02', beskrivning: 'Korrekt post', total_debet: 50, total_kredit: 50, status: 'aktiv', ersatter: 'v2' }
+
+  it('Rätta-knapp endast på aktiva; rättad/rättelse visar badges', async () => {
+    verData.current = [aktiv, rattad, rattelse]
+    renderPage()
+    await screen.findByText('M1')
+    // aktiv M1 + ersättningen saknas här -> bara aktiva har Rätta (M1)
+    expect(screen.getAllByTitle('Rätta (spårbar rättelsekedja)')).toHaveLength(1)
+    expect(screen.getByText('Rättad')).toBeTruthy()
+    expect(screen.getByText('Rättelse')).toBeTruthy()
+  })
+
+  it('ersättningsverifikation visar "Ersätter {ver_nr}"-länk', async () => {
+    verData.current = [rattad, ersattning]
+    renderPage()
+    await screen.findByText('M3')
+    expect(screen.getByText('Ersätter M2')).toBeTruthy()
+  })
+
+  it('Rätta öppnar modal med originalrader; submit anropar ratta_verifikation med orsak+datum', async () => {
+    verData.current = [aktiv]
+    rowData.current = [
+      { id: 'r1', account_nr: '1930', account_name: 'Företagskonto', debet: 100, kredit: 0, sort_order: 0 },
+      { id: 'r2', account_nr: '2440', account_name: 'Leverantörsskulder', debet: 0, kredit: 100, sort_order: 1 },
+    ]
+    rpc.mockResolvedValue({ data: { ok: true, rattelse_id: 'rx', rattelse_nr: 'R1', datum: '2026-06-01', period_locked_original: false }, error: null })
+    renderPage()
+    await screen.findByText('M1')
+    fireEvent.click(screen.getByTitle('Rätta (spårbar rättelsekedja)'))
+    await screen.findByText('RÄTTA VERIFIKATION M1')
+    await screen.findByText('Företagskonto')   // originalets rader som läsbar källa
+    expect(screen.queryByText(/ligger i låst period/)).toBeNull()   // öppen period -> ingen låst-info
+    fireEvent.change(screen.getByPlaceholderText('T.ex. fel konto användes'), { target: { value: 'Fel konto' } })
+    fireEvent.click(screen.getByText('Skapa rättelse'))
+    await screen.findByText('M1')
+    expect(rpc).toHaveBeenCalledWith('ratta_verifikation', { p_ver_id: 'v1', p_orsak: 'Fel konto', p_datum: '2026-06-01' })
+  })
+
+  it('original i låst period: modal visar förklaring + föreslår första öppna datum', async () => {
+    mockCompany.bokforing_last_tom = '2026-03'
+    const lastVer = { ...aktiv, id: 'v9', ver_nr: 'M9', datum: '2026-02-15' }
+    verData.current = [lastVer]
+    renderPage()
+    await screen.findByText('M9')
+    fireEvent.click(screen.getByTitle('Rätta (spårbar rättelsekedja)'))
+    await screen.findByText('RÄTTA VERIFIKATION M9')
+    expect(screen.getByText(/Originalverifikationen ligger i låst period\. Rättelsen bokförs i öppen period\./)).toBeTruthy()
+    expect(document.querySelector('input[type="date"]').value).toBe('2026-04-01')
+  })
+
+  it('valt datum i låst period blockeras med svensk förklaring (ingen RPC)', async () => {
+    mockCompany.bokforing_last_tom = '2026-03'
+    const lastVer = { ...aktiv, id: 'v9', ver_nr: 'M9', datum: '2026-02-15' }
+    verData.current = [lastVer]
+    renderPage()
+    await screen.findByText('M9')
+    fireEvent.click(screen.getByTitle('Rätta (spårbar rättelsekedja)'))
+    await screen.findByText('RÄTTA VERIFIKATION M9')
+    fireEvent.change(screen.getByPlaceholderText('T.ex. fel konto användes'), { target: { value: 'Fel' } })
+    fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: '2026-02-20' } })
+    expect(screen.getByText(/Datumet ligger i låst period/)).toBeTruthy()
+    expect(screen.getByText('Skapa rättelse').disabled).toBe(true)
+    expect(rpc).not.toHaveBeenCalled()
   })
 })

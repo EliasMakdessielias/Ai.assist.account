@@ -5,12 +5,13 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
+import RattaVerifikationModal from '../components/RattaVerifikationModal'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
 export default function VisaVerifikation() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { company } = useAuth()
   const [ver, setVer] = useState(null)
   const [rows, setRows] = useState([])
   const [docs, setDocs] = useState([])
@@ -20,8 +21,11 @@ export default function VisaVerifikation() {
     useDocumentViewerLayout({ widthKey: 'bokpilot.bokforing.viewerW', openKey: 'bokpilot.bokforing.viewerOpen' })
   const [loading, setLoading] = useState(true)
   const [couplingMode, setCouplingMode] = useState(false)
-  const [korrigerad, setKorrigerad] = useState(null)   // denna ver har rättats -> info
-  const [arRattelse, setArRattelse] = useState(null)   // denna ver ÄR en rättelse -> info
+  const [korrigerad, setKorrigerad] = useState(null)   // legacy-rättelse (verifikation_andringar) -> info
+  const [arRattelse, setArRattelse] = useState(null)   // legacy: denna ver ÄR en rättelse -> info
+  const [rattaOpen, setRattaOpen] = useState(false)    // spårbar rättelsekedja via RPC
+  const [kedja, setKedja] = useState({})               // id -> ver_nr för länkade verifikationer (status-relationer)
+  const [ersattning, setErsattning] = useState(null)   // { id, ver_nr } som ersätter denna rättade ver
 
   useEffect(() => { loadVer() }, [id])
 
@@ -52,6 +56,19 @@ export default function VisaVerifikation() {
     await loadVer()
   }
 
+  // Status-relationerna (makulering/rättelsekedja): slå upp ver_nr för länkade verifikationer.
+  async function loadKedja(v) {
+    const ids = [v.rattad_av, v.rattar, v.ersatter, v.makulerad_av, v.motverkar].filter(Boolean)
+    if (ids.length) {
+      const { data } = await supabase.from('verifikationer').select('id, ver_nr').in('id', ids)
+      setKedja(Object.fromEntries((data || []).map(x => [x.id, x.ver_nr])))
+    } else setKedja({})
+    if (v.status === 'rattad') {
+      const { data: e } = await supabase.from('verifikationer').select('id, ver_nr').eq('ersatter', v.id).limit(1).maybeSingle()
+      setErsattning(e || null)
+    } else setErsattning(null)
+  }
+
   async function loadVer() {
     const { data: v } = await supabase.from('verifikationer').select('*').eq('id', id).single()
     const { data: r } = await supabase.from('verifikation_rows').select('*').eq('verifikation_id', id).order('sort_order')
@@ -64,6 +81,7 @@ export default function VisaVerifikation() {
     setRows(r || [])
     setDocs(withUrls)
     setLoading(false)
+    if (v) loadKedja(v)
     loadAndringar()
   }
 
@@ -80,8 +98,8 @@ export default function VisaVerifikation() {
       <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight">VERIFIKATION {ver.ver_nr}</span>
         <div className="flex items-center gap-2.5">
-          {!korrigerad && (
-            <button className="btn" style={{ borderColor: '#A32D2D', color: '#A32D2D' }} onClick={() => navigate(`/bokforing/ny?ratta=${id}`)}>
+          {(ver.status ?? 'aktiv') === 'aktiv' && !korrigerad && (
+            <button className="btn" style={{ borderColor: '#A32D2D', color: '#A32D2D' }} onClick={() => setRattaOpen(true)}>
               <i className="ti ti-pencil-minus" /> Rätta
             </button>
           )}
@@ -162,6 +180,77 @@ export default function VisaVerifikation() {
           Denna verifikation är bokförd och kan inte ändras enligt 5 kap. 5 § bokföringslagen (1999:1078).
         </div>
 
+        {ver.status === 'makulerad' && (
+          <div className="mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+            <div className="font-semibold flex items-center gap-1.5 mb-1"><i className="ti ti-ban" /> Makulerad</div>
+            <div>Verifikationen är makulerad och nollställd av en motverifikation. Originalet bevaras enligt Bokföringslagen.</div>
+            {ver.makulerad_av && kedja[ver.makulerad_av] && (
+              <button className="text-blue-700 font-medium hover:underline mt-1 flex items-center gap-1"
+                onClick={() => navigate(`/bokforing/${ver.makulerad_av}`)}>
+                <i className="ti ti-arrow-right" /> Visa motverifikation {kedja[ver.makulerad_av]}
+              </button>
+            )}
+          </div>
+        )}
+
+        {ver.status === 'motverifikation' && ver.motverkar && (
+          <div className="mt-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            <div className="font-semibold flex items-center gap-1.5 mb-1"><i className="ti ti-ban" /> Motverifikation</div>
+            <div>Denna verifikation nollar en makulerad verifikation.</div>
+            {kedja[ver.motverkar] && (
+              <button className="text-blue-700 font-medium hover:underline mt-1 flex items-center gap-1"
+                onClick={() => navigate(`/bokforing/${ver.motverkar}`)}>
+                <i className="ti ti-arrow-left" /> Visa makulerad verifikation {kedja[ver.motverkar]}
+              </button>
+            )}
+          </div>
+        )}
+
+        {ver.status === 'rattad' && (
+          <div className="mt-3 px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg text-xs text-orange-800">
+            <div className="font-semibold flex items-center gap-1.5 mb-1"><i className="ti ti-pencil-minus" /> Rättad</div>
+            <div>Verifikationen är rättad: en rättelseverifikation har vänt raderna{ersattning ? ' och en ersättningsverifikation har bokförts' : ''}. Originalet bevaras enligt Bokföringslagen.</div>
+            {ver.rattad_av && kedja[ver.rattad_av] && (
+              <button className="text-blue-700 font-medium hover:underline mt-1 flex items-center gap-1"
+                onClick={() => navigate(`/bokforing/${ver.rattad_av}`)}>
+                <i className="ti ti-arrow-right" /> Visa rättelseverifikation {kedja[ver.rattad_av]}
+              </button>
+            )}
+            {ersattning && (
+              <button className="text-blue-700 font-medium hover:underline mt-1 flex items-center gap-1"
+                onClick={() => navigate(`/bokforing/${ersattning.id}`)}>
+                <i className="ti ti-arrow-right" /> Visa ersättningsverifikation {ersattning.ver_nr}
+              </button>
+            )}
+          </div>
+        )}
+
+        {ver.status === 'rattelse' && ver.rattar && (
+          <div className="mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+            <div className="font-semibold flex items-center gap-1.5 mb-1"><i className="ti ti-arrow-back-up" /> Rättelseverifikation</div>
+            <div>Denna verifikation vänder raderna i en rättad verifikation (spårbar rättelsekedja).</div>
+            {kedja[ver.rattar] && (
+              <button className="text-blue-700 font-medium hover:underline mt-1 flex items-center gap-1"
+                onClick={() => navigate(`/bokforing/${ver.rattar}`)}>
+                <i className="ti ti-arrow-left" /> Visa ursprunglig verifikation {kedja[ver.rattar]}
+              </button>
+            )}
+          </div>
+        )}
+
+        {ver.ersatter && (
+          <div className="mt-3 px-4 py-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
+            <div className="font-semibold flex items-center gap-1.5 mb-1"><i className="ti ti-replace" /> Ersättningsverifikation</div>
+            <div>Denna verifikation ersätter en rättad verifikation med korrekt bokföring.</div>
+            {kedja[ver.ersatter] && (
+              <button className="text-blue-700 font-medium hover:underline mt-1 flex items-center gap-1"
+                onClick={() => navigate(`/bokforing/${ver.ersatter}`)}>
+                <i className="ti ti-arrow-left" /> Ersätter verifikation {kedja[ver.ersatter]}
+              </button>
+            )}
+          </div>
+        )}
+
         {korrigerad && (
           <div className="mt-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
             <div className="font-semibold flex items-center gap-1.5 mb-1"><i className="ti ti-pencil-minus" /> Rättad</div>
@@ -204,6 +293,16 @@ export default function VisaVerifikation() {
       {/* Kopplingsläge: Inkorgen med förhandsvisning, koppla direkt */}
       {couplingMode && (
         <UnderlagPanel company={{ id: ver.company_id }} onCouple={couple} title="KOPPLA UNDERLAG" onClose={() => setCouplingMode(false)} />
+      )}
+
+      {/* Spårbar rättelsekedja: RPC skapar rättelseverifikationen, sedan bokförs ersättningen. */}
+      {rattaOpen && (
+        <RattaVerifikationModal ver={ver} company={company} onClose={() => setRattaOpen(false)}
+          onDone={res => {
+            setRattaOpen(false)
+            toast.success(`Rättelseverifikation ${res?.rattelse_nr || ''} skapad – bokför nu den korrigerade verifikationen`)
+            navigate(`/bokforing/ny?ersatter=${id}&datum=${res?.datum || ''}`)
+          }} />
       )}
 
       {/* Underlag – högerpanel (kopplade), gemensam dokumentvisare med splitter */}
