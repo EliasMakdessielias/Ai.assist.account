@@ -767,3 +767,23 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
 - **Bevis:** `avstamning.test.js` (6: unikhet, dubblettbelopp, globalt närmaste datum, 7-dagarsgräns, tecken, tomt)
   + `StamAvKonto.test.jsx` (4: granskningsläge utan DB-skrivning, Spara skriver båda sidor, Avbryt skriver inget,
   omatchad post får aldrig parnummer). Bygg + 625 tester gröna.
+
+## Kundkort: Skapa ny kund (Fortnox-inspirerat) – [KUNDKORT]  *(2026-06-12)*
+
+- **`src/components/KundEditor.jsx`** ersätter den gamla modalen i `Kunder.jsx`: fullbreddsvy med flikarna
+  **Grunduppgifter** (kundnummer* auto-förslag max+1, kundtyp Företag/Privat, org-/personnummer, aktiv,
+  namn*, fakturaadress 1–2/postnr/ort/land, telefon 1–2, e-post, webb, kontaktperson, leveransadress,
+  anteckningar) och **Faktureringsuppgifter** (betalningsvillkor dagar, leveransvillkor/-sätt, valuta
+  (`SUPPORTED_CURRENCIES`), vår/er referens, VAT-nummer, försäljningskonto med 3xxx-datalist).
+  Header "KUND {nr} – SKAPA NY/{NAMN}", footer Radera (endast befintlig)/Avbryt/Spara.
+  Medvetet INTE byggt (inga låtsasfunktioner): e-faktura/GLN, prislistor, kreditupplysning, förvalda mallar, momstyp.
+- **Migration** `supabase/kunder_utokade.sql` (applicerad, additiv): kund_nr (backfilld per företag i
+  skapelseordning, unikt index per company), kundtyp-check, adress-/leverans-/faktureringsfält.
+- **Ren logik** `src/lib/kunder.js`: `nextKundNr` + `kundPayload` (trim→null, heltal, kundtyp-/valuta-default,
+  försäljningskonto kräver 4 siffror annars null). Dubblettkundnr → svenskt fel i UI.
+- **Bokföringskoppling** `src/lib/bokforing.js`: kundfakturans intäktskonto = kundens `forsaljningskonto`
+  om det finns i kontoplanen, annars 3001 (kontonamn slås upp). `payment_terms` styr som tidigare
+  förfallodatum i Ny faktura. Kundlistan visar kundnr + Inaktiv-badge, sorteras på kundnr.
+- **Bevis:** `kunder.test.js` (5) + `KundEditor.test.jsx` (4: payload/flikar, namnkrav, update vs insert,
+  Radera-gating) + rollback-säker live-verifiering (alla fält, backfill 0 kvar, dubblettnr blockeras).
+  Bygg + 634 tester gröna.

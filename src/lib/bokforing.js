@@ -8,12 +8,14 @@ const NAMES = {
 }
 const VATACC = { 25: '2611', 12: '2621', 6: '2631' }
 
-// Bokför en kundfaktura enligt faktureringsmetoden: D 1510 / K 3001 (netto) + K utgående moms.
-// Gör inget i kontantmetoden (bokförs vid betalning), eller om fakturan redan är bokförd.
+// Bokför en kundfaktura enligt faktureringsmetoden: D 1510 / K försäljningskonto (netto)
+// + K utgående moms. Intäktskontot är kundens försäljningskonto (kundkortet) om det finns
+// i kontoplanen, annars 3001. Gör inget i kontantmetoden (bokförs vid betalning), eller om
+// fakturan redan är bokförd.
 export async function bokforKundfaktura({ companyId, metod, userId, invoiceId, serie }) {
   const ser = (serie && String(serie).trim()) || 'A - Redovisning'
   if (metod !== 'faktura') return null
-  const { data: inv } = await supabase.from('invoices').select('*, customers(name)').eq('id', invoiceId).single()
+  const { data: inv } = await supabase.from('invoices').select('*, customers(name, forsaljningskonto)').eq('id', invoiceId).single()
   if (!inv || inv.verifikation_id) return null
   const { data: rows } = await supabase.from('invoice_rows').select('*').eq('invoice_id', invoiceId)
 
@@ -24,7 +26,14 @@ export async function bokforKundfaktura({ companyId, metod, userId, invoiceId, s
     vatByRate[r.vat_rate] = (vatByRate[r.vat_rate] || 0) + v
   })
 
-  const lines = [{ nr: '1510', d: inv.total_amount, k: 0 }, { nr: '3001', d: 0, k: inv.amount_excl_vat }]
+  let salesAcc = '3001', salesName = NAMES['3001']
+  const kundKonto = inv.customers?.forsaljningskonto
+  if (kundKonto && /^\d{4}$/.test(String(kundKonto))) {
+    const { data: acc } = await supabase.from('accounts').select('name').eq('company_id', companyId).eq('account_nr', String(kundKonto)).maybeSingle()
+    if (acc) { salesAcc = String(kundKonto); salesName = acc.name || '' }   // saknas kontot i kontoplanen -> 3001
+  }
+
+  const lines = [{ nr: '1510', d: inv.total_amount, k: 0 }, { nr: salesAcc, name: salesName, d: 0, k: inv.amount_excl_vat }]
   Object.entries(vatByRate).forEach(([rate, v]) => {
     const acc = VATACC[Number(rate)]
     if (v > 0.0001 && acc) lines.push({ nr: acc, d: 0, k: v })
@@ -40,7 +49,7 @@ export async function bokforKundfaktura({ companyId, metod, userId, invoiceId, s
   if (error) throw error
 
   await supabase.from('verifikation_rows').insert(lines.map((l, i) => ({
-    verifikation_id: ver.id, account_nr: l.nr, account_name: NAMES[l.nr] || '', debet: l.d, kredit: l.k, sort_order: i,
+    verifikation_id: ver.id, account_nr: l.nr, account_name: l.name || NAMES[l.nr] || '', debet: l.d, kredit: l.k, sort_order: i,
   })))
   await supabase.from('invoices').update({ verifikation_id: ver.id }).eq('id', invoiceId)
   return ver
