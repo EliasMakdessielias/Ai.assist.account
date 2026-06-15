@@ -776,6 +776,14 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   anteckningar) och **Faktureringsuppgifter** (betalningsvillkor dagar, leveransvillkor/-sätt, valuta
   (`SUPPORTED_CURRENCIES`), vår/er referens, VAT-nummer, försäljningskonto med 3xxx-datalist).
   Header "KUND {nr} – SKAPA NY/{NAMN}", footer Radera (endast befintlig)/Avbryt/Spara.
+  **Grunduppgifter** (2026-06-12) replikerar Fortnox-kortet exakt: toolbar (Bjud in till e-faktura/
+  Kreditupplysning gråade-ej byggt · Hämta kunduppgifter funktionell), rad med Kundnummer/Kundtyp/
+  Org-nr/Aktiv, tvåkolumns namn+fakturaadress | kontaktuppgifter (Telefon/Telefon 2/Fax/E-post/Webb),
+  hopfällbara "Fler adressuppgifter" (leveransadress + egna kontaktfält) och "Fler kunduppgifter"
+  (Branschkod SNI/Arbetsställenr CFAR/Butiks-id/Anteckningar). Nya kolumner i
+  `supabase/kund_grunduppgifter_falt.sql` (landskod, fax, lev_telefon/-2/-fax/-landskod, sni, cfar,
+  butiks_id). Adresstyp-dropdownen visar f.n. endast Leveransadress (enda lagrade typen). "Skapa kund"
+  nollställer till ny kund.
   **Faktureringsuppgifter** (2026-06-12) replikerar Fortnox-kortet exakt: fyra kolumner
   (Betal-/leveransvillkor · Fakturering · Referenser · Bokföring) + hopfällbara E-dokument,
   Fakturatext och Förvalda mallar. Fält med funktion ligger i riktiga kolumner (payment_terms,

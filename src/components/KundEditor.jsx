@@ -26,7 +26,7 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
   const [inst, setInst] = useState(() => ({ ...(kund?.faktura_installningar || {}) }))
   const iset = (k, v) => setInst(s => ({ ...s, [k]: v }))
   // Hopfällbara sektioner (matchar bilden: E-dokument + Förvalda mallar öppna, Fakturatext stängd).
-  const [openSect, setOpenSect] = useState({ edok: true, faktext: false, mallar: true })
+  const [openSect, setOpenSect] = useState({ adr: true, kund: true, edok: true, faktext: false, mallar: true })
 
   // Hämtning av företagsuppgifter
   const [hamtar, setHamtar] = useState(false)
@@ -160,6 +160,17 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
     onSaved()
   }
 
+  // Toolbar: "Hämta kunduppgifter" (officiellt API/fallback). "Skapa kund": nollställ till ny kund.
+  function hamtaKunduppgifter() {
+    if (!isValidOrgNr(form.org_nr)) return toast.error('Ange ett giltigt organisationsnummer först')
+    lastLookup.current = normalizeOrgNr(form.org_nr); setEjAktiverad(false); hamtaForetag(form.org_nr, { force: true })
+  }
+  function nyKund() {
+    setForm({ kundtyp: 'foretag', is_active: true, payment_terms: 30, valuta: 'SEK', kund_nr: forslagsNr })
+    setInst({}); setForetag(null); setProv(null); setEjAktiverad(false); setDupKund(null)
+    setFilledKeys(new Set()); setManualKeys(new Set()); lastLookup.current = ''; setTab(0)
+  }
+
   const Badge = () => <span className="ml-1.5 text-[9px] font-semibold uppercase px-1 py-0.5 rounded bg-blue-50 text-blue-600 align-middle">Hämtad från Allabolag</span>
   const Field = ({ k, label, type = 'text', w, ph, list }) => (
     <div className={w === 2 ? 'col-span-2' : ''}>
@@ -177,8 +188,6 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
       </div>
     </div>
   )
-  const Section = ({ title }) => <div className="col-span-4 text-sm font-semibold text-gray-700 border-b pb-1.5 mt-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>{title}</div>
-
   // Render-hjälpare för Faktureringsuppgifter (rena funktioner -> inga remounts/fokustapp).
   const lblCls = 'block text-xs font-medium text-gray-500 mb-1'
   const inp = (label, val, onChange, ph = '') => (
@@ -212,20 +221,28 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
   const MOMSTYPER = ['SE', 'EU', 'Export', 'Omvänd skattskyldighet']
   const SPRAK = ['Svenska', 'Engelska']
 
-  const orgnrGiltigt = isValidOrgNr(form.org_nr)
-
   return (
     <div className="flex flex-col h-full">
       <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight">KUND {form.kund_nr || ''} – {ny ? 'SKAPA NY' : (kund.name || '').toUpperCase()}</span>
         <div className="flex items-center gap-2.5">
-          {orgnrGiltigt && !ejAktiverad && (
-            <button className="btn text-sm" onClick={() => hamtaForetag(form.org_nr, { force: true })} disabled={hamtar}>
-              <i className="ti ti-refresh mr-1" />{hamtar ? 'Hämtar…' : 'Uppdatera företagsuppgifter'}
-            </button>
-          )}
-          <button className="btn btn-primary" onClick={onClose}><i className="ti ti-list" /> Visa lista</button>
+          <div className="flex items-center gap-0.5 mr-1 text-gray-300">
+            {['ti-chevron-left-pipe', 'ti-chevron-left', 'ti-chevron-right', 'ti-chevron-right-pipe'].map(ic => (
+              <button key={ic} disabled className="w-7 h-7 rounded flex items-center justify-center opacity-40 cursor-default"><i className={`ti ${ic}`} /></button>
+            ))}
+          </div>
+          <button className="btn" onClick={nyKund}><i className="ti ti-plus" /> Skapa kund</button>
+          <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={onClose}><i className="ti ti-list" /> Visa lista</button>
         </div>
+      </div>
+
+      {/* Verktygsrad (matchar bilden). Bjud in till e-faktura / Kreditupplysning är ej byggt (gråade). */}
+      <div className="bg-white border-b px-7 py-2.5 flex items-center justify-end gap-6 text-[13px] shrink-0" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+        <span className="flex items-center gap-1.5 text-gray-300" title="Ej tillgängligt"><i className="ti ti-arrows-exchange" /> Bjud in till e-faktura</span>
+        <span className="flex items-center gap-1.5 text-gray-300" title="Ej tillgängligt"><i className="ti ti-checkbox" /> Kreditupplysning</span>
+        <button className="flex items-center gap-1.5 text-gray-500 hover:text-gray-800 disabled:text-gray-300" onClick={hamtaKunduppgifter} disabled={hamtar}>
+          <i className="ti ti-search" /> {hamtar ? 'Hämtar…' : 'Hämta kunduppgifter'}
+        </button>
       </div>
 
       <div className="bg-white border-b px-7 flex gap-6 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -237,67 +254,99 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
 
       <div className="p-7 flex-1 overflow-y-auto">
         {tab === 0 ? (
-          <div className="grid grid-cols-4 gap-x-5 gap-y-4 max-w-5xl">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Kundnummer *</label>
-              <input className="input" type="number" min="1" value={form.kund_nr ?? ''} onChange={e => set('kund_nr', e.target.value)} />
-            </div>
-            <Toggle k="kundtyp" label="Kundtyp" yes="Företag" no="Privat" truthy="foretag" falsy="privat" />
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">{form.kundtyp === 'privat' ? 'Personnummer' : 'Org-/Personnummer'}</label>
-              <input className="input" value={form.org_nr ?? ''} placeholder="556036-0793"
-                onChange={e => set('org_nr', e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && isValidOrgNr(form.org_nr)) { e.preventDefault(); lastLookup.current = normalizeOrgNr(form.org_nr); setEjAktiverad(false); hamtaForetag(form.org_nr, { force: true }) } }} />
-              {hamtar && <p className="text-xs text-blue-600 mt-1"><i className="ti ti-loader mr-1" />Hämtar företagsuppgifter…</p>}
-              {!hamtar && ejAktiverad && !foretag && (
-                <p className="text-xs text-gray-400 mt-1">Automatisk företagshämtning är inte aktiverad – fyll i uppgifterna manuellt.</p>
-              )}
-              {!hamtar && foretag && (
-                <div className="mt-1 text-xs">
-                  <div className="font-medium text-gray-800">{foretag.legalName}</div>
-                  {foretag.status && <div className="text-green-700">{foretag.status}</div>}
+          <div className="max-w-5xl">
+            {/* Rad 1: Kundnummer · Kundtyp · Org-/Personnummer · Aktiv */}
+            <div className="grid grid-cols-[180px_210px_1fr_180px] gap-x-8 mb-6 items-start">
+              <div>
+                <label className={lblCls}>Kundnummer *</label>
+                <div className="relative">
+                  <input className="input pr-9" type="number" min="1" value={form.kund_nr ?? ''} onChange={e => set('kund_nr', e.target.value)} />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300"><i className="ti ti-refresh" /></span>
                 </div>
-              )}
-              {dupKund && (
-                <div className="mt-1.5 text-xs px-2 py-1.5 bg-amber-50 border border-amber-200 rounded">
-                  <div className="text-amber-800">Det finns redan en kund med detta organisationsnummer.</div>
-                  <button className="text-blue-700 font-medium hover:underline mt-0.5" onClick={() => onOpenExisting?.(dupKund)}>
-                    Öppna kund {dupKund.kund_nr} – {dupKund.name}
-                  </button>
+              </div>
+              <Toggle k="kundtyp" label="Kundtyp" yes="Företag" no="Privat" truthy="foretag" falsy="privat" />
+              <div>
+                <label className={lblCls}>{form.kundtyp === 'privat' ? 'Personnummer' : 'Org-/Personnummer'}</label>
+                <input className="input" value={form.org_nr ?? ''} placeholder="556036-0793"
+                  onChange={e => set('org_nr', e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && isValidOrgNr(form.org_nr)) { e.preventDefault(); hamtaKunduppgifter() } }} />
+                {hamtar && <p className="text-xs text-blue-600 mt-1"><i className="ti ti-loader mr-1" />Hämtar företagsuppgifter…</p>}
+                {!hamtar && ejAktiverad && !foretag && (
+                  <p className="text-xs text-gray-400 mt-1">Automatisk företagshämtning är inte aktiverad – fyll i uppgifterna manuellt.</p>
+                )}
+                {!hamtar && foretag && (
+                  <div className="mt-1 text-xs">
+                    <div className="font-medium text-gray-800">{foretag.legalName}</div>
+                    {foretag.status && <div className="text-green-700">{foretag.status}</div>}
+                  </div>
+                )}
+                {dupKund && (
+                  <div className="mt-1.5 text-xs px-2 py-1.5 bg-amber-50 border border-amber-200 rounded">
+                    <div className="text-amber-800">Det finns redan en kund med detta organisationsnummer.</div>
+                    <button className="text-blue-700 font-medium hover:underline mt-0.5" onClick={() => onOpenExisting?.(dupKund)}>
+                      Öppna kund {dupKund.kund_nr} – {dupKund.name}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="justify-self-end"><Toggle k="is_active" label="Aktiv" /></div>
+            </div>
+
+            {/* Två kolumner: vänster namn/fakturaadress, höger kontaktuppgifter */}
+            <div className="grid grid-cols-2 gap-x-16">
+              <div className="space-y-3.5">
+                <Field k="name" label="Namn *" />
+                <Field k="address" label="Fakturaadress" />
+                <Field k="address2" label="Fakturaadress 2" />
+                <div className="grid grid-cols-[120px_1fr] gap-3"><Field k="postnr" label="Postnr" /><Field k="ort" label="Ort" /></div>
+                <div className="grid grid-cols-2 gap-3"><Field k="land" label="Land" /><Field k="landskod" label="Landskod" /></div>
+              </div>
+              <div className="space-y-3.5">
+                <Field k="phone" label="Telefon" />
+                <Field k="telefon2" label="Telefon 2" />
+                <Field k="fax" label="Fax" />
+                <Field k="email" label="E-post" type="email" />
+                <Field k="webb" label="Webbadress" />
+              </div>
+            </div>
+
+            {/* Fler adressuppgifter (leveransadress) */}
+            {sectHead('adr', 'Fler adressuppgifter')}
+            {openSect.adr && (
+              <div className="py-4">
+                <div className="w-56 mb-4">
+                  <select className="input"><option>Leveransadress</option></select>
                 </div>
-              )}
-            </div>
-            <Toggle k="is_active" label="Aktiv" />
+                <div className="grid grid-cols-2 gap-x-16">
+                  <div className="space-y-3.5">
+                    <Field k="lev_namn" label="Namn" />
+                    <Field k="lev_adress" label="Leveransadress" />
+                    <Field k="lev_adress2" label="Leveransadress 2" />
+                    <div className="grid grid-cols-[120px_1fr] gap-3"><Field k="lev_postnr" label="Postnr" /><Field k="lev_ort" label="Ort" /></div>
+                    <div className="grid grid-cols-2 gap-3"><Field k="lev_land" label="Land" /><Field k="lev_landskod" label="Landskod" /></div>
+                  </div>
+                  <div className="space-y-3.5">
+                    <Field k="lev_telefon" label="Telefon" />
+                    <Field k="lev_telefon2" label="Telefon 2" />
+                    <Field k="lev_fax" label="Fax" />
+                  </div>
+                </div>
+              </div>
+            )}
 
-            <Field k="name" label="Namn *" w={2} />
-            <Field k="phone" label="Telefon" />
-            <Field k="telefon2" label="Telefon 2" />
-
-            <Field k="address" label="Fakturaadress" w={2} />
-            <Field k="email" label="E-post" type="email" />
-            <Field k="webb" label="Webbadress" />
-
-            <Field k="address2" label="Fakturaadress 2" w={2} />
-            <Field k="contact_person" label="Kontaktperson" w={2} />
-
-            <Field k="postnr" label="Postnr" />
-            <Field k="ort" label="Ort" />
-            <Field k="land" label="Land" w={2} />
-
-            <Section title="Leveransadress" />
-            <Field k="lev_namn" label="Namn" w={2} />
-            <Field k="lev_adress" label="Leveransadress" w={2} />
-            <Field k="lev_adress2" label="Leveransadress 2" w={2} />
-            <div className="col-span-2" />
-            <Field k="lev_postnr" label="Postnr" />
-            <Field k="lev_ort" label="Ort" />
-            <Field k="lev_land" label="Land" w={2} />
-
-            <Section title="Fler kunduppgifter" />
-            <div className="col-span-4">
-              <label className="block text-xs font-medium text-gray-500 mb-1">Anteckningar</label>
-              <textarea className="input" rows={3} value={form.anteckningar ?? ''} onChange={e => set('anteckningar', e.target.value)} />
-            </div>
+            {/* Fler kunduppgifter */}
+            {sectHead('kund', 'Fler kunduppgifter')}
+            {openSect.kund && (
+              <div className="grid grid-cols-[1fr_1fr_1fr_2fr] gap-x-6 py-4 items-start">
+                <Field k="sni" label="Branschkod (SNI)" />
+                <Field k="cfar" label="Arbetsställenr (CFAR)" />
+                <Field k="butiks_id" label="Butiks-id" />
+                <div>
+                  <label className={lblCls}>Anteckningar</label>
+                  <textarea className="input" rows={5} value={form.anteckningar ?? ''} onChange={e => set('anteckningar', e.target.value)} />
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="max-w-[1400px]">
@@ -405,7 +454,7 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
         <button className="btn btn-danger" disabled={ny || saving} onClick={() => onDelete(kund)} title={ny ? 'Spara kunden först' : 'Ta bort kunden'}>Radera</button>
         <div className="flex gap-2.5">
           <button className="btn" onClick={onClose} disabled={saving}>Avbryt</button>
-          <button className="btn btn-primary px-6" onClick={spara} disabled={saving || !!dupKund}>{saving ? 'Sparar…' : 'Spara'}</button>
+          <button className="btn btn-green px-6" onClick={spara} disabled={saving || !!dupKund}>{saving ? 'Sparar…' : 'Spara'}</button>
         </div>
       </div>
 
