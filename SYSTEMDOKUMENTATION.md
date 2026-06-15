@@ -187,6 +187,23 @@ allt-eller-inget (kompenserande radering). Fel visas på **svenska** och begripl
 Kontoplan: import (CSV/Fortnox), kontrollerat byte (`planImport`), dubblettskydd, blockerade standardkonton bevaras
 (`is_locked`/`is_blocked_for_manual_booking` + `protect_locked_account`-trigger). SIE/import-export-sidor under Inställningar.
 
+## 12b. Företagshämtning (officiellt API)
+
+Kundkort och leverantörskort kan auto-hämta svenska företagsuppgifter via **officiellt API**
+(UC Affärsinformation / Allabolag) genom edge-funktionen `hamta-foretag`. **Ingen skrapning** av
+allabolag.se sker (den tidigare HTML/`__NEXT_DATA__`-skrapningen är borttagen). Secrets
+(`ALLABOLAG_API_BASE_URL/_API_KEY/_CLIENT_ID/_CLIENT_SECRET`) bor **enbart** server-side; frontend
+anropar funktionen via JWT. Provider-interface (`CompanyInformationProvider` → `AllabolagCompanyProvider`,
+framtida `BolagsverketCompanyProvider`) gör datakällan utbytbar. Säkerhet: timeout (10 s), rate limit
+(20/användare/min, tabell `company_lookup_rate`), 24h-cache (`company_lookup_cache`), sanerad loggning
+(aldrig secrets/token/rå svarskropp), Luhn-validering, normaliserat org-nr unikt per företag
+(`customers.org_nr_normalized` + index). Proveniens lagras på kunden (`data_source`,
+`source_retrieved_at`, `source_api_version`, `manual_fields`, `last_manual_edit_at/by`). **GDPR:** endast
+företagsuppgifter mappas till formuläret; personuppgifter (styrelse/verklig huvudman) hämtas inte in i
+kundmodellen utan rättslig grund. Adaptern (`supabase/functions/hamta-foretag`) har en tydligt markerad
+seam för endpoint/auth/fältmappning som ska anpassas efter UC:s API-dokumentation; tills secrets satts
+returnerar funktionen svenskt "inte konfigurerad"-fel och manuell ifyllnad fungerar.
+
 ## 13. Integrationer
 
 E-post (Hostinger IMAP → inbound-email), OCR (Gemini primär, Folio valfri/avstängd), Stripe (Fas 3-kod klar, **ej aktiv** –

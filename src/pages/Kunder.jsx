@@ -35,6 +35,12 @@ export default function Kunder() {
     c.name.toLowerCase().includes(search.toLowerCase()) || (c.org_nr || '').includes(search) ||
     String(c.kund_nr || '').includes(search))
 
+  // Öppna en befintlig kund (t.ex. via dubblettvarningen) – ladda full post.
+  async function openExisting(ref) {
+    const { data } = await supabase.from('customers').select('*').eq('id', ref.id).eq('company_id', company.id).maybeSingle()
+    if (data) setEditing(data)
+  }
+
   if (editing) {
     return (
       <KundEditor
@@ -43,6 +49,7 @@ export default function Kunder() {
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); load() }}
         onDelete={remove}
+        onOpenExisting={openExisting}
       />
     )
   }

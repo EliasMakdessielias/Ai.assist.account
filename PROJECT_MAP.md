@@ -787,3 +787,28 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
 - **Bevis:** `kunder.test.js` (5) + `KundEditor.test.jsx` (4: payload/flikar, namnkrav, update vs insert,
   Radera-gating) + rollback-säker live-verifiering (alla fält, backfill 0 kvar, dubblettnr blockeras).
   Bygg + 634 tester gröna.
+
+## Företagshämtning – officiellt API (kundkort + leverantörskort) – [FORETAGSHAMTNING]  *(2026-06-12)*
+
+- **Edge `supabase/functions/hamta-foretag`** omskriven: hämtar via OFFICIELLT API (UC/Allabolag),
+  **ingen HTML-skrapning** (tidigare `__NEXT_DATA__`-skrapning borttagen – var emot UC:s villkor).
+  Provider-interface (`AllabolagCompanyProvider`, framtida `BolagsverketCompanyProvider`). Secrets
+  server-side (`ALLABOLAG_API_BASE_URL/_API_KEY/_CLIENT_ID/_CLIENT_SECRET`, se functions/.env.example).
+  Timeout 10s, rate limit 20/användare/min (`company_lookup_rate`), 24h-cache (`company_lookup_cache`),
+  sanerad loggning, Luhn-validering. Returnerar intern modell + platt `result` (bakåtkompatibel med
+  LeverantorEditor). **Utan secrets:** svenskt "Anslutningen till Allabolag är inte konfigurerad" →
+  manuell ifyllnad. Adapter-seam (endpoint/auth/fältmappning) anpassas efter UC:s dokumentation.
+  **Deployad v7, verify_jwt=true.**
+- **Ren logik:** `src/lib/orgnr.js` (normalize/Luhn/format) + `src/lib/companyProvider.js`
+  (`companyToKundForm` intern modell→formulär, `diffFormValues` för Uppdatera-jämförelse).
+- **Kundkort `KundEditor.jsx`:** org-nr-fält med **debounce 500ms** auto-hämtning vid giltig Luhn,
+  "Hämtar företagsuppgifter…", autofyll + **"Hämtad från Allabolag"-badge** per fält (försvinner vid
+  manuell ändring), statusrad (namn + status), **"Uppdatera företagsuppgifter"** (force, kringgår cache,
+  visar jämförelse innan manuellt ändrade fält skrivs över), **dubblettkontroll** mot
+  `org_nr_normalized` (blockerar Spara + "Öppna kund N"). Proveniens sparas vid Spara.
+- **DB** `supabase/foretagshamtning.sql` (applicerad): `customers.org_nr_normalized` (trigger,
+  unikt index per företag) + proveniens-kolumner; `company_lookup_cache`/`company_lookup_rate`
+  (RLS på, endast service_role).
+- **Bevis:** `orgnr.test.js` (10) + `companyProvider.test.js` (6) + `KundEditor.test.jsx` (8: auto-hämtning,
+  ogiltig Luhn hämtar ej, badge tas bort vid manuell ändring, dubblett blockerar/öppnar) + rollback-säker
+  live-verifiering (normalisering, dubblettindex, cache/rate-tabeller). Bygg + 654 tester gröna.
