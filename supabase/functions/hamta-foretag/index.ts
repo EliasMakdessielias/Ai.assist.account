@@ -66,40 +66,47 @@ function normalizeAllabolag(raw: Record<string, unknown>): ReturnType<typeof emp
   const post = (o.postalAddress ?? o.postAddress ?? addr) as Record<string, unknown>
   const tax = (o.taxRegistration ?? o.tax ?? {}) as Record<string, unknown>
 
-  c.organizationNumber = normalizeOrgNr(s(pick(o, ['organizationNumber', 'orgNumber', 'organisationNumber', 'orgnr'])))
-  c.legalName = s(pick(o, ['legalName', 'name', 'companyName']))
-  c.displayName = s(pick(o, ['displayName', 'tradeName', 'specialName'])) || c.legalName
-  c.companyForm = s(pick(o, ['companyForm', 'legalForm', 'companyType']))
-  c.status = s(pick(o, ['status', 'companyStatus']))
-  c.registrationDate = (pick(o, ['registrationDate', 'registeredDate']) as string) ?? null
-  c.businessDescription = s(pick(o, ['businessDescription', 'description', 'sniDescription']))
-  c.employeeCount = (pick(o, ['employeeCount', 'employees', 'numberOfEmployees']) as number) ?? null
-  c.shareCapital = (pick(o, ['shareCapital', 'capital']) as number) ?? null
+  c.organizationNumber = normalizeOrgNr(s(pick(o, ['organizationNumber', 'orgNumber', 'organisationNumber', 'orgnr', 'organisationsnummer'])))
+  c.legalName = s(pick(o, ['legalName', 'name', 'companyName', 'foretagsnamn', 'namn', 'juridisktNamn']))
+  c.displayName = s(pick(o, ['displayName', 'tradeName', 'specialName', 'visningsnamn'])) || c.legalName
+  c.companyForm = s(pick(o, ['companyForm', 'legalForm', 'companyType', 'bolagsform']))
+  c.status = s(pick(o, ['status', 'companyStatus', 'foretagsstatus', 'statusText']))
+  c.registrationDate = (pick(o, ['registrationDate', 'registeredDate', 'registreringsdatum']) as string) ?? null
+  c.businessDescription = s(pick(o, ['businessDescription', 'description', 'sniDescription', 'verksamhet', 'verksamhetsbeskrivning', 'andamal']))
+  c.employeeCount = (pick(o, ['employeeCount', 'employees', 'numberOfEmployees', 'antalAnstallda', 'anstallda']) as number) ?? null
+  c.shareCapital = (pick(o, ['shareCapital', 'capital', 'aktiekapital']) as number) ?? null
 
   c.address = {
-    careOf: s(pick(addr, ['careOf', 'co'])), street: s(pick(addr, ['street', 'addressLine', 'streetAddress'])),
-    postalCode: s(pick(addr, ['postalCode', 'zipCode', 'zip'])).replace(/\s/g, ''),
-    city: s(pick(addr, ['city', 'postPlace', 'town'])), municipality: s(pick(addr, ['municipality', 'kommun'])),
-    county: s(pick(addr, ['county', 'lan'])), country: s(pick(addr, ['country'])) || 'Sverige',
+    careOf: s(pick(addr, ['careOf', 'co'])), street: s(pick(addr, ['street', 'addressLine', 'streetAddress', 'gatuadress', 'utdelningsadress', 'postadress'])),
+    postalCode: s(pick(addr, ['postalCode', 'zipCode', 'zip', 'postnummer', 'postnr'])).replace(/\s/g, ''),
+    city: s(pick(addr, ['city', 'postPlace', 'town', 'postort', 'ort'])), municipality: s(pick(addr, ['municipality', 'kommun', 'kommunsate'])),
+    county: s(pick(addr, ['county', 'lan', 'lansate'])), country: s(pick(addr, ['country', 'land'])) || 'Sverige',
   }
   c.postalAddress = {
-    careOf: s(pick(post, ['careOf', 'co'])), street: s(pick(post, ['street', 'addressLine', 'boxAddressLine'])),
-    postalCode: s(pick(post, ['postalCode', 'zipCode', 'zip'])).replace(/\s/g, ''),
-    city: s(pick(post, ['city', 'postPlace', 'town'])), country: s(pick(post, ['country'])) || 'Sverige',
+    careOf: s(pick(post, ['careOf', 'co'])), street: s(pick(post, ['street', 'addressLine', 'boxAddressLine', 'gatuadress', 'utdelningsadress', 'postadress'])),
+    postalCode: s(pick(post, ['postalCode', 'zipCode', 'zip', 'postnummer', 'postnr'])).replace(/\s/g, ''),
+    city: s(pick(post, ['city', 'postPlace', 'town', 'postort', 'ort'])), country: s(pick(post, ['country', 'land'])) || 'Sverige',
   }
   c.contact = {
-    phone: s(pick(o, ['phone', 'phoneNumber', 'telephone'])).replace(/\s/g, ''),
-    mobile: s(pick(o, ['mobile', 'mobilePhone', 'cellPhone'])).replace(/\s/g, ''),
-    email: s(pick(o, ['email', 'emailAddress'])), website: s(pick(o, ['website', 'homepage', 'web'])),
+    phone: s(pick(o, ['phone', 'phoneNumber', 'telephone', 'telefon', 'telefonnummer'])).replace(/\s/g, ''),
+    mobile: s(pick(o, ['mobile', 'mobilePhone', 'cellPhone', 'mobil', 'mobiltelefon'])).replace(/\s/g, ''),
+    email: s(pick(o, ['email', 'emailAddress', 'epost', 'epostadress', 'e_post'])), website: s(pick(o, ['website', 'homepage', 'web', 'hemsida', 'webbplats', 'webb'])),
   }
-  const num = pick(o, ['vatNumber', 'vatNo']) ?? (tax.vatNumber as string)
+  const num = pick(o, ['vatNumber', 'vatNo', 'momsregnr', 'momsnummer', 'vatNummer']) ?? (tax.vatNumber as string)
   c.taxRegistration = {
-    fTax: (pick(o, ['fTax', 'fskatt']) ?? tax.fTax ?? null) as boolean | null,
-    vatRegistered: (pick(o, ['vatRegistered', 'momsregistrerad']) ?? tax.vatRegistered ?? null) as boolean | null,
-    employerRegistered: (pick(o, ['employerRegistered', 'arbetsgivarregistrerad']) ?? tax.employerRegistered ?? null) as boolean | null,
+    fTax: (pick(o, ['fTax', 'fskatt', 'godkand_for_f_skatt', 'fskattRegistrerad']) ?? tax.fTax ?? null) as boolean | null,
+    vatRegistered: (pick(o, ['vatRegistered', 'momsregistrerad', 'momsRegistrerad']) ?? tax.vatRegistered ?? null) as boolean | null,
+    employerRegistered: (pick(o, ['employerRegistered', 'arbetsgivarregistrerad', 'arbetsgivareRegistrerad']) ?? tax.employerRegistered ?? null) as boolean | null,
     vatNumber: s(num),
   }
-  c.industries = (o.industries ?? o.sniCodes ?? []) as unknown[]
+  // SNI/bransch: lista om den finns, annars bygg en post från enstaka kod+text-fält.
+  let inds = (o.industries ?? o.sniCodes ?? o.snikoder ?? o.sniKoder ?? []) as unknown[]
+  if (!Array.isArray(inds) || !inds.length) {
+    const sniCode = s(pick(o, ['sni', 'sniKod', 'sni_kod', 'branschkod', 'industryCode', 'sniCode']))
+    const sniText = s(pick(o, ['sniText', 'sniBeskrivning', 'branschText', 'bransch', 'industryText']))
+    inds = (sniCode || sniText) ? [{ code: sniCode, description: sniText }] : []
+  }
+  c.industries = inds
   c.workplaces = (o.workplaces ?? o.establishments ?? []) as unknown[]
   c.management = (o.management ?? o.representatives ?? []) as unknown[]
   c.groupInformation = (o.groupInformation ?? {}) as Record<string, unknown>
@@ -146,6 +153,39 @@ function allabolagProvider(env: Record<string, string | undefined>) {
       const raw = await res.json().catch(() => { const e = new Error('temporary'); (e as any).code = 'temporary'; throw e })
       const apiVersion = res.headers.get('x-api-version') || env.ALLABOLAG_API_VERSION || 'v1'
       return { company: normalizeAllabolag(raw as Record<string, unknown>), apiVersion }
+    },
+  }
+}
+
+// PROVIDER: apiverket.se (officiell Bolagsverket/SCB-data inkl. SNI, gratis API-nyckel).
+// Endpoint/auth är konfigurerbara via secrets eftersom de ska matchas mot apiverkets docs:
+//   APIVERKET_API_KEY (krävs), APIVERKET_BASE_URL, APIVERKET_COMPANY_PATH (innehåller {orgnr}),
+//   APIVERKET_AUTH_HEADER (default Authorization), APIVERKET_AUTH_PREFIX (default 'Bearer ').
+function apiverketProvider(env: Record<string, string | undefined>) {
+  const key = env.APIVERKET_API_KEY
+  const base = (env.APIVERKET_BASE_URL || 'https://api.apiverket.se').replace(/\/$/, '')
+  const path = env.APIVERKET_COMPANY_PATH || '/bolag/{orgnr}'
+  const authHeader = env.APIVERKET_AUTH_HEADER || 'Authorization'
+  const authPrefix = env.APIVERKET_AUTH_PREFIX ?? 'Bearer '
+  return {
+    name: 'apiverket',
+    configured: !!key,
+    async getCompany(orgnr10: string) {
+      if (!key) { const e = new Error('not_configured'); (e as any).code = 'not_configured'; throw e }
+      const url = base + path.replace('{orgnr}', orgnr10)
+      const headers: Record<string, string> = { Accept: 'application/json', [authHeader]: `${authPrefix}${key}` }
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+      let res: Response
+      try { res = await fetch(url, { headers, signal: ctrl.signal }) }
+      catch { const e = new Error('temporary'); (e as any).code = 'temporary'; throw e }
+      finally { clearTimeout(timer) }
+      if (res.status === 401 || res.status === 403) { const e = new Error('not_configured'); (e as any).code = 'not_configured'; throw e }
+      if (res.status === 404) { const e = new Error('not_found'); (e as any).code = 'not_found'; throw e }
+      if (res.status === 429) { const e = new Error('rate_limited'); (e as any).code = 'rate_limited'; throw e }
+      if (!res.ok) { const e = new Error('temporary'); (e as any).code = 'temporary'; throw e }
+      const raw = await res.json().catch(() => { const e = new Error('temporary'); (e as any).code = 'temporary'; throw e })
+      return { company: normalizeAllabolag(raw as Record<string, unknown>), apiVersion: env.APIVERKET_API_VERSION || 'apiverket' }
     },
   }
 }
@@ -237,9 +277,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Officiellt UC-API om konfigurerat; annars best-effort scraping av allabolag.se.
+    // Providerordning: officiellt UC-API → apiverket.se (officiell Bolagsverket/SCB-data, gratis
+    // nyckel) → best-effort scraping av allabolag.se (sista utväg).
     const official = allabolagProvider(env)
-    const provider = official.configured ? official : allabolagScrapeProvider()
+    const apiverket = apiverketProvider(env)
+    const provider = official.configured ? official : apiverket.configured ? apiverket : allabolagScrapeProvider()
     const { company, apiVersion } = await provider.getCompany(orgnr10)
     company.sourceRetrievedAt = new Date(now).toISOString()
     company.source = provider.name
