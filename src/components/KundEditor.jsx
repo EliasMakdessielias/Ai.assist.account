@@ -205,7 +205,9 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
             <Toggle k="kundtyp" label="Kundtyp" yes="Företag" no="Privat" truthy="foretag" falsy="privat" />
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">{form.kundtyp === 'privat' ? 'Personnummer' : 'Org-/Personnummer'}</label>
-              <input className="input" value={form.org_nr ?? ''} placeholder="556036-0793" onChange={e => set('org_nr', e.target.value)} />
+              <input className="input" value={form.org_nr ?? ''} placeholder="556036-0793"
+                onChange={e => set('org_nr', e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && isValidOrgNr(form.org_nr)) { e.preventDefault(); lastLookup.current = normalizeOrgNr(form.org_nr); setEjAktiverad(false); hamtaForetag(form.org_nr, { force: true }) } }} />
               {hamtar && <p className="text-xs text-blue-600 mt-1"><i className="ti ti-loader mr-1" />Hämtar företagsuppgifter…</p>}
               {!hamtar && ejAktiverad && !foretag && (
                 <p className="text-xs text-gray-400 mt-1">Automatisk företagshämtning är inte aktiverad – fyll i uppgifterna manuellt.</p>

@@ -1,12 +1,13 @@
 // Edge Function: hamta-foretag
-// Hämtar svenska företagsuppgifter via OFFICIELLT API (UC Affärsinformation / Allabolag).
-// Skrapar ALDRIG allabolag.se:s HTML. Secrets bor enbart här (server-side). Returnerar en
-// normaliserad intern företagsmodell + en platt `result` (bakåtkompatibel med LeverantorEditor).
+// Hämtar svenska företagsuppgifter. PRIMÄRT via officiellt API (UC Affärsinformation / Allabolag)
+// när secrets är satta; annars FALLBACK till best-effort scraping av allabolag.se:s publika sida.
+// Secrets bor enbart här (server-side). Returnerar en normaliserad intern företagsmodell + en
+// platt `result` (bakåtkompatibel med LeverantorEditor).
 //
-// Provider-interface (CompanyInformationProvider) => byt/komplettera datakälla utan att
-// frontend behöver byggas om. AllabolagCompanyProvider är default; BolagsverketCompanyProvider
-// är en framtida fallback. Den faktiska HTTP-mappningen (endpoint/auth/fältsökvägar) drivs av
-// miljövariabler och är samlad i adapter-funktionerna nedan – anpassa efter UC:s API-dokumentation.
+// Provider-interface (CompanyInformationProvider) => byt/komplettera datakälla utan att frontend
+// behöver byggas om. Officiella adapterns HTTP-mappning (endpoint/auth/fältsökvägar) drivs av
+// miljövariabler – anpassa efter UC:s API-dokumentation. Scraping-providern är en reserv som kan
+// blockeras av allabolag.se:s bot-skydd och bryta mot deras villkor; föredra det officiella API:t.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const cors = {
@@ -149,6 +150,48 @@ function allabolagProvider(env: Record<string, string | undefined>) {
   }
 }
 
+// Djupsök efter företagsobjektet (matchar orgnr) i __NEXT_DATA__.
+function findCompany(node: unknown, orgnr: string): Record<string, unknown> | null {
+  if (!node || typeof node !== 'object') return null
+  if (Array.isArray(node)) { for (const v of node) { const f = findCompany(v, orgnr); if (f) return f } return null }
+  const o = node as Record<string, unknown>
+  const on = String(o.orgnr ?? o.orgNumber ?? o.organisationNumber ?? o.organizationNumber ?? '').replace(/\D/g, '')
+  if (on && on.slice(-10) === orgnr && (o.name || o.legalName)) return o
+  for (const v of Object.values(o)) { const f = findCompany(v, orgnr); if (f) return f }
+  return null
+}
+
+// FALLBACK-PROVIDER (best-effort): hämtar allabolag.se:s publika sida och läser företagsobjektet
+// ur __NEXT_DATA__. Används endast när det officiella UC-API:t inte är konfigurerat. Kan blockeras
+// av allabolag.se:s bot-skydd och bryta mot deras villkor – föredra det officiella API:t i drift.
+function allabolagScrapeProvider() {
+  return {
+    name: 'Allabolag',
+    configured: true,
+    async getCompany(orgnr10: string) {
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml', 'Accept-Language': 'sv-SE,sv;q=0.9',
+      }
+      let html = ''
+      for (const u of [`https://www.allabolag.se/${orgnr10}`, `https://www.allabolag.se/what/${orgnr10}`, `https://www.allabolag.se/${orgnr10}/`]) {
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+        try { const r = await fetch(u, { headers, redirect: 'follow', signal: ctrl.signal }); if (r.ok) { const t = await r.text(); if (t.length > 5000) { html = t; break } } }
+        catch { /* nästa url */ } finally { clearTimeout(timer) }
+      }
+      if (!html) { const e = new Error('temporary'); (e as any).code = 'temporary'; throw e }
+      const nd = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i)
+      if (!nd) { const e = new Error('not_found'); (e as any).code = 'not_found'; throw e }
+      let data: unknown
+      try { data = JSON.parse(nd[1]) } catch { const e = new Error('not_found'); (e as any).code = 'not_found'; throw e }
+      const found = findCompany(data, orgnr10)
+      if (!found) { const e = new Error('not_found'); (e as any).code = 'not_found'; throw e }
+      return { company: normalizeAllabolag(found), apiVersion: 'scrape' }
+    },
+  }
+}
+
 const MSG: Record<string, string> = {
   invalid_orgnr: 'Organisationsnumret är inte giltigt. Kontrollera numret och försök igen.',
   not_found: 'Inget företag hittades med detta organisationsnummer.',
@@ -194,7 +237,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    const provider = allabolagProvider(env)
+    // Officiellt UC-API om konfigurerat; annars best-effort scraping av allabolag.se.
+    const official = allabolagProvider(env)
+    const provider = official.configured ? official : allabolagScrapeProvider()
     const { company, apiVersion } = await provider.getCompany(orgnr10)
     company.sourceRetrievedAt = new Date(now).toISOString()
     company.source = provider.name

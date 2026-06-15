@@ -798,7 +798,12 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   sanerad loggning, Luhn-validering. Returnerar intern modell + platt `result` (bakåtkompatibel med
   LeverantorEditor). **Utan secrets:** svenskt "Anslutningen till Allabolag är inte konfigurerad" →
   manuell ifyllnad. Adapter-seam (endpoint/auth/fältmappning) anpassas efter UC:s dokumentation.
-  **Deployad v7, verify_jwt=true.**
+  **Deployad v8, verify_jwt=true.**
+- **Scraping-fallback (2026-06-12, på användarens uttryckliga begäran):** när officiellt API ej är
+  konfigurerat används `allabolagScrapeProvider` som läser allabolag.se:s `__NEXT_DATA__` (best-effort).
+  **Caveat:** strider mot allabolag.se:s villkor och blockeras sannolikt av deras bot-skydd
+  (viabilitetskontroll mot publika sidan gav tomt svar) → returnerar då "kunde inte hämtas just nu".
+  Officiellt UC-API är den robusta vägen. Enter i org-nr-fältet triggar hämtning direkt (force).
 - **Ren logik:** `src/lib/orgnr.js` (normalize/Luhn/format) + `src/lib/companyProvider.js`
   (`companyToKundForm` intern modell→formulär, `diffFormValues` för Uppdatera-jämförelse).
 - **Kundkort `KundEditor.jsx`:** org-nr-fält med **debounce 500ms** auto-hämtning vid giltig Luhn,
