@@ -55,6 +55,14 @@ function emptyCompany() {
 
 const s = (v: unknown) => (v == null ? '' : String(v))
 const pick = (o: Record<string, unknown>, keys: string[]) => { for (const k of keys) if (o?.[k] != null && o[k] !== '') return o[k]; return undefined }
+// Etikett ur värde som kan vara sträng ELLER objekt ({name/code/text/value/status...}).
+const lbl = (v: unknown, keys: string[]) => {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'object') { const o = v as Record<string, unknown>; for (const k of keys) if (o[k] != null && o[k] !== '') return String(o[k]) }
+  return ''
+}
+const STATUS_SV: Record<string, string> = { ACTIVE: 'Aktiv', INACTIVE: 'Inaktivt', REGISTERED: 'Registrerad' }
 
 // ADAPTER: råsvar (UC/Allabolag) -> intern modell. Läser vanligt förekommande fältnamn defensivt.
 // Anpassa fältsökvägarna efter UC:s faktiska API-schema. Saknade/null-värden hanteras säkert.
@@ -69,8 +77,9 @@ function normalizeAllabolag(raw: Record<string, unknown>): ReturnType<typeof emp
   c.organizationNumber = normalizeOrgNr(s(pick(o, ['organizationNumber', 'orgNumber', 'organisationNumber', 'orgnr', 'organisationsnummer'])))
   c.legalName = s(pick(o, ['legalName', 'name', 'companyName', 'foretagsnamn', 'namn', 'juridisktNamn']))
   c.displayName = s(pick(o, ['displayName', 'tradeName', 'specialName', 'visningsnamn'])) || c.legalName
-  c.companyForm = s(pick(o, ['companyForm', 'legalForm', 'companyType', 'bolagsform']))
-  c.status = s(pick(o, ['status', 'companyStatus', 'foretagsstatus', 'statusText']))
+  c.companyForm = lbl(pick(o, ['companyForm', 'legalForm', 'companyType', 'bolagsform']), ['name', 'code'])
+  const rawStatus = lbl(pick(o, ['status', 'companyStatus', 'foretagsstatus', 'statusText']), ['statusCode', 'status', 'code', 'text', 'value'])
+  c.status = STATUS_SV[rawStatus] || rawStatus
   c.registrationDate = (pick(o, ['registrationDate', 'registeredDate', 'registreringsdatum']) as string) ?? null
   c.businessDescription = s(pick(o, ['businessDescription', 'description', 'sniDescription', 'verksamhet', 'verksamhetsbeskrivning', 'andamal']))
   c.employeeCount = (pick(o, ['employeeCount', 'employees', 'numberOfEmployees', 'antalAnstallda', 'anstallda']) as number) ?? null
@@ -99,12 +108,19 @@ function normalizeAllabolag(raw: Record<string, unknown>): ReturnType<typeof emp
     employerRegistered: (pick(o, ['employerRegistered', 'arbetsgivarregistrerad', 'arbetsgivareRegistrerad']) ?? tax.employerRegistered ?? null) as boolean | null,
     vatNumber: s(num),
   }
-  // SNI/bransch: lista om den finns, annars bygg en post från enstaka kod+text-fält.
-  let inds = (o.industries ?? o.sniCodes ?? o.snikoder ?? o.sniKoder ?? []) as unknown[]
-  if (!Array.isArray(inds) || !inds.length) {
-    const sniCode = s(pick(o, ['sni', 'sniKod', 'sni_kod', 'branschkod', 'industryCode', 'sniCode']))
-    const sniText = s(pick(o, ['sniText', 'sniBeskrivning', 'branschText', 'bransch', 'industryText']))
-    inds = (sniCode || sniText) ? [{ code: sniCode, description: sniText }] : []
+  // SNI/bransch (SCB SNI 2007). allabolag lagrar äkta SNI i naceIndustries (["47112 text"]);
+  // o.industries är allabolags INTERNA kategori-id:n (ej SNI) och används bara om nace saknas.
+  const nace = (o.naceIndustries ?? o.naceCategories ?? o.sniIndustries) as unknown
+  let inds: unknown[]
+  if (Array.isArray(nace) && nace.length) {
+    inds = nace   // strängar "47112 Livsmedelshandel…" eller objekt – primarySni hanterar båda
+  } else {
+    inds = (o.sniCodes ?? o.snikoder ?? o.sniKoder ?? o.industries ?? []) as unknown[]
+    if (!Array.isArray(inds) || !inds.length) {
+      const sniCode = s(pick(o, ['sni', 'sniKod', 'sni_kod', 'branschkod', 'industryCode', 'sniCode']))
+      const sniText = s(pick(o, ['sniText', 'sniBeskrivning', 'branschText', 'bransch', 'industryText']))
+      inds = (sniCode || sniText) ? [{ code: sniCode, description: sniText }] : []
+    }
   }
   c.industries = inds
   c.workplaces = (o.workplaces ?? o.establishments ?? []) as unknown[]
