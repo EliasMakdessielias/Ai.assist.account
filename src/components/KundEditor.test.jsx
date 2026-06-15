@@ -35,6 +35,11 @@ const COMPANY = {
   taxRegistration: { vatNumber: 'SE556036079301' },
 }
 const okInvoke = () => invoke.mockResolvedValue({ data: { ok: true, company: COMPANY, result: {}, apiVersion: 'v1' }, error: null })
+// Edge svarar 400 not_configured (UC-secrets saknas) – som supabase-functions FunctionsHttpError.
+const notConfiguredInvoke = () => invoke.mockResolvedValue({
+  data: null,
+  error: { message: 'Edge Function returned a non-2xx status code', context: { json: async () => ({ error: 'Anslutningen till Allabolag är inte konfigurerad. Kontrollera API-inställningarna.', code: 'not_configured' }) } },
+})
 
 const orgInput = () => screen.getByText('Org-/Personnummer').closest('div').querySelector('input')
 const fieldInput = label => screen.getByText(label).closest('div').querySelector('input')
@@ -115,6 +120,15 @@ describe('KundEditor – automatisk hämtning från Allabolag', () => {
     const badgesFore = screen.getAllByText('Hämtad från Allabolag').length
     fireEvent.change(fieldInput('Namn *'), { target: { value: 'Eget namn AB' } })
     await waitFor(() => expect(screen.getAllByText('Hämtad från Allabolag').length).toBe(badgesFore - 1))
+  })
+
+  it('ej konfigurerat API: degraderar tyst (lugn inline-text, döljer Uppdatera-knappen)', async () => {
+    notConfiguredInvoke()
+    render(<KundEditor kund={null} forslagsNr={1} onClose={() => {}} onSaved={() => {}} onDelete={() => {}} />)
+    fireEvent.change(orgInput(), { target: { value: '5560360793' } })
+    await screen.findByText('Automatisk företagshämtning är inte aktiverad – fyll i uppgifterna manuellt.', {}, { timeout: 2000 })
+    expect(screen.queryByText('Uppdatera företagsuppgifter')).toBeNull()
+    expect(fieldInput('Namn *').value).toBe('')        // inget autofyllt
   })
 
   it('dubblett: varnar och blockerar Spara, erbjuder att öppna befintlig kund', async () => {

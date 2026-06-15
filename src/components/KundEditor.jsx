@@ -28,6 +28,7 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
   const [manualKeys, setManualKeys] = useState(new Set())       // fält ändrade manuellt efter hämtning
   const [foretag, setForetag] = useState(null)                  // { legalName, status } för statusraden
   const [prov, setProv] = useState(null)                        // { source, retrievedAt, apiVersion }
+  const [ejAktiverad, setEjAktiverad] = useState(false)         // officiellt API ej konfigurerat -> tyst manuell ifyllnad
   const [dupKund, setDupKund] = useState(null)                  // befintlig kund med samma org-nr
   const [diff, setDiff] = useState(null)                        // { conflicts, values, foretag, prov } inför överskrivning
   const lastLookup = useRef(kund?.org_nr_normalized || (kund?.org_nr ? normalizeOrgNr(kund.org_nr) : ''))
@@ -63,15 +64,17 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
     setHamtar(true)
     try {
       const { data, error } = await supabase.functions.invoke('hamta-foretag', { body: { org_nr: orgnr, force } })
+      let code
       if (error) {
         let m = error.message
-        try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ }
-        throw new Error(m)
+        try { const b = await error.context.json(); if (b?.error) m = b.error; if (b?.code) code = b.code } catch { /* ignore */ }
+        const e = new Error(m); e.code = code; throw e
       }
-      if (data?.error) throw new Error(data.error)
+      if (data?.error) { const e = new Error(data.error); e.code = data.code; throw e }
       const c = data.company
       const { values } = companyToKundForm(c)
       const nyaProv = { source: c.source || 'Allabolag', retrievedAt: c.sourceRetrievedAt, apiVersion: data.apiVersion }
+      setEjAktiverad(false)
 
       if (force) {
         const conflicts = diffFormValues(form, values)
@@ -80,8 +83,10 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
       applyForetag(values, c, nyaProv)
       toast.success('Företagsuppgifterna har hämtats från Allabolag.')
     } catch (e) {
-      // Edge returnerar redan åtgärdbara svenska fel; visa dem som de är.
-      toast.error(e.message || 'Företagsuppgifterna kunde inte hämtas just nu. Du kan fylla i uppgifterna manuellt.')
+      // Officiellt API ej konfigurerat: degradera tyst vid AUTO-hämtning (visa lugn inline-text,
+      // ingen feltoast). Vid manuellt klick (force) visas meddelandet. Övriga fel: visa alltid.
+      if (e.code === 'not_configured') { setEjAktiverad(true); if (force) toast.error(e.message) }
+      else toast.error(e.message || 'Företagsuppgifterna kunde inte hämtas just nu. Du kan fylla i uppgifterna manuellt.')
     }
     setHamtar(false)
   }
@@ -112,7 +117,8 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
     if (!isValidOrgNr(form.org_nr)) { setDupKund(null); return }
     debounceRef.current = setTimeout(() => {
       kollaDubblett(norm)
-      if (norm !== lastLookup.current) { lastLookup.current = norm; hamtaForetag(form.org_nr) }
+      // Hoppa över auto-hämtning om officiellt API redan visat sig vara ej konfigurerat (ingen spam).
+      if (!ejAktiverad && norm !== lastLookup.current) { lastLookup.current = norm; hamtaForetag(form.org_nr) }
     }, 500)
     return () => debounceRef.current && clearTimeout(debounceRef.current)
   }, [form.org_nr])   // eslint-disable-line react-hooks/exhaustive-deps
@@ -173,7 +179,7 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
       <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight">KUND {form.kund_nr || ''} – {ny ? 'SKAPA NY' : (kund.name || '').toUpperCase()}</span>
         <div className="flex items-center gap-2.5">
-          {orgnrGiltigt && (
+          {orgnrGiltigt && !ejAktiverad && (
             <button className="btn text-sm" onClick={() => hamtaForetag(form.org_nr, { force: true })} disabled={hamtar}>
               <i className="ti ti-refresh mr-1" />{hamtar ? 'Hämtar…' : 'Uppdatera företagsuppgifter'}
             </button>
@@ -201,6 +207,9 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
               <label className="block text-xs font-medium text-gray-500 mb-1">{form.kundtyp === 'privat' ? 'Personnummer' : 'Org-/Personnummer'}</label>
               <input className="input" value={form.org_nr ?? ''} placeholder="556036-0793" onChange={e => set('org_nr', e.target.value)} />
               {hamtar && <p className="text-xs text-blue-600 mt-1"><i className="ti ti-loader mr-1" />Hämtar företagsuppgifter…</p>}
+              {!hamtar && ejAktiverad && !foretag && (
+                <p className="text-xs text-gray-400 mt-1">Automatisk företagshämtning är inte aktiverad – fyll i uppgifterna manuellt.</p>
+              )}
               {!hamtar && foretag && (
                 <div className="mt-1 text-xs">
                   <div className="font-medium text-gray-800">{foretag.legalName}</div>
