@@ -21,6 +21,12 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
   }))
   const [saving, setSaving] = useState(false)
   const [salesAccounts, setSalesAccounts] = useState([])
+  // Faktureringsinställningar (Fortnox-likt kort). Lagras i JSONB customers.faktura_installningar.
+  // Fält med riktig funktion ligger i egna kolumner (payment_terms, valuta, referenser, vat, försäljningskonto).
+  const [inst, setInst] = useState(() => ({ ...(kund?.faktura_installningar || {}) }))
+  const iset = (k, v) => setInst(s => ({ ...s, [k]: v }))
+  // Hopfällbara sektioner (matchar bilden: E-dokument + Förvalda mallar öppna, Fakturatext stängd).
+  const [openSect, setOpenSect] = useState({ edok: true, faktext: false, mallar: true })
 
   // Hämtning av företagsuppgifter
   const [hamtar, setHamtar] = useState(false)
@@ -128,6 +134,7 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
     if (dupKund) return toast.error('Det finns redan en kund med detta organisationsnummer.')
     const payload = kundPayload(form)
     if (!payload.kund_nr) return toast.error('Ange ett kundnummer')
+    payload.faktura_installningar = inst   // Fortnox-likt faktureringskort (JSONB)
     // Proveniens: källa/tidpunkt/version + manuellt ändrade fält.
     if (prov) {
       payload.data_source = prov.source
@@ -171,6 +178,39 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
     </div>
   )
   const Section = ({ title }) => <div className="col-span-4 text-sm font-semibold text-gray-700 border-b pb-1.5 mt-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>{title}</div>
+
+  // Render-hjälpare för Faktureringsuppgifter (rena funktioner -> inga remounts/fokustapp).
+  const lblCls = 'block text-xs font-medium text-gray-500 mb-1'
+  const inp = (label, val, onChange, ph = '') => (
+    <div className="mb-3"><label className={lblCls}>{label}</label>
+      <input className="input" value={val ?? ''} placeholder={ph} onChange={e => onChange(e.target.value)} /></div>
+  )
+  const drop = (label, val, onChange, opts, blank) => (
+    <div className="mb-3"><label className={lblCls}>{label}</label>
+      <select className="input" value={val ?? ''} onChange={e => onChange(e.target.value)}>
+        {blank !== undefined && <option value="">{blank}</option>}
+        {opts.map(o => (typeof o === 'object' ? <option key={o.v} value={o.v}>{o.l}</option> : <option key={o} value={o}>{o}</option>))}
+      </select></div>
+  )
+  const seg = (label, val, onChange, opts) => (
+    <div className="mb-3"><label className={lblCls}>{label}</label>
+      <div className="inline-flex rounded-lg overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.15)' }}>
+        {opts.map(([v, l, dis]) => (
+          <button key={v} type="button" disabled={dis} onClick={() => !dis && onChange(v)}
+            className={`px-4 py-1.5 text-sm ${val === v ? 'bg-gray-800 text-white' : dis ? 'bg-gray-50 text-gray-300' : 'bg-white text-gray-600'}`}>{l}</button>
+        ))}
+      </div></div>
+  )
+  const colHead = t => <div className="text-sm font-semibold text-gray-700 mb-3">{t}</div>
+  const sectHead = (key, title) => (
+    <button type="button" onClick={() => setOpenSect(o => ({ ...o, [key]: !o[key] }))}
+      className="flex items-center gap-2 text-sm font-semibold text-gray-700 py-2 border-b w-full mt-6" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+      <i className={`ti ti-chevron-${openSect[key] ? 'down' : 'right'} text-green-700`} />{title}
+    </button>
+  )
+  const BETALDAGAR = [0, 10, 14, 15, 20, 30, 60, 90]
+  const MOMSTYPER = ['SE', 'EU', 'Export', 'Omvänd skattskyldighet']
+  const SPRAK = ['Svenska', 'Engelska']
 
   const orgnrGiltigt = isValidOrgNr(form.org_nr)
 
@@ -260,36 +300,103 @@ export default function KundEditor({ kund, forslagsNr, onClose, onSaved, onDelet
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-4 gap-x-5 gap-y-4 max-w-5xl">
-            <Section title="Betal- och leveransvillkor" />
-            <Field k="payment_terms" label="Betalningsvillkor (dagar)" type="number" />
-            <Field k="leveransvillkor" label="Leveransvillkor" />
-            <Field k="leveranssatt" label="Leveranssätt" w={2} />
+          <div className="max-w-[1400px]">
+            {/* Fyra kolumner: Betal-/leveransvillkor · Fakturering · Referenser · Bokföring */}
+            <div className="grid grid-cols-4 gap-x-10">
+              <div>
+                {colHead('Betal- och leveransvillkor')}
+                {drop('Betalningsvillkor', form.payment_terms, v => set('payment_terms', parseInt(v, 10) || 0), BETALDAGAR.map(d => ({ v: d, l: `${d} dagar` })))}
+                {inp('Leveransvillkor', form.leveransvillkor, v => set('leveransvillkor', v))}
+                {inp('Leveranssätt', form.leveranssatt, v => set('leveranssatt', v))}
+                {seg('Räntefakturering', inst.rantefakturering ? 'ja' : 'nej', v => iset('rantefakturering', v === 'ja'), [['ja', 'Ja'], ['nej', 'Nej']])}
+              </div>
 
-            <Section title="Fakturering" />
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>
-              <select className="input" value={form.valuta ?? 'SEK'} onChange={e => set('valuta', e.target.value)}>
-                {SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
-              </select>
+              <div>
+                {colHead('Fakturering')}
+                <div className="grid grid-cols-2 gap-3">
+                  {drop('Prislista', inst.prislista ?? 'Prislista A', v => iset('prislista', v), ['Prislista A'])}
+                  {drop('Valuta', form.valuta, v => set('valuta', v), SUPPORTED_CURRENCIES.map(c => c.code))}
+                </div>
+                {inp('Fakturarabatt (%)', inst.fakturarabatt, v => iset('fakturarabatt', v))}
+                <div className="grid grid-cols-2 gap-3">
+                  {inp('Fakturaavgift', inst.fakturaavgift, v => iset('fakturaavgift', v))}
+                  {inp('Fraktavgift', inst.fraktavgift, v => iset('fraktavgift', v))}
+                </div>
+                {seg('Priser inkl. moms', inst.priser_inkl_moms ? 'ja' : 'nej', v => iset('priser_inkl_moms', v === 'ja'), [['ja', 'Ja'], ['nej', 'Nej']])}
+              </div>
+
+              <div>
+                {colHead('Referenser')}
+                {inp('Vår referens', form.var_referens, v => set('var_referens', v), 'Förnamn, Efternamn')}
+                {drop('Kundansvarig', inst.kundansvarig, v => iset('kundansvarig', v), [], 'Ingen vald')}
+                {inp('Extern referens', inst.extern_referens, v => iset('extern_referens', v))}
+                <div className="mb-3">
+                  <label className={lblCls}>Er referens</label>
+                  <div className="rounded-lg overflow-hidden text-sm" style={{ border: '0.5px solid rgba(0,0,0,0.15)' }}>
+                    <div className="grid grid-cols-[64px_1fr] bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase">
+                      <div className="px-2 py-1.5 text-center border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Förvald</div>
+                      <div className="px-2 py-1.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Benämning</div>
+                    </div>
+                    <div className="grid grid-cols-[64px_1fr] items-center">
+                      <div className="px-2 py-1.5 text-center"><input type="radio" checked readOnly className="w-4 h-4" /></div>
+                      <input className="px-2 py-1.5 outline-none bg-transparent" value={form.er_referens ?? ''} placeholder="Ingen förvald" onChange={e => set('er_referens', e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                {colHead('Bokföring')}
+                {inp('VAT-nummer', form.vat_nummer, v => set('vat_nummer', v))}
+                {drop('Momstyp', inst.momstyp ?? 'SE', v => iset('momstyp', v), MOMSTYPER)}
+                <div className="mb-3">
+                  <label className={lblCls}>Försäljningskonto</label>
+                  <input className="input" list="kund-salj-konton" value={form.forsaljningskonto ?? ''} placeholder="Konto, Benämning (tomt = 3001)"
+                    onChange={e => set('forsaljningskonto', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
+                  <datalist id="kund-salj-konton">
+                    {salesAccounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
+                  </datalist>
+                </div>
+              </div>
             </div>
-            <div className="col-span-3" />
 
-            <Section title="Referenser" />
-            <Field k="var_referens" label="Vår referens" ph="Förnamn, Efternamn" w={2} />
-            <Field k="er_referens" label="Er referens" w={2} />
+            {/* E-dokument */}
+            {sectHead('edok', 'E-dokument')}
+            {openSect.edok && (
+              <div className="py-4 max-w-md">
+                <div className="text-sm font-semibold text-gray-700 mb-3">Faktura</div>
+                {seg('Distributionssätt', inst.distributionssatt ?? '', v => iset('distributionssatt', v),
+                  [['e-faktura', 'E-faktura', true], ['e-post', 'E-post'], ['utskrift', 'Utskrift']])}
+                {inp('E-post', inst.epost_faktura, v => iset('epost_faktura', v))}
+                {inp('E-post för påminnelser', inst.epost_paminnelser, v => iset('epost_paminnelser', v))}
+                {inp('Kopia', inst.epost_kopia, v => iset('epost_kopia', v))}
+                {inp('Hemlig kopia', inst.epost_hemlig_kopia, v => iset('epost_hemlig_kopia', v))}
+                {inp('GLN-nummer', inst.gln, v => iset('gln', v))}
+                {inp('GLN-nummer för leverans', inst.gln_leverans, v => iset('gln_leverans', v))}
+              </div>
+            )}
 
-            <Section title="Bokföring" />
-            <Field k="vat_nummer" label="VAT-nummer" ph="SE556677889901" w={2} />
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-500 mb-1">Försäljningskonto</label>
-              <input className="input" list="kund-salj-konton" value={form.forsaljningskonto ?? ''} placeholder="Tomt = 3001 Försäljning"
-                onChange={e => set('forsaljningskonto', e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} />
-              <datalist id="kund-salj-konton">
-                {salesAccounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
-              </datalist>
-              <p className="text-xs text-gray-400 mt-1">Används när kundfakturan bokförs (intäktskontot).</p>
-            </div>
+            {/* Fakturatext */}
+            {sectHead('faktext', 'Fakturatext')}
+            {openSect.faktext && (
+              <div className="py-4 max-w-2xl">
+                <textarea className="input" rows={4} value={inst.fakturatext ?? ''} placeholder="Text som visas på fakturan…" onChange={e => iset('fakturatext', e.target.value)} />
+              </div>
+            )}
+
+            {/* Förvalda mallar */}
+            {sectHead('mallar', 'Förvalda mallar')}
+            {openSect.mallar && (
+              <div className="grid grid-cols-4 gap-x-10 py-4">
+                {[['faktura', 'Faktura'], ['offert', 'Offert'], ['order', 'Order'], ['kontant', 'Kontantfaktura']].map(([k, label]) => (
+                  <div key={k}>
+                    <div className="text-sm font-semibold text-gray-700 mb-3">{label}</div>
+                    {drop('Mall', inst[`mall_${k}`], v => iset(`mall_${k}`, v), [], 'Inget förvalt')}
+                    {drop('Språk', inst[`sprak_${k}`], v => iset(`sprak_${k}`, v), SPRAK, 'Inget förvalt')}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

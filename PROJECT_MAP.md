@@ -776,7 +776,13 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
   anteckningar) och **Faktureringsuppgifter** (betalningsvillkor dagar, leveransvillkor/-sätt, valuta
   (`SUPPORTED_CURRENCIES`), vår/er referens, VAT-nummer, försäljningskonto med 3xxx-datalist).
   Header "KUND {nr} – SKAPA NY/{NAMN}", footer Radera (endast befintlig)/Avbryt/Spara.
-  Medvetet INTE byggt (inga låtsasfunktioner): e-faktura/GLN, prislistor, kreditupplysning, förvalda mallar, momstyp.
+  **Faktureringsuppgifter** (2026-06-12) replikerar Fortnox-kortet exakt: fyra kolumner
+  (Betal-/leveransvillkor · Fakturering · Referenser · Bokföring) + hopfällbara E-dokument,
+  Fakturatext och Förvalda mallar. Fält med funktion ligger i riktiga kolumner (payment_terms,
+  valuta, var/er_referens, vat_nummer, forsaljningskonto). Övriga Fortnox-fält (prislista, rabatt/
+  avgifter, räntefakturering, priser inkl moms, kundansvarig, momstyp, distributionssätt, e-post/
+  GLN, fakturatext, förvalda mallar) PERSISTERAS i JSONB `customers.faktura_installningar` — äkta
+  lagrade inställningar, men styr ännu INGEN automatik (e-faktura/mallar/prislistor är ej byggda).
 - **Migration** `supabase/kunder_utokade.sql` (applicerad, additiv): kund_nr (backfilld per företag i
   skapelseordning, unikt index per company), kundtyp-check, adress-/leverans-/faktureringsfält.
 - **Ren logik** `src/lib/kunder.js`: `nextKundNr` + `kundPayload` (trim→null, heltal, kundtyp-/valuta-default,

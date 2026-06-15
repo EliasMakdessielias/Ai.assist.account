@@ -58,12 +58,35 @@ describe('KundEditor – grundflöde', () => {
     fireEvent.change(fieldInput('Namn *'), { target: { value: '  Acme AB  ' } })
     fireEvent.click(screen.getByText('Faktureringsuppgifter'))
     await screen.findByText('Betal- och leveransvillkor')
-    fireEvent.change(fieldInput('Betalningsvillkor (dagar)'), { target: { value: '14' } })
+    const betal = screen.getByText('Betalningsvillkor').closest('div').querySelector('select')
+    fireEvent.change(betal, { target: { value: '14' } })
     fireEvent.click(screen.getByText('Spara'))
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     const [table, payload] = ins.mock.calls[0]
     expect(table).toBe('customers')
     expect(payload).toMatchObject({ company_id: 'c1', kund_nr: 2, name: 'Acme AB', payment_terms: 14, kundtyp: 'foretag' })
+  })
+
+  it('Faktureringsuppgifter: visar alla sektioner och sparar inställningar i faktura_installningar', async () => {
+    const onSaved = vi.fn()
+    render(<KundEditor kund={null} forslagsNr={3} onClose={() => {}} onSaved={onSaved} onDelete={() => {}} />)
+    fireEvent.change(fieldInput('Namn *'), { target: { value: 'Bolag AB' } })
+    fireEvent.click(screen.getByText('Faktureringsuppgifter'))
+    // De fyra kolumnerna + de tre hopfällbara sektionerna finns (exakt som bilden).
+    await screen.findByText('Betal- och leveransvillkor')
+    expect(screen.getByText('Fakturering')).toBeTruthy()
+    expect(screen.getByText('Referenser')).toBeTruthy()
+    expect(screen.getByText('Bokföring')).toBeTruthy()
+    expect(screen.getByText('E-dokument')).toBeTruthy()
+    expect(screen.getByText('Fakturatext')).toBeTruthy()
+    expect(screen.getByText('Förvalda mallar')).toBeTruthy()
+    // Fyll ett JSONB-fält (Fakturarabatt) och ett dropdown-fält (Momstyp).
+    fireEvent.change(screen.getByText('Fakturarabatt (%)').closest('div').querySelector('input'), { target: { value: '10' } })
+    fireEvent.change(screen.getByText('Momstyp').closest('div').querySelector('select'), { target: { value: 'EU' } })
+    fireEvent.click(screen.getByText('Spara'))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    const [, payload] = ins.mock.calls[0]
+    expect(payload.faktura_installningar).toMatchObject({ fakturarabatt: '10', momstyp: 'EU' })
   })
 
   it('kundnamn krävs – inget sparas utan namn', async () => {
