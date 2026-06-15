@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { companyToKundForm, diffFormValues } from './companyProvider'
+import { companyToKundForm, diffFormValues, primarySni } from './companyProvider'
 
 // Syntetisk intern modell (mockdata – endast i test, aldrig påhittade riktiga företag i prod).
 const COMPANY = {
@@ -10,6 +10,7 @@ const COMPANY = {
   postalAddress: { street: 'Box 100', postalCode: '10010', city: 'Stockholm', country: 'Sverige', careOf: 'c/o Ekonomi' },
   contact: { phone: '08-1234567', mobile: '070-1112233', email: 'info@nordic.se', website: 'nordic.se' },
   taxRegistration: { vatNumber: 'SE556036079301' },
+  industries: [{ code: '62010', description: 'Datakonsultverksamhet' }, { code: '70220', description: 'Konsult' }],
 }
 
 describe('companyToKundForm', () => {
@@ -26,6 +27,8 @@ describe('companyToKundForm', () => {
     expect(values.email).toBe('info@nordic.se')
     expect(values.webb).toBe('nordic.se')
     expect(values.vat_nummer).toBe('SE556036079301')
+    expect(values.sni).toBe('62010 Datakonsultverksamhet')   // primär SNI
+    expect(filledKeys).toContain('sni')
     expect(values.kundtyp).toBe('foretag')
     expect(filledKeys).toContain('name')
     expect(filledKeys).not.toContain('kundtyp')         // kundtyp får ingen "hämtad"-etikett
@@ -47,6 +50,23 @@ describe('companyToKundForm', () => {
   it('hanterar tom/odefinierad modell', () => {
     expect(companyToKundForm(null).filledKeys).toEqual([])
     expect(companyToKundForm(null).values.kundtyp).toBe('foretag')
+  })
+})
+
+describe('primarySni', () => {
+  it('objektform: kod + beskrivning', () => {
+    expect(primarySni([{ code: '62010', description: 'Datakonsultverksamhet' }])).toBe('62010 Datakonsultverksamhet')
+  })
+  it('alternativa nyckelnamn (sniCode/sniText)', () => {
+    expect(primarySni([{ sniCode: '46900', sniText: 'Partihandel' }])).toBe('46900 Partihandel')
+  })
+  it('strängform behålls', () => {
+    expect(primarySni(['62010 Datakonsultverksamhet'])).toBe('62010 Datakonsultverksamhet')
+  })
+  it('tomt/saknat -> tom sträng', () => {
+    expect(primarySni([])).toBe('')
+    expect(primarySni(null)).toBe('')
+    expect(primarySni([{}])).toBe('')
   })
 })
 

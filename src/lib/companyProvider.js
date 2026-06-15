@@ -5,6 +5,18 @@ import { formatOrgNr } from './orgnr'
 
 const ne = v => v != null && String(v).trim() !== ''      // non-empty
 
+// Primär SNI/branschkod ur industries[]. Hanterar både strängar ("62010 Datakonsult…")
+// och objekt ({code/sniCode/sni/id, description/text/sniText/name}). Returnerar "kod text".
+export function primarySni(industries) {
+  const arr = Array.isArray(industries) ? industries : []
+  const first = arr.find(x => ne(typeof x === 'object' ? (x?.code ?? x?.sniCode ?? x?.sni ?? x?.id ?? x?.text ?? x?.description) : x))
+  if (!first) return ''
+  if (typeof first === 'string') return first.trim()
+  const code = first.code ?? first.sniCode ?? first.sni ?? first.id ?? ''
+  const text = first.description ?? first.text ?? first.sniText ?? first.name ?? ''
+  return [String(code).trim(), String(text).trim()].filter(Boolean).join(' ')
+}
+
 // Översätter en intern företagsmodell till formulärvärden (endast ifyllda fält).
 // Fakturaadressen tas från postadressen med besöksadress som fallback (samma princip
 // som tidigare). Returnerar { values, filledKeys } – filledKeys driver "Hämtad från
@@ -31,6 +43,7 @@ export function companyToKundForm(company) {
     email: contact.email || '',
     webb: contact.website || '',
     vat_nummer: tax.vatNumber || '',
+    sni: primarySni(c.industries),
   }
 
   const values = {}
@@ -59,5 +72,5 @@ export function diffFormValues(currentForm, newValues) {
 export const KUND_FIELD_LABELS = {
   name: 'Namn', org_nr: 'Organisationsnummer', address: 'Fakturaadress', address2: 'Fakturaadress 2',
   postnr: 'Postnr', ort: 'Ort', land: 'Land', phone: 'Telefon', telefon2: 'Telefon 2',
-  email: 'E-post', webb: 'Webbadress', vat_nummer: 'VAT-nummer',
+  email: 'E-post', webb: 'Webbadress', vat_nummer: 'VAT-nummer', sni: 'Branschkod (SNI)',
 }

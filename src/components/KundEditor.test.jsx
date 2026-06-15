@@ -33,6 +33,7 @@ const COMPANY = {
   postalAddress: { street: 'Box 100', postalCode: '10010', city: 'Stockholm', country: 'Sverige', careOf: '' },
   contact: { phone: '08-1234567', mobile: '', email: 'info@nordic.se', website: 'nordic.se' },
   taxRegistration: { vatNumber: 'SE556036079301' },
+  industries: [{ code: '62010', description: 'Datakonsultverksamhet' }],
 }
 const okInvoke = () => invoke.mockResolvedValue({ data: { ok: true, company: COMPANY, result: {}, apiVersion: 'v1' }, error: null })
 // Edge svarar 400 not_configured (UC-secrets saknas) – som supabase-functions FunctionsHttpError.
@@ -123,6 +124,7 @@ describe('KundEditor – automatisk hämtning från Allabolag', () => {
     expect(invoke.mock.calls[0][1].body).toMatchObject({ org_nr: '556036-0793' })
     await waitFor(() => expect(fieldInput('Namn *').value).toBe('Nordic Example AB'))
     expect(fieldInput('Fakturaadress').value).toBe('Box 100')
+    expect(fieldInput('Branschkod (SNI)').value).toBe('62010 Datakonsultverksamhet')   // SNI ifylld
     expect(screen.getByText('Aktivt')).toBeTruthy()                 // statusrad
     expect(screen.getAllByText('Hämtad från Allabolag').length).toBeGreaterThan(0)   // badge
   })
