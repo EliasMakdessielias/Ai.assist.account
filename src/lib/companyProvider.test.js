@@ -68,6 +68,12 @@ describe('primarySni', () => {
     expect(primarySni(null)).toBe('')
     expect(primarySni([{}])).toBe('')
   })
+  it('verkligt fall (Almakdesi Livs AB, 559089-6311): 47112 fylls korrekt oavsett form', () => {
+    const text = '47112 Livsmedelshandel med brett sortiment, ej varuhus eller stormarknad'
+    expect(primarySni([text])).toBe(text)
+    expect(primarySni([{ code: '47112', description: 'Livsmedelshandel med brett sortiment, ej varuhus eller stormarknad' }])).toBe(text)
+    expect(primarySni([{ sniCode: '47112', sniText: 'Livsmedelshandel med brett sortiment, ej varuhus eller stormarknad' }])).toBe(text)
+  })
 })
 
 describe('diffFormValues', () => {
