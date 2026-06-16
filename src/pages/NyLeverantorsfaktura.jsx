@@ -10,6 +10,7 @@ import { serie } from '../lib/serier'
 import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude, syncRowsWithHeader, isIngaendeMomsKonto } from '../lib/leverantorsfaktura'
 import { validateLevfaktura } from '../lib/levfakturaValidering'
 import { effektivNiva, granskningskravda } from '../lib/faltSakerhet'
+import { samlaKorrigeringar, larDefaultMotkonto } from '../lib/larande'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -59,6 +60,7 @@ export default function NyLeverantorsfaktura() {
   const [prevLoading, setPrevLoading] = useState(false)
   const [faltSak, setFaltSak] = useState(null)               // per-fält säkerhet 0–1 från AI-tolkningen
   const [verifierat, setVerifierat] = useState({})           // fält som användaren ändrat/bekräftat
+  const [originalTolkning, setOriginalTolkning] = useState(null) // AI-resultatet (för lärande: original→slutvärde)
   const markVerifierat = f => setVerifierat(v => { const next = { ...v }; (Array.isArray(f) ? f : [f]).forEach(x => { next[x] = true }); return next })
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
@@ -267,7 +269,7 @@ export default function NyLeverantorsfaktura() {
   // Fyll i fakturan från AI-tolkningen (bokför inte).
   function fyllFranTolkning(result) {
     if (!result) return
-    setFaltSak(result.falt_sakerhet || null); setVerifierat({})
+    setFaltSak(result.falt_sakerhet || null); setVerifierat({}); setOriginalTolkning(result)
     const datum = result.fakturadatum || result.datum
     if (datum && /^\d{4}-\d{2}-\d{2}$/.test(datum)) setFakturadatum(datum)
     if (result.forfallodatum && /^\d{4}-\d{2}-\d{2}$/.test(result.forfallodatum)) setForfallodatum(result.forfallodatum)
@@ -442,6 +444,32 @@ export default function NyLeverantorsfaktura() {
         if (attachIds.length) { const { error: e4 } = await supabase.from('documents').update({ verifikation_id: ver.id }).in('id', attachIds); if (e4) await rollbackVer(e4) }
         const { error: e5 } = await supabase.from('supplier_invoices').update({ bokford: true, verifikation_id: ver.id }).eq('id', inv.id)
         if (e5) await rollbackVer(e5)
+
+        // Lärande över tid (best-effort – får ALDRIG stoppa eller rulla tillbaka bokföringen):
+        // logga användarens korrigeringar som träningsdata och lär leverantörens standardkonto.
+        try {
+          if (originalTolkning) {
+            const korr = samlaKorrigeringar({
+              original: originalTolkning,
+              final: { fakturadatum, forfallodatum, fakturanummer, ocr, belopp_inkl_moms: amountMagnitude(total), moms_belopp: amountMagnitude(moms) },
+              faltSak,
+            })
+            if (korr.length) {
+              const meta = originalTolkning._meta || {}
+              await supabase.from('extraction_corrections').insert(korr.map(k => ({
+                ...k, company_id: company.id, supplier_id: supplierId || null, document_id: attachIds[0] || docId || null,
+                doc_type: originalTolkning.typ || null, model: meta.model || null, prompt_version: meta.promptVersion || null, created_by: user.id,
+              })))
+            }
+          }
+          // Lär leverantörens kostnadskonto: skiljer sig det bokförda kontot från standardkontot → fråga.
+          const lartKonto = larDefaultMotkonto(krows, kreditfaktura)
+          if (lartKonto && supplier && lartKonto !== supplier.default_motkonto &&
+            window.confirm(`Vill du spara konto ${lartKonto}${accMap[lartKonto] ? ' – ' + accMap[lartKonto] : ''} som standardkonto för framtida fakturor från ${supplier.name}?`)) {
+            await supabase.from('suppliers').update({ default_motkonto: lartKonto }).eq('id', supplierId).eq('company_id', company.id)
+          }
+        } catch { /* lärande är icke-kritiskt */ }
+
         toast.success(`Leverantörsfaktura bokförd (${ver.ver_nr})`)
       } else {
         if (attachIds.length) toast('Sparad – bilden kopplas när fakturan bokförs', { icon: 'ℹ️' })
