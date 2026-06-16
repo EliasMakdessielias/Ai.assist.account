@@ -831,3 +831,20 @@ senaste BOKFÖRDA fakturan från samma leverantör och låter användaren återa
 - **Bevis:** `orgnr.test.js` (10) + `companyProvider.test.js` (6) + `KundEditor.test.jsx` (8: auto-hämtning,
   ogiltig Luhn hämtar ej, badge tas bort vid manuell ändring, dubblett blockerar/öppnar) + rollback-säker
   live-verifiering (normalisering, dubblettindex, cache/rate-tabeller). Bygg + 654 tester gröna.
+
+## Inkommande underlag via e-post – permanent skalbar lösning – [INBOUND_EMAIL]  *(2026-06-16)*
+
+- **Modell:** EN mottagningspunkt, unika adresser via local-part (`{arkivnr}underlag@bokpilot.se`),
+  appen dirigerar via arkivnumret. Inga brevlådor per företag → obegränsat antal företag utan
+  per-företag-konfiguration. Arkivnummer provisioneras automatiskt per företag.
+- **Mottagning:** Cloudflare Email Routing (gratis) – catch-all på bokpilot.se → Email Worker
+  `cloudflare/inbound-email-worker/` (postal-mime parsar mejl+bilagor, HMAC-signerar, POST:ar till
+  edge). Endast `{siffror}underlag@bokpilot.se` släpps igenom; övrigt avvisas. Vanliga adresser
+  (info@/support@) hanteras som egna forward-regler i Cloudflare.
+- **Edge:** `inbound-email` (verify_jwt=false) är redan byggd – HMAC-auth (`X-Bokpilot-Signature`)
+  ELLER `?token=`, stödjer eget JSON-format + Postmark, validerar arkivnr mot `inbox_addresses`,
+  lagrar i Storage `underlag`, klassificerar, idempotent på Message-ID, service-lock-respekt.
+- **Tidigare orsak till studs (NDR 550 5.1.1):** bokpilot.se saknade catch-all/mottagning – inget
+  fel i appen (kod+DB+importer var samstämmiga om adressformatet). Cloudflare-uppsättningen löser det.
+- **Setup-steg:** se `cloudflare/inbound-email-worker/README.md`. IMAP-importern (`scripts/imap-import`)
+  finns kvar som alternativ men behövs inte med Cloudflare-flödet.

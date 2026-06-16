@@ -1,0 +1,11 @@
+name = "bokpilot-inbound-email"
+main = "src/worker.js"
+compatibility_date = "2024-11-01"
+
+# Publik edge-URL (ej hemlig). Byt vid behov.
+[vars]
+INBOUND_EDGE_URL = "https://bypebgvxdmbzxqecllao.supabase.co/functions/v1/inbound-email"
+
+# Secret (HMAC) sätts separat och checkas ALDRIG in:
+#   npx wrangler secret put INBOUND_EMAIL_WEBHOOK_SECRET
+# Värdet måste vara IDENTISKT med edge-funktionens INBOUND_EMAIL_WEBHOOK_SECRET.
