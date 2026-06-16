@@ -229,7 +229,9 @@ export default function StartGuide() {
         </div>
 
         <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
-          <button className="text-xs text-gray-400 hover:text-gray-600" onClick={() => finish(true)} disabled={busy}>Hoppa över guiden</button>
+          {step < STEPS.length - 1
+            ? <button className="text-xs text-gray-400 hover:text-gray-600" onClick={next} disabled={busy}>Hoppa över det här steget</button>
+            : <span />}
           <div className="flex gap-2">
             {step > 0 && <button className="btn" onClick={back} disabled={busy}>Tillbaka</button>}
             {step < STEPS.length - 1
