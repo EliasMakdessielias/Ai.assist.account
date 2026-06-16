@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { SUPPORTED_CURRENCIES } from '../lib/currency'
+import { momsperiodOptions, momsRedovisas, bokforingsmetodLabel, nextFiscalYear } from '../lib/foretag'
 import toast from 'react-hot-toast'
 
 // Startguide som visas första gången ett nytt företag används (companies.onboarded = false).
@@ -11,15 +12,18 @@ export default function StartGuide() {
   const [step, setStep] = useState(0)
   const [busy, setBusy] = useState(false)
   const [accountCount, setAccountCount] = useState(null)
+  // Räkenskapsår (bild 1): lista + auto-skapa-inställning. Företaget finns redan när guiden
+  // körs (trigger seed_new_company skapar första året + BAS-konton).
+  const [years, setYears] = useState([])
+  const [createdYears, setCreatedYears] = useState(new Set())   // skapade i guiden -> ärver kontoplan
+  const [autoSkapa, setAutoSkapa] = useState(company?.settings?.auto_skapa_rakenskapsar !== false)
   const [f, setF] = useState({
     foretagsform: company?.foretagsform || '',
     org_nr: company?.org_nr || '',
     bokforingsmetod: company?.bokforingsmetod || 'faktura',
-    momsregistrerad: true,
-    momsperiod: company?.momsperiod || 'Varje kvartal',
+    momsperiod: company?.momsperiod || 'Kvartalsvis',
     vat_nr: company?.vat_nr || '',
     valuta: company?.valuta || 'SEK',
-    rakenskapsar_start: '',
     bank_gl_account: '1930',
     bankgiro: company?.bankgiro || '',
     plusgiro: company?.plusgiro || '',
@@ -35,6 +39,29 @@ export default function StartGuide() {
     const { count } = await supabase.from('accounts').select('id', { count: 'exact', head: true }).eq('company_id', company.id)
     setAccountCount(count || 0)
   }
+  async function loadYears() {
+    const { data } = await supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('start_date')
+    setYears(data || [])
+  }
+  // "Skapa nytt" – nästa räkenskapsår (ärver kontoplan/IB från föregående). Blir inte förvalt.
+  async function skapaNyttAr() {
+    const ny = nextFiscalYear(years)
+    if (years.some(y => y.year === ny.year)) return toast('Räkenskapsåret finns redan', { icon: 'ℹ️' })
+    const { error } = await supabase.from('fiscal_years').insert({
+      company_id: company.id, year: ny.year, start_date: ny.start_date, end_date: ny.end_date, status: 'closed',
+    })
+    if (error) return toast.error('Kunde inte skapa: ' + error.message)
+    setCreatedYears(s => new Set(s).add(ny.year))
+    toast.success(`Räkenskapsår ${ny.year} skapat`)
+    loadYears()
+  }
+  // Markera ett år som förvalt (aktivt) – övriga stängs.
+  async function setForvald(y) {
+    await supabase.from('fiscal_years').update({ status: 'closed' }).eq('company_id', company.id).neq('id', y.id)
+    await supabase.from('fiscal_years').update({ status: 'active' }).eq('id', y.id)
+    loadYears()
+  }
+  const kontoplanLabel = y => (createdYears.has(y.year) ? 'Från föregående år' : `BAS ${y.year}`)
   async function loadBas() {
     setBusy(true)
     try {
@@ -52,11 +79,11 @@ export default function StartGuide() {
       const payload = skip ? { onboarded: true } : {
         onboarded: true,
         foretagsform: f.foretagsform || null, org_nr: f.org_nr || null,
-        bokforingsmetod: f.bokforingsmetod, momsperiod: f.momsregistrerad ? f.momsperiod : 'Ej momspliktig',
+        bokforingsmetod: f.bokforingsmetod, momsperiod: f.momsperiod,
         vat_nr: f.vat_nr || null, valuta: f.valuta || 'SEK',
         bankgiro: f.bankgiro || null, plusgiro: f.plusgiro || null, iban: f.iban || null,
         nasta_fakturanr: Number(f.nasta_fakturanr) || 1,
-        settings: { ...(company?.settings || {}), momsregistrerad: f.momsregistrerad, bank_gl_account: f.bank_gl_account, rakenskapsar_start: f.rakenskapsar_start, fskatt: f.fskatt },
+        settings: { ...(company?.settings || {}), momsregistrerad: momsRedovisas(f.momsperiod), auto_skapa_rakenskapsar: autoSkapa, bank_gl_account: f.bank_gl_account, fskatt: f.fskatt },
       }
       const { error } = await supabase.from('companies').update(payload).eq('id', company.id)
       if (error) throw error
@@ -65,7 +92,7 @@ export default function StartGuide() {
     } catch (e) { toast.error('Kunde inte spara: ' + e.message); setBusy(false) }
   }
 
-  const next = () => { const n = step + 1; if (n === 5) checkAccounts(); setStep(n) }
+  const next = () => { const n = step + 1; if (n === 3) loadYears(); if (n === 5) checkAccounts(); setStep(n) }
   const back = () => setStep(s => Math.max(0, s - 1))
 
   const Field = ({ label, children, hint }) => (
@@ -124,30 +151,62 @@ export default function StartGuide() {
           {step === 2 && (
             <div>
               <h2 className="text-lg font-bold mb-1">Moms</h2>
-              <p className="text-sm text-gray-500 mb-4">Är företaget momsregistrerat?</p>
-              <label className="flex items-center gap-2.5 mb-4 text-sm cursor-pointer">
-                <input type="checkbox" className="w-4 h-4" checked={f.momsregistrerad} onChange={e => set('momsregistrerad', e.target.checked)} /> Ja, företaget är momsregistrerat
-              </label>
-              {f.momsregistrerad && <>
-                <Field label="Momsperiod" hint="Hur ofta momsen redovisas till Skatteverket.">
-                  <select className="input" value={f.momsperiod} onChange={e => set('momsperiod', e.target.value)}>
-                    {['En gång per månad (12:e i månaden)', 'Varje kvartal', 'En gång per år'].map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </Field>
+              <p className="text-sm text-gray-500 mb-4">Hur ofta redovisas momsen till Skatteverket?</p>
+              <Field label="Momsperiod" hint="Välj &quot;Redovisar ej moms&quot; om företaget inte är momsregistrerat.">
+                <select className="input" value={f.momsperiod} onChange={e => set('momsperiod', e.target.value)}>
+                  {momsperiodOptions(f.momsperiod).map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </Field>
+              {momsRedovisas(f.momsperiod) && (
                 <Field label="Momsregistreringsnummer (VAT)">
                   <input className="input" value={f.vat_nr} onChange={e => set('vat_nr', e.target.value)} placeholder="SE556677889901" />
                 </Field>
-              </>}
+              )}
             </div>
           )}
 
           {step === 3 && (
             <div>
-              <h2 className="text-lg font-bold mb-1">Räkenskapsår</h2>
-              <p className="text-sm text-gray-500 mb-4">När börjar företagets räkenskapsår? (oftast 1 januari)</p>
-              <Field label="Räkenskapsårets startdatum">
-                <input className="input" type="date" value={f.rakenskapsar_start} onChange={e => set('rakenskapsar_start', e.target.value)} />
-              </Field>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-bold">Räkenskapsår</h2>
+                <button className="btn font-medium text-sm" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={skapaNyttAr}>Skapa nytt</button>
+              </div>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-xs font-medium text-gray-500">Skapa räkenskapsår automatiskt</span>
+                <div className="inline-flex rounded-lg overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.15)' }}>
+                  <button type="button" className={`px-4 py-1 text-sm ${autoSkapa ? 'bg-green-600 text-white' : 'bg-white text-gray-600'}`} onClick={() => setAutoSkapa(true)}>JA</button>
+                  <button type="button" className={`px-4 py-1 text-sm ${!autoSkapa ? 'bg-gray-800 text-white' : 'bg-white text-gray-600'}`} onClick={() => setAutoSkapa(false)}>NEJ</button>
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-400 mb-3">
+                Nästa räkenskapsår skapas automatiskt cirka en månad innan senaste årets slutdatum. Det nya året får samma kontoplan som föregående år. Ingående balanser och alla inställningar som används förs automatiskt över till nästa år.
+              </p>
+              <div className="rounded-lg overflow-hidden mb-4" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-[10px] font-semibold text-gray-500 uppercase">
+                      <th className="text-left px-2.5 py-2">From</th><th className="text-left px-2.5 py-2">Tom</th>
+                      <th className="text-left px-2.5 py-2">Bokföringsmetod</th><th className="text-left px-2.5 py-2">Kontoplan</th>
+                      <th className="text-center px-2.5 py-2 w-16">Förvalt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {years.length === 0 ? (
+                      <tr><td colSpan="5" className="text-center py-6 text-gray-400">Inga räkenskapsår än</td></tr>
+                    ) : years.map(y => (
+                      <tr key={y.id} className="border-t" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+                        <td className="px-2.5 py-2 tabular-nums">{y.start_date}</td>
+                        <td className="px-2.5 py-2 tabular-nums">{y.end_date}</td>
+                        <td className="px-2.5 py-2">{bokforingsmetodLabel(f.bokforingsmetod)}</td>
+                        <td className="px-2.5 py-2">{kontoplanLabel(y)}</td>
+                        <td className="px-2.5 py-2 text-center">
+                          <input type="radio" name="forvalt-ar" checked={y.status === 'active'} onChange={() => setForvald(y)} className="w-4 h-4 cursor-pointer" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <Field label="Internvaluta">
                 <select className="input" value={f.valuta} onChange={e => set('valuta', e.target.value)}>
                   {SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} – {c.name}</option>)}

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { CURRENCY_CODES } from '../lib/currency'
+import { momsperiodOptions } from '../lib/foretag'
 // (Mottagningsadressen läses direkt från inbox_addresses-tabellen)
 import toast from 'react-hot-toast'
 import WhatsAppSupportButton from '../components/WhatsAppSupportButton'
@@ -343,7 +344,7 @@ export default function Installningar() {
                     <div className="grid grid-cols-[1fr_1.2fr] items-center gap-3 py-1.5">
                       <span className="text-sm text-gray-600">Momsperiod</span>
                       <select className="input" value={form.momsperiod ?? ''} onChange={e => set('momsperiod', e.target.value)}>
-                        <option value="">Välj…</option>{['En gång per månad (12:e i månaden)', 'Varje kvartal', 'En gång per år', 'Ej momspliktig'].map(o => <option key={o} value={o}>{o}</option>)}
+                        <option value="">Välj…</option>{momsperiodOptions(form.momsperiod).map(o => <option key={o} value={o}>{o}</option>)}
                       </select>
                     </div>
                     <RowSel k="periodisk_sammanstallning" label="Period för periodisk sammanställning" options={['Månad', 'Kvartal', 'Ingen']} />
