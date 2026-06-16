@@ -1,6 +1,10 @@
 name = "bokpilot-inbound-email"
 main = "src/worker.js"
 compatibility_date = "2024-11-01"
+# Konto där bokpilot.se / Email Routing ligger (Info@acountx.se's Account).
+account_id = "052c6fb0f6584fd80aa382efd2ab899e"
+# Email Worker triggas av Email Routing, inte via HTTP – ingen workers.dev-publicering behövs.
+workers_dev = false
 
 # Publik edge-URL (ej hemlig). Byt vid behov.
 [vars]
