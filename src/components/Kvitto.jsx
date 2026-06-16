@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { serie } from '../lib/serier'
+import { bestRuleFor, findMatchingRule, ruleConfidence, ruleKeyword, normalizeMerchant, RULE_AUTOFILL } from '../lib/supplierRules'
 
 const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -59,11 +60,104 @@ export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
   const [kort, setKort] = useState('')
   const [costs, setCosts] = useState({})
   const [saving, setSaving] = useState(false)
+  const [butik, setButik] = useState('')          // butik/säljare – nyckel för kvittoregler
+  const [accounts, setAccounts] = useState([])
+  const [kontoMap, setKontoMap] = useState({})     // kostnadstyp (label) → valt konto (override av mallens)
+  const [rules, setRules] = useState([])           // inlärda regler för butiken
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const applRef = useRef({})                        // label → tillämpad regel (ändringsdetektion)
 
   const mall = TEMPLATES[mallKey]
+  const accMap = useMemo(() => Object.fromEntries(accounts.map(a => [a.account_nr, a.name])), [accounts])
+  const kontoFor = r => kontoMap[r.label] || r.konto
+
+  useEffect(() => {
+    if (!company) return
+    supabase.from('accounts').select('account_nr, name').eq('company_id', company.id).eq('is_active', true)
+      .then(({ data }) => setAccounts((data || []).slice().sort((a, b) => String(a.account_nr).localeCompare(String(b.account_nr)))))
+  }, [company?.id])
+
+  // Hämta butikens inlärda regler (debounce) och auto-fyll konto per kostnadstyp vid hög confidence.
+  useEffect(() => {
+    const key = normalizeMerchant(butik)
+    if (!company || key.length < 2) { setRules([]); applRef.current = {}; return }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('supplier_accounting_rules')
+        .select('*').eq('company_id', company.id).eq('merchant_name', key)
+      if (cancelled) return
+      const list = (data || []).slice().sort((a, b) => (b.confidence_score || 0) - (a.confidence_score || 0))
+      setRules(list)
+      const appl = {}
+      setKontoMap(prev => {
+        const next = { ...prev }
+        for (const r of mall.rader) {
+          const best = bestRuleFor(list, { invoiceCategory: 'kvitto', keyword: r.label })
+          if (best && (best.confidence_score || 0) >= RULE_AUTOFILL && !prev[r.label]) { next[r.label] = best.account_number; appl[r.label] = best }
+        }
+        return next
+      })
+      applRef.current = appl
+    }, 400)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [company?.id, butik, mallKey])
+
+  // Föreslagna konton per kostnadstyp för aktuell butik (för badge).
+  const kvForslag = useMemo(() => {
+    if (!rules.length) return null
+    const list = mall.rader.map(r => ({ label: r.label, rule: bestRuleFor(rules, { invoiceCategory: 'kvitto', keyword: r.label }) })).filter(x => x.rule)
+    return list.length ? list : null
+  }, [rules, mallKey])
+
+  async function toggleRule(r) {
+    const status = r.status === 'disabled' ? 'active' : 'disabled'
+    await supabase.from('supplier_accounting_rules').update({ status, updated_by: user.id, updated_at: new Date().toISOString() }).eq('id', r.id)
+    setRules(rs => rs.map(x => x.id === r.id ? { ...x, status } : x))
+  }
+  async function deleteRule(r) {
+    if (!window.confirm(`Radera den inlärda regeln ${r.account_number} för denna butik?`)) return
+    await supabase.from('supplier_accounting_rules').delete().eq('id', r.id)
+    setRules(rs => rs.filter(x => x.id !== r.id))
+  }
+
+  // Analysera kvittots slutliga kontering → spara/uppdatera regler per butik (best-effort).
+  async function larKvittoRegler() {
+    const key = normalizeMerchant(butik)
+    if (!key || key.length < 2) return
+    for (const r of mall.rader) {
+      if (num(costs[r.label]) <= 0.001) continue
+      const konto = kontoFor(r)
+      const kw = ruleKeyword(r.label)
+      const appl = applRef.current[r.label]
+      if (appl && String(appl.account_number) !== String(konto)) {
+        const cc = (appl.correction_count || 0) + 1
+        await supabase.from('supplier_accounting_rules').update({
+          correction_count: cc, confidence_score: ruleConfidence({ confirmation_count: appl.confirmation_count, correction_count: cc }),
+          updated_by: user.id, updated_at: new Date().toISOString(),
+        }).eq('id', appl.id)
+        if (!window.confirm(`Du ändrade kontot för "${r.label}" från ${appl.account_number} till ${konto}. Spara ${konto} som ny regel för framtida kvitton från ${butik.trim()}?`)) continue
+      }
+      const match = findMatchingRule(rules, { invoice_category: 'kvitto', line_keyword: kw, account_number: konto })
+      if (match) {
+        const cnt = (match.confirmation_count || 0) + 1
+        await supabase.from('supplier_accounting_rules').update({
+          confirmation_count: cnt, confidence_score: ruleConfidence({ confirmation_count: cnt, correction_count: match.correction_count }),
+          account_name: accMap[konto] || r.label, vat_account: '2640', vat_rate: r.sats, status: 'active', updated_by: user.id, updated_at: new Date().toISOString(),
+        }).eq('id', match.id)
+      } else {
+        await supabase.from('supplier_accounting_rules').insert({
+          company_id: company.id, supplier_id: null, merchant_name: key, supplier_name: butik.trim() || null,
+          document_type: 'kvitto', invoice_category: 'kvitto', line_keyword: kw, account_number: konto, account_name: accMap[konto] || r.label,
+          vat_account: '2640', vat_rate: r.sats, belopp_type: 'kostnad',
+          confirmation_count: 1, correction_count: 0, confidence_score: ruleConfidence({ confirmation_count: 1 }), status: 'active',
+          created_by: user.id, updated_by: user.id,
+        })
+      }
+    }
+  }
 
   function bytMall(k) {
-    setMallKey(k); setCosts({}); setKontant(''); setKort(''); setBeskrivning(TEMPLATES[k].besk)
+    setMallKey(k); setCosts({}); setKontant(''); setKort(''); setBeskrivning(TEMPLATES[k].besk); setKontoMap({}); applRef.current = {}
   }
   function applyDatum(raw) {
     let dd = normalizeDate(raw)
@@ -102,7 +196,7 @@ export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
     if (costsGross <= 0) return toast.error('Ange minst en kostnad')
     if (!balanced) return toast.error('Betalsätt måste motsvara kostnaderna (differens 0)')
     const netByKonto = {}
-    mall.rader.forEach(r => { const { net } = split(r); if (net > 0.001) netByKonto[r.konto] = (netByKonto[r.konto] || 0) + net })
+    mall.rader.forEach(r => { const { net } = split(r); if (net > 0.001) netByKonto[kontoFor(r)] = (netByKonto[kontoFor(r)] || 0) + net })
     const rows = []
     Object.entries(netByKonto).forEach(([nr, net]) => rows.push({ nr, debet: Math.round(net * 100) / 100, kredit: 0 }))
     if (momsTotal > 0.001) rows.push({ nr: '2640', debet: Math.round(momsTotal * 100) / 100, kredit: 0 })
@@ -131,6 +225,8 @@ export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
         await supabase.from('documents').update({ verifikation_id: ver.id, kategori: 'kvitto' }).eq('id', underlagDoc.id).eq('company_id', company.id)
         onUnderlagLinked?.()
       }
+      // Lärande regelmotor för kvitton (best-effort – får aldrig stoppa bokföringen).
+      try { await larKvittoRegler() } catch { /* regelinlärning icke-kritisk */ }
       toast.success(`Kvitto ${ver.ver_nr} bokfört!`)
       rensa()
       focusId('kv-c0')
@@ -167,6 +263,11 @@ export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyDatum(e.target.value); focusId('kv-beskrivning') } }} />
         </div>
         <div className="col-span-2">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Butik / säljare</label>
+          <input id="kv-butik" className="input" value={butik} onChange={e => setButik(e.target.value)} placeholder="t.ex. Clas Ohlson"
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusId('kv-beskrivning') } }} />
+        </div>
+        <div className="col-span-2">
           <label className="block text-xs font-medium text-gray-500 mb-1">Verifikationsbeskrivning</label>
           <input id="kv-beskrivning" className="input" value={beskrivning} onChange={e => setBeskrivning(e.target.value)} onKeyDown={e => handleEnter(e, 'kv-beskrivning')} />
         </div>
@@ -179,11 +280,40 @@ export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
         <div className="grid grid-cols-[220px_220px] gap-3"><span /><div className="text-right text-sm text-gray-500 pr-1">{fmt(payments)}</div></div>
       </div>
 
+      <datalist id="kv-konton">
+        {accounts.map(a => <option key={a.account_nr} value={a.account_nr}>{a.account_nr} – {a.name}</option>)}
+      </datalist>
+
       <div className="mb-5">
-        <div className="text-sm font-semibold mb-2">Kostnader inkl. moms</div>
-        {mall.rader.map((r, i) => amtRow(r.label, `kv-c${i}`, costs[r.label] ?? '', v => setCosts(p => ({ ...p, [r.label]: v })),
-          i === mall.rader.length - 1 ? { onKey: lastCostEnter } : {}))}
-        <div className="grid grid-cols-[220px_220px] gap-3"><span /><div className="text-right text-sm text-gray-500 pr-1">Varav moms: <b className="text-gray-800 tabular-nums">{fmt(momsTotal)}</b> · Totalt: <b className="text-gray-800 tabular-nums">{fmt(costsGross)}</b></div></div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-semibold">Kostnader inkl. moms</div>
+          <div className="text-[11px] text-gray-400">Konto · belopp</div>
+        </div>
+        {kvForslag && (
+          <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-2 text-[13px] text-blue-800 max-w-[470px]">
+            <i className="ti ti-sparkles text-blue-500 mt-0.5 shrink-0" />
+            <span>Konton föreslagna från tidigare kvitton för <b>{butik.trim()}</b>: {kvForslag.map((f, i) => (
+              <span key={f.label}>{i > 0 ? ', ' : ''}{f.label} → {f.rule.account_number} ({f.rule.confirmation_count}×)</span>
+            ))}.</span>
+          </div>
+        )}
+        {mall.rader.map((r, i) => {
+          const konto = kontoFor(r)
+          const learnt = applRef.current[r.label]
+          return (
+            <div key={r.label} className="grid grid-cols-[170px_96px_160px] items-center gap-3 mb-2">
+              <label className="text-sm text-gray-600 truncate" title={r.label}>{r.label}</label>
+              <input className="input text-center tabular-nums" list="kv-konton" value={konto} title={accMap[konto] || ''}
+                style={learnt && String(learnt.account_number) === String(konto) ? { borderColor: '#93c5fd', background: '#eff6ff' } : undefined}
+                onChange={e => setKontoMap(m => ({ ...m, [r.label]: e.target.value.replace(/[^0-9]/g, '').slice(0, 4) }))} />
+              <input id={`kv-c${i}`} className="input text-right" inputMode="decimal" value={costs[r.label] ?? ''}
+                onChange={e => setCosts(p => ({ ...p, [r.label]: e.target.value }))}
+                onBlur={() => { const n = num(costs[r.label]); setCosts(p => ({ ...p, [r.label]: n > 0 ? fmt(n) : '' })) }}
+                onKeyDown={i === mall.rader.length - 1 ? lastCostEnter : (e => handleEnter(e, `kv-c${i}`))} placeholder="0,00" />
+            </div>
+          )
+        })}
+        <div className="grid grid-cols-[170px_96px_160px] gap-3"><span /><span /><div className="text-right text-sm text-gray-500 pr-1">Moms: <b className="text-gray-800 tabular-nums">{fmt(momsTotal)}</b> · Tot: <b className="text-gray-800 tabular-nums">{fmt(costsGross)}</b></div></div>
       </div>
 
       <div className="grid grid-cols-[220px_220px] gap-3 items-center mb-5 pt-2 border-t max-w-[448px]" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
@@ -195,6 +325,29 @@ export default function Kvitto({ underlagDoc, onUnderlagLinked }) {
         <label className="block text-xs font-medium text-gray-500 mb-1">Kommentar</label>
         <textarea className="input" rows={2} value={kommentar} onChange={e => setKommentar(e.target.value)} />
       </div>
+
+      {rules.length > 0 && (
+        <div className="mb-5 max-w-xl border-t pt-3" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+          <button className="flex items-center gap-2 text-sm font-medium text-gray-700" onClick={() => setRulesOpen(o => !o)}>
+            <i className={`ti ti-chevron-${rulesOpen ? 'down' : 'right'} text-green-700`} /> Inlärda konton för {butik.trim() || 'butiken'}
+            <span className="ml-1 text-[10px] font-semibold bg-purple-100 text-purple-700 px-1.5 rounded-full">{rules.length}</span>
+          </button>
+          {rulesOpen && (
+            <div className="mt-2 space-y-1.5">
+              <p className="text-[13px] text-gray-500">Konton systemet lärt sig för denna butik. Inaktivera eller radera en felaktig regel.</p>
+              {rules.map(r => (
+                <div key={r.id} className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${r.status === 'disabled' ? 'bg-gray-50 text-gray-400' : 'bg-white'}`} style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+                  <span className="tabular-nums font-medium shrink-0">{r.account_number}</span>
+                  <span className="text-gray-600 truncate flex-1">{accMap[r.account_number] || r.account_name || ''}{r.line_keyword ? ` · ${r.line_keyword}` : ''}</span>
+                  <span className="text-xs text-gray-400 shrink-0">{r.confirmation_count}× · {Math.round((r.confidence_score || 0) * 100)}%</span>
+                  <button className="text-xs text-gray-500 hover:text-gray-800 shrink-0" onClick={() => toggleRule(r)}>{r.status === 'disabled' ? 'Aktivera' : 'Inaktivera'}</button>
+                  <button className="text-xs text-red-600 hover:text-red-800 shrink-0" onClick={() => deleteRule(r)}>Radera</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-3">
         <button className="btn" onClick={rensa} disabled={saving}>Rensa</button>

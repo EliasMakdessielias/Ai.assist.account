@@ -26,6 +26,9 @@ export function belopptyp(nr) {
 // Normaliserat radnyckelord (transaktionsinfo/benämning) för matchning, max 40 tecken.
 export function ruleKeyword(text) { return norm(text).slice(0, 40) }
 
+// Normaliserat butiksnamn (kvitton nycklas på butik/säljare i stället för supplier_id).
+export function normalizeMerchant(name) { return norm(name) }
+
 // Confidence utifrån bekräftelser/korrigeringar. Första bekräftelsen = svagt förslag.
 export function ruleConfidence({ confirmation_count = 0, correction_count = 0 } = {}) {
   const c = Math.max(0, Number(confirmation_count) || 0)

@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import {
   belopptyp, ruleKeyword, ruleConfidence, findMatchingRule, bestRuleFor, rulesFromKontering,
-  avvikerFranMonster, RULE_AUTOFILL, RULE_SUGGEST,
+  avvikerFranMonster, normalizeMerchant, RULE_AUTOFILL, RULE_SUGGEST,
 } from './supplierRules'
+
+describe('normalizeMerchant', () => {
+  it('normaliserar butiksnamn för stabil matchning', () => {
+    expect(normalizeMerchant('  Clas Ohlson AB! ')).toBe('clas ohlson ab')
+    expect(normalizeMerchant('ICA Maxi')).toBe(normalizeMerchant('ica  maxi'))
+    expect(normalizeMerchant(null)).toBe('')
+  })
+})
 
 describe('belopptyp', () => {
   it('klassar konto efter typ', () => {
