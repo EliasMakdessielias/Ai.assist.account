@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { granskaMomsFynd } from '../lib/momskontroll'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -42,7 +43,7 @@ export default function Granskning() {
       supabase.from('verifikationer').select('id, ver_nr, ver_serie, datum, beskrivning, total_debet, total_kredit').eq('company_id', company.id),
       supabase.from('verifikation_rows').select('verifikation_id, account_nr, debet, kredit, avstamd, verifikationer!inner(company_id, datum)').eq('verifikationer.company_id', company.id),
       supabase.from('documents').select('verifikation_id').eq('company_id', company.id).not('verifikation_id', 'is', null),
-      supabase.from('supplier_invoices').select('id, bokford, makulerad, status, due_date, total_amount, verifikation_id, invoice_nr, suppliers(name)').eq('company_id', company.id),
+      supabase.from('supplier_invoices').select('id, bokford, makulerad, status, due_date, total_amount, vat_amount, verifikation_id, invoice_nr, suppliers(name)').eq('company_id', company.id),
       supabase.from('bank_transactions').select('account_nr, datum, status, amount').eq('company_id', company.id),
       supabase.from('accounts').select('account_nr, name, opening_balance, is_active').eq('company_id', company.id),
     ])
@@ -128,6 +129,26 @@ export default function Granskning() {
     const seen = {}; const dubbletter = []
     versP.forEach(v => { const key = `${v.datum}|${(v.total_debet || 0).toFixed(2)}|${(v.ver_serie || '')[0]}|${(v.beskrivning || '').toLowerCase().slice(0, 20)}`; if (seen[key]) dubbletter.push({ id: v.id, txt: `${v.ver_nr} ${v.datum} ${fmt(v.total_debet)}` }); else seen[key] = v.id })
     if (dubbletter.length) push('varning', 'Möjliga dubbletter', 'Verifikationer med samma datum, belopp och beskrivning – kan vara dubbelbokfört.', dubbletter.length, dubbletter)
+
+    // 13. Momskontroll (inför momsredovisning): moms mot kostnads-/intäktskonto, fel momskonto,
+    // fel riktning, momspliktig försäljning utan moms, leverantörsfakturor bokförda fel.
+    const MOMS_DETALJ = {
+      moms_fel_sats: 'Momsbeloppet motsvarar inte 25/12/6 % av kostnads-/intäktsnettot. Öppna verifikationen för att se var det skiljer.',
+      moms_fel_konto: 'Bokförd moms stämmer inte med försäljningskontots momssats (t.ex. 3001 = 25 %).',
+      moms_fel_riktning: 'Ingående moms på en försäljning, eller utgående moms på ett inköp – kontrollera momskontot.',
+      moms_utan_konto: 'Moms bokförd utan kostnads- eller intäktskonto i verifikationen.',
+      moms_saknas: 'Försäljning på momspliktigt konto utan utgående moms – kontrollera momsplikten.',
+      lev_fel_belopp: 'Bokfört belopp stämmer inte med leverantörsfakturans totalbelopp.',
+      lev_fel_moms: 'Bokförd ingående moms stämmer inte med fakturans momsbelopp.',
+      lev_moms_saknas: 'Leverantörsfaktura med moms men ingen ingående moms (264x) bokförd.',
+    }
+    const momsFynd = granskaMomsFynd({ vers: versP, rowsByVer, supplierInvoices: data.sup })
+    const momsGrupp = {}
+    momsFynd.forEach(m => { (momsGrupp[m.kod] ||= []).push(m) })
+    Object.values(momsGrupp).forEach(arr => {
+      const f0 = arr[0]
+      push(f0.sev, f0.titel, MOMS_DETALJ[f0.kod] || f0.detalj, arr.length, arr.map(m => ({ id: m.verId, txt: `${m.ver_nr} ${m.datum}` })))
+    })
 
     F.sort((a, b) => ({ fel: 0, varning: 1, info: 2 }[a.sev]) - ({ fel: 0, varning: 1, info: 2 }[b.sev]))
     const agg = { antalVer: versP.length, fel: F.filter(f => f.sev === 'fel').length, varning: F.filter(f => f.sev === 'varning').length, info: F.filter(f => f.sev === 'info').length, sales, utgMoms }

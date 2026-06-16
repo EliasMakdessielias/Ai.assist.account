@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { serie } from '../lib/serier'
+import { granskaMomsFynd } from '../lib/momskontroll'
 
 const MONTHS = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 const r0 = n => Math.round(Number(n) || 0)
@@ -105,8 +106,35 @@ export default function Moms() {
 
   useEffect(() => { setEdits({}) }, [period])
 
+  // Månadskontroll: kör momsgranskningen på perioden och returnera fynd (för varning innan redovisning).
+  async function korManadskontroll() {
+    const [{ data: vrows }, { data: sinv }] = await Promise.all([
+      supabase.from('verifikation_rows')
+        .select('verifikation_id, account_nr, debet, kredit, verifikationer!inner(company_id, datum, ver_nr, total_debet, total_kredit)')
+        .eq('verifikationer.company_id', company.id)
+        .gte('verifikationer.datum', sel.start).lte('verifikationer.datum', sel.end),
+      supabase.from('supplier_invoices').select('verifikation_id, bokford, makulerad, invoice_nr, total_amount, vat_amount').eq('company_id', company.id),
+    ])
+    const versMap = {}, rowsByVer = {}
+    ;(vrows || []).forEach(r => {
+      const vid = r.verifikation_id; const vh = r.verifikationer || {}
+      if (!versMap[vid]) versMap[vid] = { id: vid, ver_nr: vh.ver_nr, datum: vh.datum, total_debet: vh.total_debet, total_kredit: vh.total_kredit }
+      ;(rowsByVer[vid] ||= []).push({ account_nr: r.account_nr, debet: r.debet, kredit: r.kredit })
+    })
+    return granskaMomsFynd({ vers: Object.values(versMap), rowsByVer, supplierInvoices: sinv || [] })
+  }
+
   async function bokfor() {
     if (!sel) return
+    // Månadskontroll innan momsredovisning: stoppa vid fel, påminn vid varningar.
+    try {
+      const fynd = await korManadskontroll()
+      const fel = fynd.filter(f => f.sev === 'fel')
+      const varn = fynd.filter(f => f.sev === 'varning')
+      if (fel.length && !window.confirm(`Månadskontrollen hittade ${fel.length} möjliga fel i bokföringen för ${sel.label}. Öppna Granskning för att se exakt var felen sitter.\n\nVill du redovisa momsen ändå?`)) return
+      else if (!fel.length && varn.length) toast(`Månadskontroll: ${varn.length} varning${varn.length > 1 ? 'ar' : ''} att kontrollera (se Granskning).`, { icon: '⚠️' })
+    } catch { /* kontrollen är ett stöd – blockera inte redovisningen om den fallerar */ }
+
     // Nollställ momskontona i perioden och bokför nettot mot 2650.
     const utg = accounts.filter(a => /^26[123]/.test(a.nr)).map(a => ({ ...a, bal: a.kredit - a.debet })).filter(a => Math.abs(a.bal) > 0.005)
     const ing = accounts.filter(a => a.nr.startsWith('264')).map(a => ({ ...a, bal: a.debet - a.kredit })).filter(a => Math.abs(a.bal) > 0.005)
