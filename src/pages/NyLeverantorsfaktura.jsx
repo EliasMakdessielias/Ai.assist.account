@@ -8,6 +8,7 @@ import LeverantorEditor from '../components/LeverantorEditor'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
 import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude, syncRowsWithHeader, isIngaendeMomsKonto } from '../lib/leverantorsfaktura'
+import { validateLevfaktura } from '../lib/levfakturaValidering'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -340,11 +341,30 @@ export default function NyLeverantorsfaktura() {
       .map(r => ({ nr: r.konto, name: accMap[r.konto] || r.namn || '', info: r.info || '', debet: num(r.debet), kredit: num(r.kredit) }))
   }
 
+  // Dubblettkoll: finns redan en icke-makulerad faktura med samma nummer från samma leverantör?
+  async function findDuplicateInvoice() {
+    const nr = (fakturanummer || '').trim()
+    if (!nr || !supplierId) return null
+    const { data } = await supabase.from('supplier_invoices')
+      .select('id, invoice_nr, bokford, total_amount')
+      .eq('company_id', company.id).eq('supplier_id', supplierId).eq('invoice_nr', nr).eq('makulerad', false)
+    return (data || []).find(d => d.id !== editId) || null
+  }
+
   async function spara(bokfor) {
     if (!supplierId) return toast.error('Välj en leverantör')
     // Magnitud (positiv); tecknet i fakturahuvudet styrs av kreditfaktura-flaggan nedan.
     const t = amountMagnitude(total)
     if (t <= 0) return toast.error('Ange totalbelopp')
+
+    // Valideringsvakter: fel blockerar bokföring, varningar påminner (utkast får sparas).
+    const { errors, warnings } = validateLevfaktura({ total, moms, fakturadatum, forfallodatum })
+    if (bokfor && errors.length) return toast.error(errors[0])
+    warnings.forEach(w => toast(w, { icon: '⚠️', duration: 6000 }))
+    // Dubblettkoll mot databasen – bekräfta innan vi skapar/bokför en möjlig dubblett.
+    const dup = await findDuplicateInvoice()
+    if (dup && !window.confirm(`Det finns redan en faktura med nummer "${fakturanummer.trim()}" från samma leverantör${dup.bokford ? ' (redan bokförd)' : ''}.\n\nVill du fortsätta ändå?`)) return
+
     const krows = konteringRows()
     // Automatisk öresutjämning vid små avrundningsdiffar (konto 3740)
     const csd = krows.reduce((s, r) => s + r.debet, 0), csk = krows.reduce((s, r) => s + r.kredit, 0)
