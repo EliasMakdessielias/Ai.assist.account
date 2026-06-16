@@ -67,11 +67,19 @@ describe('categoryFromTolkning (OCR-typ → kategori)', () => {
     expect(categoryFromTolkning({ typ: 'insattningskvitto' }).type).toBe('kvitto')
   })
 
+  it('avtal mappas till avtal', () => {
+    expect(categoryFromTolkning({ typ: 'avtal' }).type).toBe('avtal')
+  })
+
+  it('dokument mappas till dokument', () => {
+    expect(categoryFromTolkning({ typ: 'dokument' }).type).toBe('dokument')
+  })
+
   it('versaler/mellanslag i typ tolereras', () => {
     expect(categoryFromTolkning({ typ: '  Leverantorsfaktura ' }).type).toBe('leverantorsfaktura')
   })
 
-  it('typ "ovrigt" är ej entydig → null (anroparen faller tillbaka på nyckelord)', () => {
+  it('typ "ovrigt" är ej entydig → null (faller tillbaka / Behöver granskas)', () => {
     expect(categoryFromTolkning({ typ: 'ovrigt' })).toBeNull()
   })
 

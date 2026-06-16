@@ -36,7 +36,7 @@ export const OCR_SCHEMA = {
     leverantor_telefon: { type: 'string', description: 'leverantörens telefonnummer' },
     leverantor_epost: { type: 'string', description: 'leverantörens e-postadress' },
     leverantor_webb: { type: 'string', description: 'leverantörens webbadress' },
-    typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto eller ovrigt' },
+    typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto, avtal, dokument eller ovrigt (se klassificeringsreglerna i prompten)' },
     konteringsrader: {
       type: 'array',
       items: {
@@ -84,7 +84,15 @@ Regler:
 - leverantor_adress / leverantor_postnr / leverantor_ort / leverantor_land / leverantor_telefon / leverantor_epost / leverantor_webb: leverantörens (AVSÄNDARENS/säljarens) kontakt- och adressuppgifter.
 - VIKTIGT: extrahera ALLTID leverantörens/säljarens uppgifter – ALDRIG mottagarens/köparens (den som fakturan är ställd till). Lämna fält tomma om de inte framgår.
 - Blanda inte ihop fakturanummer och OCR – de är olika fält.
-- typ: sätt "leverantorsfaktura", "kvitto", "insattningskvitto" eller "ovrigt" beroende på vad underlaget är.
+
+DOKUMENTTYP (fältet "typ") – klassificera underlaget. Detta styr var det sorteras, så följ reglerna noga:
+- "kvitto": ett kassakvitto/butikskvitto som betalats DIREKT på plats (kort/kontant/swish). Känns igen på t.ex. "Kvitto", "Kassakvitto", "Köp", "ATT BETALA", "Köpbelopp", kortterminal-/betalrader (Kort, Kontaktlös, Mastercard/Visa, TERM, AID, ARQC), saknar namngiven köpare och saknar förfallodatum/OCR-nummer/bankgiro/plusgiro. Ett kassakvitto är en FÖRENKLAD FAKTURA och fullt giltigt underlag – men klassas alltid som "kvitto", ALDRIG "leverantorsfaktura", även om det har säljarens org.nr och momsspecifikation.
+- "leverantorsfaktura": en faktura som är STÄLLD TILL köparen (företaget) och ska betalas SENARE. Enligt Skatteverkets krav på en fullständig faktura innehåller den normalt: fakturadatum (utfärdandedatum), ett unikt fakturanummer (löpnummer), säljarens momsregistreringsnummer, köparens namn och adress, varornas mängd/art eller tjänsternas omfattning/art, beskattningsunderlag per momssats samt momssats och momsbelopp – OCH betalningsuppgifter som förfallodatum och/eller OCR-nummer, bankgiro/plusgiro/IBAN. Avgörande skillnad mot kvitto: ställd till en namngiven köpare + ska betalas senare (förfallodatum/OCR/bankgiro), inte betald på plats.
+- "insattningskvitto": kvitto på kontantinsättning till bank.
+- "avtal": ett avtal eller kontrakt (t.ex. orden "Avtal", "Kontrakt", "Agreement", angivna parter, villkor, giltighetstid, underskrifter).
+- "dokument": annat affärsdokument som varken är kvitto, leverantörsfaktura, insättningskvitto eller avtal.
+- "ovrigt": använd ENDAST om underlaget är oläsligt eller du inte säkert kan avgöra typen.
+- BESLUTSREGEL: betalt direkt på plats utan förfallodatum/OCR/fakturanummer-ställt-till-köpare => "kvitto". Ställd till köparen med fakturanummer och förfallodatum/OCR/bankgiro => "leverantorsfaktura".
 
 KONTOPLAN (aktiva konton):
 ${kontoplan}`
@@ -142,11 +150,14 @@ export async function runGeminiOcr(
 
 // Mappar ett tolkningsresultats `typ` till inkorgskategori. Spegel av
 // src/lib/classifyDocument.js:categoryFromTolkning. Returnerar { type, confidence, status }
-// vid entydig typ, annars null (anroparen faller tillbaka på nyckelordsklassning).
+// vid entydig typ, annars null (anroparen faller tillbaka på nyckelordsklassning /
+// "Behöver granskas"). "ovrigt" mappas medvetet INTE → null.
 export const OCR_TYPE_TO_CATEGORY: Record<string, string> = {
   leverantorsfaktura: 'leverantorsfaktura',
   kvitto: 'kvitto',
   insattningskvitto: 'kvitto',
+  avtal: 'avtal',
+  dokument: 'dokument',
 }
 
 export function categoryFromTolkning(result: any): { type: string; confidence: number; status: string } | null {
