@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
+import { isValidOrgNr, normalizeOrgNr } from '../lib/orgnr'
 import { BRAND } from '../lib/brand'
 import { SETTINGS_ITEMS, isSettingsItemActive, isSettingsSection } from '../lib/settingsNav'
 import NotificationCenter from './NotificationCenter'
@@ -42,11 +44,40 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const [newName, setNewName] = useState('')
   const [newOrg, setNewOrg] = useState('')
   const [creating, setCreating] = useState(false)
+  const [hamtar, setHamtar] = useState(false)
+  const orgDebounce = useRef(null)
+  const lastOrgLookup = useRef('')
+
+  // Hämtar företagsnamnet automatiskt från organisationsnumret (officiell källa via
+  // edge-funktionen hamta-foretag). Best-effort: misslyckas tyst så namnet kan skrivas manuellt.
+  async function hamtaForetagsnamn(org) {
+    setHamtar(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('hamta-foretag', { body: { org_nr: org } })
+      if (error) { let m = error.message; try { const b = await error.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
+      if (data?.error) throw new Error(data.error)
+      const namn = data.company?.legalName || data.company?.displayName || data.result?.name || ''
+      if (namn) setNewName(namn)
+    } catch { /* tyst – användaren kan fylla i namnet manuellt */ }
+    setHamtar(false)
+  }
+
+  // Auto-hämtning vid giltigt org-nr (Luhn), debounce ~600 ms.
+  useEffect(() => {
+    if (orgDebounce.current) clearTimeout(orgDebounce.current)
+    if (!createOpen || !isValidOrgNr(newOrg)) return
+    const norm = normalizeOrgNr(newOrg)
+    if (norm === lastOrgLookup.current) return
+    orgDebounce.current = setTimeout(() => { lastOrgLookup.current = norm; hamtaForetagsnamn(newOrg) }, 600)
+    return () => orgDebounce.current && clearTimeout(orgDebounce.current)
+  }, [newOrg, createOpen])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  function resetCreate() { setCreateOpen(false); setNewName(''); setNewOrg(''); lastOrgLookup.current = '' }
 
   async function doCreate() {
-    if (!newName.trim()) return toast.error('Företagsnamn krävs')
+    if (!newName.trim()) return toast.error('Ange organisationsnummer (företagsnamnet hämtas automatiskt) eller skriv namnet manuellt')
     setCreating(true)
-    try { await createCompany(newName, newOrg); toast.success('Företag skapat'); setCreateOpen(false); setNewName(''); setNewOrg('') }
+    try { await createCompany(newName, newOrg); toast.success('Företag skapat'); resetCreate() }
     catch (e) { toast.error('Kunde inte skapa: ' + e.message) }
     setCreating(false)
   }
@@ -215,16 +246,25 @@ export default function Sidebar({ collapsed = false, onToggle }) {
 
       {/* Skapa nytt företag */}
       {createOpen && (
-        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" onClick={() => !creating && setCreateOpen(false)}>
+        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" onClick={() => !creating && resetCreate()}>
           <div className="bg-white rounded-xl w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}><span className="text-base font-medium">Skapa nytt företag</span></div>
             <div className="px-5 py-4 space-y-3">
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Företagsnamn *</label><input className="input" value={newName} onChange={e => setNewName(e.target.value)} autoFocus /></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Organisationsnummer</label><input className="input" value={newOrg} onChange={e => setNewOrg(e.target.value)} /></div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Organisationsnummer *</label>
+                <input className="input" value={newOrg} autoFocus placeholder="556036-0793"
+                  onChange={e => setNewOrg(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && isValidOrgNr(newOrg)) { e.preventDefault(); lastOrgLookup.current = normalizeOrgNr(newOrg); hamtaForetagsnamn(newOrg) } }} />
+                {hamtar && <p className="text-xs text-blue-600 mt-1"><i className="ti ti-loader mr-1" />Hämtar företagsuppgifter…</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Företagsnamn *</label>
+                <input className="input" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Hämtas automatiskt från org.nr" />
+              </div>
             </div>
             <div className="px-5 py-3 border-t flex justify-end gap-2.5" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              <button className="btn" onClick={() => setCreateOpen(false)} disabled={creating}>Avbryt</button>
-              <button className="btn btn-primary" onClick={doCreate} disabled={creating}>{creating ? 'Skapar…' : 'Skapa'}</button>
+              <button className="btn" onClick={resetCreate} disabled={creating}>Avbryt</button>
+              <button className="btn btn-primary" onClick={doCreate} disabled={creating || hamtar}>{creating ? 'Skapar…' : 'Skapa'}</button>
             </div>
           </div>
         </div>
