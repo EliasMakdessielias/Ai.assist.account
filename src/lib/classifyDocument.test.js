@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyDocument, CLASSIFIED_THRESHOLD } from './classifyDocument'
+import { classifyDocument, CLASSIFIED_THRESHOLD, categoryFromTolkning } from './classifyDocument'
 
 describe('classifyDocument', () => {
   it('kvitto klassificeras korrekt', () => {
@@ -50,5 +50,33 @@ describe('classifyDocument', () => {
     const r = classifyDocument({ filename: 'faktura.pdf', bodyText: 'faktura bankgiro ocr förfallodatum' })
     expect(r.confidence).toBeGreaterThan(0)
     expect(r.confidence).toBeLessThanOrEqual(0.97)
+  })
+})
+
+describe('categoryFromTolkning (OCR-typ → kategori)', () => {
+  it('leverantörsfaktura mappas till leverantorsfaktura/classified', () => {
+    const r = categoryFromTolkning({ typ: 'leverantorsfaktura' })
+    expect(r).toEqual({ type: 'leverantorsfaktura', confidence: 0.95, status: 'classified' })
+  })
+
+  it('kvitto mappas till kvitto', () => {
+    expect(categoryFromTolkning({ typ: 'kvitto' }).type).toBe('kvitto')
+  })
+
+  it('insättningskvitto mappas till kvitto', () => {
+    expect(categoryFromTolkning({ typ: 'insattningskvitto' }).type).toBe('kvitto')
+  })
+
+  it('versaler/mellanslag i typ tolereras', () => {
+    expect(categoryFromTolkning({ typ: '  Leverantorsfaktura ' }).type).toBe('leverantorsfaktura')
+  })
+
+  it('typ "ovrigt" är ej entydig → null (anroparen faller tillbaka på nyckelord)', () => {
+    expect(categoryFromTolkning({ typ: 'ovrigt' })).toBeNull()
+  })
+
+  it('saknad typ → null', () => {
+    expect(categoryFromTolkning({})).toBeNull()
+    expect(categoryFromTolkning()).toBeNull()
   })
 })

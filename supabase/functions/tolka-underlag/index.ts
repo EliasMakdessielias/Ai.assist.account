@@ -3,59 +3,12 @@
 // fakturatolkning och returnerar strukturerad data + förslag på kontering.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCompanyServiceState, isServiceLocked, SERVICE_PAUSED_MESSAGE } from '../_shared/serviceState.ts'
+import { runGeminiOcr } from '../_shared/ocr.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-const SCHEMA = {
-  type: 'object',
-  properties: {
-    leverantor: { type: 'string' },
-    beskrivning: { type: 'string' },
-    fakturadatum: { type: 'string', description: 'YYYY-MM-DD' },
-    forfallodatum: { type: 'string', description: 'YYYY-MM-DD eller tom' },
-    valuta: { type: 'string' },
-    belopp_inkl_moms: { type: 'number' },
-    moms_belopp: { type: 'number' },
-    momssats: { type: 'number', description: '25, 12, 6 eller 0' },
-    fakturanummer: { type: 'string', description: 'fakturans nummer/Faktnr' },
-    invoice_type: { type: 'string', description: '"debit" för vanlig faktura, "credit" för kreditfaktura/kreditnota' },
-    is_credit_invoice: { type: 'boolean', description: 'true om underlaget är en kreditfaktura/kreditnota' },
-    credit_reason: { type: 'string', description: 'kort motivering om det är en kreditfaktura' },
-    credit_evidence: { type: 'string', description: 'ordet/uttrycket som avgjorde, t.ex. "Kreditnota" eller "Att erhålla"' },
-    ocr: { type: 'string', description: 'OCR-referens som anges vid betalning (ofta längre sifferföljd)' },
-    org_nr: { type: 'string', description: 'leverantörens (avsändarens) organisationsnummer' },
-    bankgiro: { type: 'string', description: 'leverantörens bankgiro' },
-    plusgiro: { type: 'string', description: 'leverantörens plusgiro' },
-    iban: { type: 'string' },
-    bic: { type: 'string' },
-    vat_nummer: { type: 'string', description: 'leverantörens momsregistreringsnummer (VAT)' },
-    leverantor_adress: { type: 'string', description: 'leverantörens gatuadress' },
-    leverantor_postnr: { type: 'string', description: 'leverantörens postnummer' },
-    leverantor_ort: { type: 'string', description: 'leverantörens ort' },
-    leverantor_land: { type: 'string', description: 'leverantörens land' },
-    leverantor_telefon: { type: 'string', description: 'leverantörens telefonnummer' },
-    leverantor_epost: { type: 'string', description: 'leverantörens e-postadress' },
-    leverantor_webb: { type: 'string', description: 'leverantörens webbadress' },
-    typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto eller ovrigt' },
-    konteringsrader: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          konto: { type: 'string' },
-          benamning: { type: 'string' },
-          debet: { type: 'number' },
-          kredit: { type: 'number' },
-        },
-        required: ['konto', 'debet', 'kredit'],
-      },
-    },
-  },
-  required: ['beskrivning', 'konteringsrader', 'invoice_type'],
 }
 
 function blobToBase64(buf: ArrayBuffer): string {
@@ -151,64 +104,8 @@ Deno.serve(async (req) => {
       .select('account_nr, name').eq('company_id', doc.company_id).eq('is_active', true).order('account_nr')
     const kontoplan = (accounts || []).map(a => `${a.account_nr} ${a.name}`).join('\n')
 
-    const prompt = `Du är en svensk redovisningsexpert. Analysera det bifogade underlaget (faktura, kvitto eller insättningskvitto) och returnera strukturerad data enligt schemat.
-
-Regler:
-- Datum i formatet YYYY-MM-DD.
-- Belopp som tal (punkt som decimal), inte text.
-- Föreslå en korrekt kontering enligt BAS-kontoplanen där debet = kredit (balanserad verifikation).
-- Använd ENDAST kontonummer som finns i kontoplanen nedan.
-- För en leverantörsfaktura med moms: debet kostnadskonto (NETTO = summa exkl. moms), debet 2640 ingående moms (momsbeloppet), kredit 2440 leverantörsskulder (= "Att betala", totalt inkl. moms efter ev. öresavrundning).
-- FAKTURA ELLER KREDITFAKTURA: avgör uttryckligen om underlaget är en vanlig faktura ("debit") eller en kreditfaktura/kreditnota ("credit"). Sätt invoice_type, is_credit_invoice och credit_evidence (ordet/uttrycket som avgjorde, t.ex. "Kreditfaktura", "Kreditnota", "Kreditering", "Krediteras", "Att erhålla", "Credit note").
-- KREDITFAKTURA: returnera belopp_inkl_moms och moms_belopp som NEGATIVA tal, och OMVÄND kontering: KREDIT kostnadskonto (netto), KREDIT ingående moms (2640/2641), DEBET 2440 leverantörsskulder (= beloppet "Att erhålla"/återbetalas). Summa debet = summa kredit ska fortfarande gälla (positiva belopp i debet/kredit-kolumnerna).
-- Förväxla INTE kreditfaktura med betalkredit, kreditvillkor, kredittid, kreditgräns eller kreditkort – sådant gör INTE underlaget till en kreditfaktura.
-- DUBBELRÄKNA ALDRIG: bokför kostnaden som EN nettorad. Om fakturan visar både enskilda fakturarader OCH en delsumma/"Summa exkl moms", använd ENBART delsumman (raderna ingår redan i den). Summan av alla debet-kostnadsrader måste vara exakt = netto (summa exkl moms).
-- ÖRESAVRUNDNING: om fakturan har "Öresavrundning"/"Öresutjämning" (t.ex. −0,25), lägg en egen rad på konto 3740 Öres- och kronutjämning. Avrundat NEDÅT (negativt) => kredit 3740; uppåt (positivt) => debet 3740. 2440 ska krediteras med "Att betala", inte netto+moms.
-- En rad får ALDRIG ha både debet och kredit – välj en sida.
-- KONTROLLERA före svar: summa debet = summa kredit (annars justera). Kredit 2440 = beloppet "Att betala".
-- För ett kontantkvitto: kreditera 1910 Kassa eller 1930 Företagskonto istället för 2440.
-- För insättningskvitto (kontanter till banken): debet 1930 Företagskonto, kredit 1910 Kassa.
-- Föredra 2640 Ingående moms (inte 2641) om båda finns i kontoplanen.
-- Sätt momssats till 25, 12, 6 eller 0.
-- beskrivning: kort, t.ex. leverantörens namn + vad det avser.
-- fakturanummer: läs ut fakturans nummer (märkt "Fakturanummer", "Faktnr" eller liknande).
-- ocr: läs ut OCR-numret som anges vid betalning (märkt "OCR" – ofta en längre sifferföljd, ibland samma som referens). Lämna tomt om det inte finns.
-- org_nr: leverantörens organisationsnummer om det framgår.
-- bankgiro/plusgiro/iban/bic: leverantörens betaluppgifter om de framgår.
-- vat_nummer: leverantörens momsregistreringsnummer (VAT) om det framgår.
-- leverantor_adress / leverantor_postnr / leverantor_ort / leverantor_land / leverantor_telefon / leverantor_epost / leverantor_webb: leverantörens (AVSÄNDARENS/säljarens) kontakt- och adressuppgifter.
-- VIKTIGT: extrahera ALLTID leverantörens/säljarens uppgifter – ALDRIG mottagarens/köparens (den som fakturan är ställd till). Lämna fält tomma om de inte framgår.
-- Blanda inte ihop fakturanummer och OCR – de är olika fält.
-
-KONTOPLAN (aktiva konton):
-${kontoplan}`
-
-    const geminiResp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: base64 } }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: SCHEMA,
-            temperature: 0,
-            thinkingConfig: { thinkingBudget: 0 }, // stäng av reasoning -> snabbare
-          },
-        }),
-      },
-    )
-
-    if (!geminiResp.ok) {
-      const errText = await geminiResp.text()
-      throw new Error(`Gemini-fel (${geminiResp.status}): ${errText.slice(0, 300)}`)
-    }
-
-    const gj = await geminiResp.json()
-    const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) throw new Error('Tomt svar från Gemini')
-    const result = JSON.parse(text)
+    // Gemini-OCR via den delade modulen (samma schema/prompt som inbound-email).
+    const result = await runGeminiOcr({ apiKey: GEMINI_API_KEY, base64, mimeType, kontoplan })
 
     // Plan-enforcement (soft): registrera AI-användning + kontrollera/varna. Blockerar aldrig OCR.
     try {

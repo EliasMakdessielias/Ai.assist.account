@@ -16,10 +16,15 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCompanyServiceState, isServiceLocked } from '../_shared/serviceState.ts'
+import { categoryFromTolkning, isOcrableFile, runGeminiOcr } from '../_shared/ocr.ts'
 
 const BUCKET = 'underlag'
 const INBOX_DOMAIN = 'bokpilot.se'
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024
+// OCR vid mottagning (innehållsbaserad sortering): begränsa så mottagningen aldrig blir
+// långsam/dyr. Större filer eller bilagor utöver gränsen sorteras på filnamn i stället.
+const OCR_MAX_BYTES = 15 * 1024 * 1024
+const OCR_MAX_PER_EMAIL = 10
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'docx']
 const ALLOWED_MIME = [
   'application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'image/heif',
@@ -121,6 +126,12 @@ function base64ToBytes(b64: string): Uint8Array {
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
   return out
 }
+// Aktiva konton som "nr namn"-rader (underlag till Geminis konteringsförslag).
+async function kontoplanText(admin: any, companyId: string): Promise<string> {
+  const { data } = await admin.from('accounts')
+    .select('account_nr, name').eq('company_id', companyId).eq('is_active', true).order('account_nr')
+  return (data || []).map((a: any) => `${a.account_nr} ${a.name}`).join('\n')
+}
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
@@ -128,6 +139,7 @@ Deno.serve(async (req) => {
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
   const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const SECRET = Deno.env.get('INBOUND_EMAIL_WEBHOOK_SECRET') || Deno.env.get('INBOUND_WEBHOOK_SECRET') || ''
+  const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || ''
   const admin = createClient(SUPABASE_URL, SERVICE_KEY)
   if (!SECRET) {
     // Saknad secret = konfigurationsfel (inte en vanlig felaktig signatur). Notifiera admins.
@@ -215,7 +227,11 @@ Deno.serve(async (req) => {
   }
   const results: any[] = []
 
-  // 3) En inkorgspost per bilaga (klassificeras separat).
+  // 3) En inkorgspost per bilaga (klassificeras separat). PDF/bild OCR:as för
+  //    innehållsbaserad sortering; kontoplanen hämtas en gång (lat) och OCR-resultatet
+  //    sparas så att underlaget redan är tolkat i Inkorgen.
+  let kontoplanCache: string | null = null
+  let ocrCount = 0
   for (const a of attachments) {
     const filename = (a.filename || 'bilaga').toString()
     const size = Number(a.size) || (a.contentBase64 ? Math.floor(a.contentBase64.length * 0.75) : 0)
@@ -228,7 +244,8 @@ Deno.serve(async (req) => {
       results.push({ filename, status: 'unsupported' }); continue
     }
 
-    const cls = classify({ filename, mimeType: a.contentType, subject, bodyText }, true)
+    // Första gissning på filnamn/ämne/text (faller tillbaka hit om OCR ej körs/misslyckas).
+    let cls = classify({ filename, mimeType: a.contentType, subject, bodyText }, true)
     let storage_path: string | null = null
     if (a.contentBase64) {
       const safe = filename.replace(/[^\w.\-]+/g, '_')
@@ -237,9 +254,27 @@ Deno.serve(async (req) => {
       if (up.error) await reportErr(admin, 'storage_upload_failure', up.error.message, 'warning', { filename: safe }, companyId)
       else storage_path = path
     }
-    const ins = await admin.from('documents').insert({ ...base, storage_path, file_name: filename, mime_type: a.contentType || null, file_size: size, kategori: cls.type, confidence: cls.confidence, status: cls.status })
+
+    // Innehållsbaserad sortering: OCR-läs PDF/bild och låt tolkningens `typ` styra kategorin.
+    // Best-effort – fel/kvot/timeout stoppar ALDRIG mottagningen, då behålls filnamnsklassningen.
+    let tolkning: unknown = null
+    let tolkad = false
+    if (storage_path && a.contentBase64 && GEMINI_API_KEY && isOcrableFile(a.contentType, filename) && size <= OCR_MAX_BYTES && ocrCount < OCR_MAX_PER_EMAIL) {
+      try {
+        if (kontoplanCache === null) kontoplanCache = await kontoplanText(admin, companyId)
+        const result = await runGeminiOcr({ apiKey: GEMINI_API_KEY, base64: a.contentBase64, mimeType: a.contentType || 'application/pdf', kontoplan: kontoplanCache })
+        ocrCount++
+        tolkning = result
+        tolkad = true
+        const k = categoryFromTolkning(result)
+        if (k) cls = k   // innehåll vinner över filnamn
+        try { await admin.rpc('record_ai_usage', { p_company_id: companyId, p_kind: 'ocr' }) } catch { /* soft */ }
+      } catch { /* best-effort: behåll filnamnsklassningen */ }
+    }
+
+    const ins = await admin.from('documents').insert({ ...base, storage_path, file_name: filename, mime_type: a.contentType || null, file_size: size, kategori: cls.type, confidence: cls.confidence, status: cls.status, tolkning, tolkad })
     if (ins.error) await reportErr(admin, 'db_insert_failure', ins.error.message, 'error', { table: 'documents' }, companyId)
-    results.push({ filename, type: cls.type, confidence: cls.confidence, status: cls.status })
+    results.push({ filename, type: cls.type, confidence: cls.confidence, status: cls.status, tolkad })
   }
 
   // 4) Inga bilagor -> en post som behöver granskas (kroppen sparas).

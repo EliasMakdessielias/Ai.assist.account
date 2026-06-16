@@ -66,3 +66,22 @@ export function classifyDocument(input = {}, opts = {}) {
   const status = confidence >= CLASSIFIED_THRESHOLD ? 'classified' : 'needs_review'
   return { type: best, confidence, status }
 }
+
+// Mappar ett OCR-/tolkningsresultat (från tolka-underlag) till inkorgskategori. Gemini
+// sätter `typ`: leverantorsfaktura | kvitto | insattningskvitto | ovrigt. Innehållet är
+// en starkare signal än filnamn → används för automatisk sortering vid mottagning.
+// Returnerar { type, confidence, status } när typen är entydig, annars null (då faller
+// anroparen tillbaka på nyckelordsklassningen i classifyDocument). En spegel finns i
+// supabase/functions/_shared/ocr.ts – håll dem i synk.
+export const OCR_TYPE_TO_CATEGORY = {
+  leverantorsfaktura: 'leverantorsfaktura',
+  kvitto: 'kvitto',
+  insattningskvitto: 'kvitto',
+}
+
+export function categoryFromTolkning(result = {}) {
+  const typ = String(result?.typ ?? '').trim().toLowerCase()
+  const cat = OCR_TYPE_TO_CATEGORY[typ]
+  if (!cat) return null
+  return { type: cat, confidence: 0.95, status: 'classified' }
+}
