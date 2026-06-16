@@ -16,7 +16,7 @@ Storage, Edge Functions). AI via Google Gemini (2.5-flash-lite) i edge functions
   - **app.bokpilot.se** → appen (inloggning + allt). **LIVE** (HTTP 200, SSL ok).
   - Ett enda Vercel-projekt (`bokpilot-app`, omdöpt från `bocker-app`) servar både apex och subdomän — värd-medveten kod avgör vad som visas. Auto-deploy från GitHub `main` (~20 s).
   - **bokpilot-app.vercel.app** fungerar också; gamla **bocker-app.vercel.app** 308-redirectar dit.
-  - **DNS (Cloudflare, ALLA grå/DNS only):** apex `A @ 216.198.79.1` + `A @ 64.29.17.1` (gamla Hostinger A- och AAAA-poster borttagna); `CNAME www → 9d82a088ae1ed246.vercel-dns-017.com`; `CNAME app → 9d82a088ae1ed246.vercel-dns-017.com`. Mail-poster (MX/SPF/DMARC/autoconfig/autodiscover/hostingermail/ftp) lämnade orörda (Hostinger e-post).
+  - **DNS (Cloudflare, ALLA grå/DNS only):** apex `A @ 216.198.79.1` + `A @ 64.29.17.1` (gamla Hostinger A- och AAAA-poster borttagna); `CNAME www → 9d82a088ae1ed246.vercel-dns-017.com`; `CNAME app → 9d82a088ae1ed246.vercel-dns-017.com`. **Apex-MX är flyttat till Cloudflare Email Routing** (`MX → route1/2/3.mx.cloudflare.net`, SPF `include:_spf.mx.cloudflare.net`) för inkommande underlag — en catch-all kör Email Worker `bokpilot-inbound-email`. Hostinger är INTE längre MX för apex; riktiga brevlådor (info@/support@/admin@bokpilot.se) måste läggas som Custom address-forwards i Email Routing om de ska tas emot. Se `docs/inbound-email.md` + `cloudflare/inbound-email-worker/`.
   - STATUS (2026-06-05): app.bokpilot.se live. apex bokpilot.se: DNS korrekt, Vercel utfärdar SSL-cert (kan ta några min) → blir live automatiskt.
   - Supabase Auth: lägg till `https://app.bokpilot.se/**` i redirect-allowlist (inloggning sker nu på subdomänen); Site URL ev. `https://app.bokpilot.se`. Tidigare allowlist: `https://bokpilot.se/**, https://www.bokpilot.se/**, https://bokpilot-app.vercel.app/**, http://localhost:5173/**`.
 - Supabase project ref: `bypebgvxdmbzxqecllao`
@@ -70,7 +70,9 @@ Hemlighet `GEMINI_API_KEY` i Edge Function-secrets. (Användaren planerar flytta
 - Deklarations-/deadlinekalender (moms, AGI, F-skatt, årsredovisning).
 - Bygga ut stub-sidor: Lön, Produkter, Kunder (delvis), Dashboard, Rapporter.
 - Anpassa fler företagsinställningar att styra logik (öresavrundning, utskriftskryss).
-- Egen domän/inbound-mail för riktig inmejlning till Inkorgen.
+- ~~Egen domän/inbound-mail för riktig inmejlning till Inkorgen.~~ **KLART** (2026-06-16):
+  Cloudflare Email Routing catch-all → Email Worker → edge `inbound-email`. Kräver att
+  workern har secret `INBOUND_EMAIL_WEBHOOK_SECRET` = edge-funktionens (byte-identiskt).
 
 ## Så fortsätter du på nya datorn
 1. `git pull` (hämta senaste).

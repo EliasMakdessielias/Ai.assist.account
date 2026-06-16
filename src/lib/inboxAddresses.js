@@ -1,7 +1,7 @@
-// Delad logik för företagets EN inbound-mottagningsadress (bpilot.se).
+// Delad logik för företagets EN inbound-mottagningsadress (bokpilot.se).
 // Används av UI, tester och – i en egen kopia – av edge-funktionen inbound-email.
 //
-// Format: {archiveNumber}.underlag@bpilot.se   (t.ex. 8063151.underlag@bpilot.se)
+// Format: {archiveNumber}underlag@bokpilot.se   (t.ex. 8063151underlag@bokpilot.se)
 // Adressen är ENBART inbound: ingen inloggning, inget lösenord, ingen utgående post.
 // Klassificering av varje bilaga görs vid mottagning (se classifyDocument.js).
 

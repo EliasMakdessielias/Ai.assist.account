@@ -17,7 +17,7 @@ som routing-mål för inkommande e-post. Varje **bilaga klassificeras automatisk
 ## Arkitektur
 
 ```
-Avsändare ──▶ MX (arkiv.bokpilot.se) ──▶ Cloudflare Email Routing
+Avsändare ──▶ MX (bokpilot.se → Cloudflare) ──▶ Cloudflare Email Routing (catch-all)
             ──▶ Email Worker (parsar + signerar HMAC)
             ──▶ POST https://<ref>.supabase.co/functions/v1/inbound-email
             ──▶ Edge function: verifierar signatur, slår upp företag via arkivnummer,
@@ -31,28 +31,27 @@ inbound-provider (Mailgun Routes, SendGrid Inbound Parse, Postmark Inbound) kan
 användas i stället för Cloudflare – relät behöver bara posta samma JSON och
 beräkna signaturen.
 
-## 1. DNS / e-postinfrastruktur (KRÄVER BESLUT – krav 12–15)
+## 1. DNS / e-postinfrastruktur (IMPLEMENTERAT – Cloudflare Email Routing)
 
 Adressen är `{archiveNumber}underlag@bokpilot.se` på **apex** `bokpilot.se`.
 
-> ⚠️ **MX är domänomfattande – det går INTE att routa enbart `…underlag@bokpilot.se`
-> till webhooken och låta övrig @bokpilot.se ligga kvar på Hostinger via MX.** Apexen
-> har `MX → mx1/mx2.hostinger.com` (befintlig e-post, inkl. inloggningen
-> `admin@bokpilot.se`). All apex-post följer samma MX. Per krav 14: **apex-MX rörs inte.**
+**Lösningen som körs i produktion (bekräftad 2026-06-16):** apex-MX är flyttat till
+**Cloudflare Email Routing**. `MX bokpilot.se → route1/route2/route3.mx.cloudflare.net`
+och `TXT … v=spf1 include:_spf.mx.cloudflare.net ~all`. En **catch-all-regel** i Email
+Routing tar emot ALLA adresser på domänen och kör Email Worker `bokpilot-inbound-email`
+(se sektion 2 / `cloudflare/inbound-email-worker/`). Workern släpper bara igenom
+`{siffror}underlag@bokpilot.se` och avvisar övrigt — ett enda flöde, obegränsat antal företag.
 
-Två säkra sätt att ändå få `…underlag@bokpilot.se` att tas emot (välj ett):
+> ⚠️ **Catch-all → Worker skickar ALL @bokpilot.se-post till workern.** Vill man behålla
+> riktiga brevlådor (t.ex. `info@`, `support@`, `admin@bokpilot.se`) måste de läggas som
+> egna **Custom address**-regler i Email Routing som forwardar till respektive brevlåda —
+> Cloudflare matchar custom-regler före catch-all. Annars avvisar workern dem som "Unknown
+> recipient". (Hostinger är inte längre MX för apex.)
 
-1. **Hostinger-forward (apex-MX orört, säkrast).** Hostinger fortsätter vara MX för
-   apex. I Hostingers e-postpanel skapas en forward/catch-all-regel som vidarebefordrar
-   `*underlag@bokpilot.se` till en inbound-parse-adress hos en provider (Mailgun/Postmark)
-   som postar till webhooken nedan. Övriga @bokpilot.se-mailboxar påverkas inte.
-2. **Flytta ALL @bokpilot.se till en provider/Cloudflare** som både levererar/forwardar
-   befintliga adresser OCH catch-all:ar `*underlag@` till webhooken. Då blir Hostinger-
-   mailboxarna forward-only (apex-MX byts) – kräver lista på alla befintliga adresser.
-
-Alternativ fallback (om apex inte kan lösas säkert): kör adressen på en **subdomän**
-(`…underlag@in.bokpilot.se`) med egen MX → provider. Apex orört. (Kräver formatändring
-→ endast efter godkännande, krav 15.)
+Det interna webhook-kontraktet (sektion 2/3) är fortfarande provider-agnostiskt, så en annan
+inbound-provider (Mailgun/SendGrid/Postmark) kan ersätta Cloudflare utan kodändring –
+relät behöver bara posta samma JSON + HMAC-signatur. Subdomän (`…underlag@in.bokpilot.se`)
+finns kvar som möjlig fallback men behövs inte med nuvarande Cloudflare-setup.
 
 ## 2. Cloudflare Email Worker
 
@@ -111,7 +110,7 @@ supabase functions deploy inbound-email --no-verify-jwt --project-ref bypebgvxdm
 Funktionen (`supabase/functions/inbound-email/index.ts`):
 
 1. Verifierar `X-Bokpilot-Signature` (HMAC-SHA256, konstant-tids-jämförelse).
-2. Tolkar mottagaradressen → arkivnummer (`{archiveNumber}.ulag@arkiv.bokpilot.se`).
+2. Tolkar mottagaradressen → arkivnummer (`{archiveNumber}underlag@bokpilot.se`).
    Okänd domän/format → `inbound_email_log.status = 'rejected'`, svarar 200.
 3. Slår upp `inbox_addresses` (måste finnas **och** vara `is_active`). Annars `rejected`.
 4. Per bilaga: validerar (allowlist pdf/jpg/jpeg/png/heic/heif/docx, max 25 MB,
