@@ -10,7 +10,8 @@ import { serie } from '../lib/serier'
 import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude, syncRowsWithHeader, isIngaendeMomsKonto } from '../lib/leverantorsfaktura'
 import { validateLevfaktura } from '../lib/levfakturaValidering'
 import { effektivNiva, granskningskravda } from '../lib/faltSakerhet'
-import { samlaKorrigeringar, larDefaultMotkonto } from '../lib/larande'
+import { samlaKorrigeringar } from '../lib/larande'
+import { belopptyp, bestRuleFor, findMatchingRule, ruleConfidence, rulesFromKontering, RULE_AUTOFILL } from '../lib/supplierRules'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -61,6 +62,9 @@ export default function NyLeverantorsfaktura() {
   const [faltSak, setFaltSak] = useState(null)               // per-fält säkerhet 0–1 från AI-tolkningen
   const [verifierat, setVerifierat] = useState({})           // fält som användaren ändrat/bekräftat
   const [originalTolkning, setOriginalTolkning] = useState(null) // AI-resultatet (för lärande: original→slutvärde)
+  const [supplierRules, setSupplierRules] = useState([])     // inlärda konteringsregler för vald leverantör
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const applForslagRef = useRef(null)                        // visat/tillämpat regelförslag (för ändringsdetektion)
   const markVerifierat = f => setVerifierat(v => { const next = { ...v }; (Array.isArray(f) ? f : [f]).forEach(x => { next[x] = true }); return next })
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
@@ -148,6 +152,106 @@ export default function NyLeverantorsfaktura() {
     })()
     return () => { cancelled = true }
   }, [company?.id, supplierId])
+
+  // Hämta leverantörens inlärda konteringsregler. Auto-fyll kostnadskontot vid hög confidence
+  // OM ingen kostnadsrad redan är satt (skriver aldrig över OCR/manuell kontering).
+  useEffect(() => {
+    if (!company || !supplierId) { setSupplierRules([]); return }
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase.from('supplier_accounting_rules')
+        .select('*').eq('company_id', company.id).eq('supplier_id', supplierId)
+        .order('confidence_score', { ascending: false })
+      if (cancelled) return
+      const list = data || []
+      setSupplierRules(list)
+      const best = bestRuleFor(list, { invoiceCategory: kreditfaktura ? 'kredit' : 'debit', keyword: originalTolkning?.beskrivning || '' })
+      if (best && (best.confidence_score || 0) >= RULE_AUTOFILL) {
+        setRows(rs => {
+          if (rs.some(r => r.konto && belopptyp(r.konto) === 'kostnad')) return rs   // skriv inte över befintlig kontering
+          const idx = rs.findIndex(r => !r.konto)
+          if (idx < 0) return rs
+          const n = rs.map((r, i) => i === idx ? { ...r, konto: best.account_number, namn: accMap[best.account_number] || best.account_name || '' } : r)
+          if (idx === n.length - 1) n.push(emptyRow())
+          return n
+        })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [company?.id, supplierId])
+
+  // Bästa regelförslag för aktuell kontext (leverantör + fakturatyp + beskrivning).
+  const forslag = useMemo(
+    () => bestRuleFor(supplierRules, { invoiceCategory: kreditfaktura ? 'kredit' : 'debit', keyword: originalTolkning?.beskrivning || '' }),
+    [supplierRules, kreditfaktura, originalTolkning])
+  useEffect(() => { applForslagRef.current = forslag || null }, [forslag])
+
+  // Tillämpa ett regelförslag på en ledig/kostnadsrad (godkänn förslaget).
+  function applyForslag(rule) {
+    if (!rule) return
+    setRows(rs => {
+      let idx = rs.findIndex(r => !r.konto)
+      if (idx < 0) idx = rs.findIndex(r => belopptyp(r.konto) === 'kostnad')
+      if (idx < 0) return rs
+      const n = rs.map((r, i) => i === idx ? { ...r, konto: rule.account_number, namn: accMap[rule.account_number] || rule.account_name || '' } : r)
+      if (idx === n.length - 1) n.push(emptyRow())
+      return n
+    })
+  }
+
+  async function toggleRule(r) {
+    const status = r.status === 'disabled' ? 'active' : 'disabled'
+    await supabase.from('supplier_accounting_rules').update({ status, updated_by: user.id, updated_at: new Date().toISOString() }).eq('id', r.id)
+    setSupplierRules(rs => rs.map(x => x.id === r.id ? { ...x, status } : x))
+  }
+  async function deleteRule(r) {
+    if (!window.confirm(`Radera den inlärda regeln ${r.account_number}${accMap[r.account_number] ? ' – ' + accMap[r.account_number] : ''} för denna leverantör?`)) return
+    await supabase.from('supplier_accounting_rules').delete().eq('id', r.id)
+    setSupplierRules(rs => rs.filter(x => x.id !== r.id))
+  }
+
+  // Analysera den slutligt godkända konteringen och spara/uppdatera inlärda regler (best-effort).
+  async function larSupplierRules(krows) {
+    if (!supplierId) return
+    const netto = amountMagnitude(total) - amountMagnitude(moms)
+    const vatRate = netto > 0 ? Math.round(amountMagnitude(moms) / netto * 100) : null
+    const invoice_category = kreditfaktura ? 'kredit' : 'debit'
+    const document_type = originalTolkning?.typ || 'leverantorsfaktura'
+    const candidates = rulesFromKontering(krows, { vat_rate: vatRate })
+    if (!candidates.length) return
+    const skip = new Set()
+    // Ändrade användaren ett visat/inlärt förslag? → sänk gamla regelns confidence + fråga om ny regel.
+    const fr = applForslagRef.current
+    const primaryCost = krows.find(r => belopptyp(r.nr) === 'kostnad')
+    if (fr && primaryCost && String(primaryCost.nr) !== String(fr.account_number)) {
+      const cc = (fr.correction_count || 0) + 1
+      await supabase.from('supplier_accounting_rules').update({
+        correction_count: cc, confidence_score: ruleConfidence({ confirmation_count: fr.confirmation_count, correction_count: cc }),
+        updated_by: user.id, updated_at: new Date().toISOString(),
+      }).eq('id', fr.id)
+      if (!window.confirm(`Du ändrade det föreslagna kontot ${fr.account_number} till ${primaryCost.nr}. Spara ${primaryCost.nr} som ny regel för framtida fakturor från ${supplier?.name || 'leverantören'}?`)) skip.add(String(primaryCost.nr))
+    }
+    for (const c of candidates) {
+      if (skip.has(c.account_number)) continue
+      const match = findMatchingRule(supplierRules, { invoice_category, line_keyword: c.line_keyword, account_number: c.account_number })
+      if (match) {
+        const cnt = (match.confirmation_count || 0) + 1
+        await supabase.from('supplier_accounting_rules').update({
+          confirmation_count: cnt, confidence_score: ruleConfidence({ confirmation_count: cnt, correction_count: match.correction_count }),
+          account_name: c.account_name || match.account_name, vat_account: c.vat_account, vat_rate: c.vat_rate,
+          allocation_pattern: { share: c.allocation_share }, status: 'active', updated_by: user.id, updated_at: new Date().toISOString(),
+        }).eq('id', match.id)
+      } else {
+        await supabase.from('supplier_accounting_rules').insert({
+          company_id: company.id, supplier_id: supplierId, supplier_name: supplier?.name || null, supplier_org_number: supplier?.org_nr || null,
+          document_type, invoice_category, line_keyword: c.line_keyword, account_number: c.account_number, account_name: c.account_name,
+          vat_account: c.vat_account, vat_rate: c.vat_rate, allocation_pattern: { share: c.allocation_share }, belopp_type: 'kostnad',
+          confirmation_count: 1, correction_count: 0, confidence_score: ruleConfidence({ confirmation_count: 1 }), status: 'active',
+          created_by: user.id, updated_by: user.id,
+        })
+      }
+    }
+  }
 
   async function reloadSuppliers() {
     const { data } = await supabase.from('suppliers').select('id, name, org_nr, bankgiro, default_motkonto').eq('company_id', company.id).order('name')
@@ -462,12 +566,6 @@ export default function NyLeverantorsfaktura() {
               })))
             }
           }
-          // Lär leverantörens kostnadskonto: skiljer sig det bokförda kontot från standardkontot → fråga.
-          const lartKonto = larDefaultMotkonto(krows, kreditfaktura)
-          if (lartKonto && supplier && lartKonto !== supplier.default_motkonto &&
-            window.confirm(`Vill du spara konto ${lartKonto}${accMap[lartKonto] ? ' – ' + accMap[lartKonto] : ''} som standardkonto för framtida fakturor från ${supplier.name}?`)) {
-            await supabase.from('suppliers').update({ default_motkonto: lartKonto }).eq('id', supplierId).eq('company_id', company.id)
-          }
         } catch { /* lärande är icke-kritiskt */ }
 
         toast.success(`Leverantörsfaktura bokförd (${ver.ver_nr})`)
@@ -475,6 +573,8 @@ export default function NyLeverantorsfaktura() {
         if (attachIds.length) toast('Sparad – bilden kopplas när fakturan bokförs', { icon: 'ℹ️' })
         else toast.success('Leverantörsfaktura sparad')
       }
+      // Lärande regelmotor (Spara + Bokför): analysera slutlig kontering → spara/uppdatera regler.
+      try { await larSupplierRules(krows) } catch { /* regelinlärning icke-kritisk */ }
       navigate('/leverantorsfakturor')
     } catch (e) { toast.error('Fel: ' + e.message) }
     setSaving(false)
@@ -714,6 +814,42 @@ export default function NyLeverantorsfaktura() {
             </div>
           )}
         </div>
+
+        {/* Inlärda konteringsregler – hantera (godkänn/inaktivera/radera) */}
+        {supplierId && supplierRules.length > 0 && (
+          <div className="border-b mb-5" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+            <button className="flex items-center gap-2 text-sm font-medium text-gray-700 py-2 w-full" onClick={() => setRulesOpen(o => !o)}>
+              <i className={`ti ti-chevron-${rulesOpen ? 'down' : 'right'} text-green-700`} /> Inlärda konteringsregler
+              <span className="ml-1 text-[10px] font-semibold bg-purple-100 text-purple-700 px-1.5 rounded-full">{supplierRules.length}</span>
+            </button>
+            {rulesOpen && (
+              <div className="pb-4 space-y-1.5 max-w-2xl">
+                <p className="text-[13px] text-gray-500 mb-1">Konton systemet lärt sig för denna leverantör. Inaktivera eller radera en felaktig regel.</p>
+                {supplierRules.map(r => (
+                  <div key={r.id} className={`flex items-center gap-2 text-sm rounded-lg px-3 py-2 ${r.status === 'disabled' ? 'bg-gray-50 text-gray-400' : 'bg-white'}`} style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+                    <span className="tabular-nums font-medium shrink-0">{r.account_number}</span>
+                    <span className="text-gray-600 truncate flex-1">{accMap[r.account_number] || r.account_name || ''}{r.line_keyword ? ` · ${r.line_keyword}` : ''}</span>
+                    <span className="text-xs text-gray-400 shrink-0" title="Antal bekräftelser · säkerhet">{r.confirmation_count}× · {Math.round((r.confidence_score || 0) * 100)}%</span>
+                    <button className="text-xs text-gray-500 hover:text-gray-800 shrink-0" onClick={() => toggleRule(r)}>{r.status === 'disabled' ? 'Aktivera' : 'Inaktivera'}</button>
+                    <button className="text-xs text-red-600 hover:text-red-800 shrink-0" onClick={() => deleteRule(r)}>Radera</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Inlärt kontoförslag för denna leverantör */}
+        {forslag && (
+          <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-2 text-[13px] text-blue-800">
+            <i className="ti ti-sparkles text-blue-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <span>Föreslaget från tidigare bokföringar för denna leverantör: <b>{forslag.account_number} {accMap[forslag.account_number] || forslag.account_name || ''}</b>{forslag.line_keyword ? ` (${forslag.line_keyword})` : ''}.</span>{' '}
+              <span className="text-blue-600/80">Använt {forslag.confirmation_count} gång{forslag.confirmation_count === 1 ? '' : 'er'} · säkerhet {Math.round((forslag.confidence_score || 0) * 100)} %{(forslag.confidence_score || 0) >= RULE_AUTOFILL ? ' · ifyllt automatiskt' : ''}.</span>
+            </div>
+            <button className="text-blue-700 font-medium hover:underline shrink-0" onClick={() => applyForslag(forslag)}>Använd</button>
+          </div>
+        )}
 
         {/* Tabbar */}
         <div className="flex gap-1 mb-0">
