@@ -137,12 +137,11 @@ export default function StartGuide() {
             <div>
               <h2 className="text-lg font-bold mb-1">Bokföringsmetod</h2>
               <p className="text-sm text-gray-500 mb-4">Hur ska affärshändelser bokföras?</p>
-              {[{ key: 'faktura', titel: 'Faktureringsmetoden', desc: 'Bokför fordran/skuld redan när fakturan skapas. Vanligast för aktiebolag.' },
-                { key: 'kontant', titel: 'Kontantmetoden (bokslutsmetoden)', desc: 'Bokför vid betalning. Tillåts för mindre företag (oms < 3 mkr).' }].map(o => (
+              {[{ key: 'faktura', titel: 'Faktureringsmetoden' },
+                { key: 'kontant', titel: 'Kontantmetoden (bokslutsmetoden)' }].map(o => (
                 <button key={o.key} onClick={() => set('bokforingsmetod', o.key)}
                   className={`w-full text-left rounded-lg p-3 border-2 mb-2 transition-colors ${f.bokforingsmetod === o.key ? 'border-blue-600 bg-blue-50/50' : 'border-gray-200 hover:border-gray-300'}`}>
-                  <div className="flex items-center gap-2 mb-0.5"><i className={`ti ${f.bokforingsmetod === o.key ? 'ti-circle-check-filled text-blue-600' : 'ti-circle text-gray-300'}`} /><span className="text-sm font-medium">{o.titel}</span></div>
-                  <div className="text-xs text-gray-500 ml-6">{o.desc}</div>
+                  <div className="flex items-center gap-2"><i className={`ti ${f.bokforingsmetod === o.key ? 'ti-circle-check-filled text-blue-600' : 'ti-circle text-gray-300'}`} /><span className="text-sm font-medium">{o.titel}</span></div>
                 </button>
               ))}
             </div>
