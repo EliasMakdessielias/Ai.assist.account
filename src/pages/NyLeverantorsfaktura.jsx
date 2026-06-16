@@ -9,6 +9,7 @@ import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
 import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude, syncRowsWithHeader, isIngaendeMomsKonto } from '../lib/leverantorsfaktura'
 import { validateLevfaktura } from '../lib/levfakturaValidering'
+import { effektivNiva, granskningskravda } from '../lib/faltSakerhet'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -56,6 +57,9 @@ export default function NyLeverantorsfaktura() {
   const [prevKontering, setPrevKontering] = useState(null)   // { invoice, ver, rows, doc } från senaste bokförda fakturan
   const [prevOpen, setPrevOpen] = useState(false)
   const [prevLoading, setPrevLoading] = useState(false)
+  const [faltSak, setFaltSak] = useState(null)               // per-fält säkerhet 0–1 från AI-tolkningen
+  const [verifierat, setVerifierat] = useState({})           // fält som användaren ändrat/bekräftat
+  const markVerifierat = f => setVerifierat(v => { const next = { ...v }; (Array.isArray(f) ? f : [f]).forEach(x => { next[x] = true }); return next })
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   useEffect(() => { if (company) init() }, [company?.id])
@@ -248,9 +252,22 @@ export default function NyLeverantorsfaktura() {
     })
   }
 
+  // Per-fält säkerhet → granskningsspärr. Nollställs/sätts vid varje tolkning.
+  const kravLista = useMemo(() => granskningskravda({ faltSak, verifierat, supplierId }), [faltSak, verifierat, supplierId])
+  // Liten färgprick vid osäkra fält (gul = granska, röd = osäker). Grön/verifierad döljs.
+  const SakDot = ({ field }) => {
+    if (!faltSak) return null
+    const n = effektivNiva(field, { faltSak, verifierat, supplierId })
+    if (!n || n === 'ok') return null
+    const röd = n === 'osaker'
+    return <span title={röd ? 'Låg säkerhet – granska mot underlaget innan bokföring' : 'Behöver granskas'}
+      className="inline-block w-2 h-2 rounded-full ml-1 align-middle" style={{ background: röd ? '#dc2626' : '#eab308' }} />
+  }
+
   // Fyll i fakturan från AI-tolkningen (bokför inte).
   function fyllFranTolkning(result) {
     if (!result) return
+    setFaltSak(result.falt_sakerhet || null); setVerifierat({})
     const datum = result.fakturadatum || result.datum
     if (datum && /^\d{4}-\d{2}-\d{2}$/.test(datum)) setFakturadatum(datum)
     if (result.forfallodatum && /^\d{4}-\d{2}-\d{2}$/.test(result.forfallodatum)) setForfallodatum(result.forfallodatum)
@@ -361,6 +378,8 @@ export default function NyLeverantorsfaktura() {
     const { errors, warnings } = validateLevfaktura({ total, moms, fakturadatum, forfallodatum })
     if (bokfor && errors.length) return toast.error(errors[0])
     warnings.forEach(w => toast(w, { icon: '⚠️', duration: 6000 }))
+    // Granskningsspärr: osäkra kritiska fält (låg AI-säkerhet) måste granskas/bekräftas före bokföring.
+    if (bokfor && kravLista.length) return toast.error(`Granska och bekräfta dessa osäkra fält innan du bokför: ${kravLista.map(k => k.label).join(', ')}.`)
     // Dubblettkoll mot databasen – bekräfta innan vi skapar/bokför en möjlig dubblett.
     const dup = await findDuplicateInvoice()
     if (dup && !window.confirm(`Det finns redan en faktura med nummer "${fakturanummer.trim()}" från samma leverantör${dup.bokford ? ' (redan bokförd)' : ''}.\n\nVill du fortsätta ändå?`)) return
@@ -494,6 +513,23 @@ export default function NyLeverantorsfaktura() {
       </div>
 
       <div className="p-7">
+        {kravLista.length > 0 && (
+          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm text-red-800">
+            <i className="ti ti-alert-triangle-filled text-red-500 text-lg mt-0.5" />
+            <div className="flex-1">
+              <div className="font-medium mb-1.5">Granska osäkra fält innan du bokför</div>
+              <div className="text-[13px] text-red-700/90 mb-2">AI:n var osäker på följande fält. Kontrollera dem mot underlaget – ändra värdet eller klicka Bekräfta.</div>
+              <div className="flex flex-wrap gap-2">
+                {kravLista.map(k => (
+                  <span key={k.key} className="inline-flex items-center gap-1.5 bg-white border border-red-200 rounded-full pl-2.5 pr-1 py-0.5 text-xs">
+                    <span className="font-medium">{k.label}</span>
+                    <button className="text-green-700 hover:bg-green-50 font-medium rounded-full px-2 py-0.5" onClick={() => markVerifierat(k.fields || k.key)}>Bekräfta</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         {levForslag && !supplierId && (
           <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
             <i className="ti ti-user-question text-amber-500 text-lg" />
@@ -515,7 +551,7 @@ export default function NyLeverantorsfaktura() {
         {/* Huvuduppgifter */}
         <div className="grid grid-cols-12 gap-4 mb-2">
           <div className="col-span-4">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Leverantör</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Leverantör <SakDot field="leverantor" /></label>
             <div className="relative">
               <input id="lev-leverantor" className="input pr-8" placeholder="Leverantörsnr, Org-/Personnr, Namn, Bg/Pg"
                 value={levOpen ? levQuery : (supplier ? `${supplier.name}${supplier.org_nr ? ` · ${supplier.org_nr}` : ''}` : '')}
@@ -546,34 +582,34 @@ export default function NyLeverantorsfaktura() {
             </div>
           </div>
           <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Fakturadatum</label>
-            <input id="lev-fakturadatum" className="input" type="date" value={fakturadatum} onChange={e => setFakturadatum(e.target.value)} onKeyDown={e => hEnter(e, 'lev-forfallodatum')} />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Fakturadatum <SakDot field="fakturadatum" /></label>
+            <input id="lev-fakturadatum" className="input" type="date" value={fakturadatum} onChange={e => { setFakturadatum(e.target.value); markVerifierat('fakturadatum') }} onKeyDown={e => hEnter(e, 'lev-forfallodatum')} />
           </div>
           <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Förfallodatum</label>
-            <input id="lev-forfallodatum" className="input" type="date" value={forfallodatum} onChange={e => setForfallodatum(e.target.value)} onKeyDown={e => hEnter(e, 'lev-total')} />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Förfallodatum <SakDot field="forfallodatum" /></label>
+            <input id="lev-forfallodatum" className="input" type="date" value={forfallodatum} onChange={e => { setForfallodatum(e.target.value); markVerifierat('forfallodatum') }} onKeyDown={e => hEnter(e, 'lev-total')} />
           </div>
           <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Total</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Total <SakDot field="belopp_inkl_moms" /></label>
             <input id="lev-total" className="input text-right" inputMode="decimal" value={total}
-              onChange={e => setTotal(e.target.value)} onBlur={e => { const mag = amountMagnitude(e.target.value); setTotal(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(mag, moms) }}
+              onChange={e => { setTotal(e.target.value); markVerifierat('belopp_inkl_moms') }} onBlur={e => { const mag = amountMagnitude(e.target.value); setTotal(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(mag, moms) }}
               onKeyDown={e => hEnter(e, 'lev-moms', () => { const mag = amountMagnitude(total); setTotal(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(mag, moms) })} placeholder="0,00" />
           </div>
           <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Moms</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Moms <SakDot field="moms_belopp" /></label>
             <input id="lev-moms" className="input text-right" inputMode="decimal" value={moms}
-              onChange={e => setMoms(e.target.value)} onBlur={e => { const mag = amountMagnitude(e.target.value); setMoms(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(total, mag) }}
+              onChange={e => { setMoms(e.target.value); markVerifierat('moms_belopp') }} onBlur={e => { const mag = amountMagnitude(e.target.value); setMoms(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(total, mag) }}
               onKeyDown={e => hEnter(e, 'lev-ocr', () => { const mag = amountMagnitude(moms); setMoms(mag ? fmt(kreditfaktura ? -mag : mag) : ''); syncHeader(total, mag) })} placeholder="0,00" />
           </div>
         </div>
         <div className="grid grid-cols-12 gap-4 mb-4">
           <div className="col-span-5">
-            <label className="block text-xs font-medium text-gray-500 mb-1">OCR</label>
-            <input id="lev-ocr" className="input" value={ocr} onChange={e => setOcr(e.target.value)} onKeyDown={e => hEnter(e, 'lev-fakturanummer')} />
+            <label className="block text-xs font-medium text-gray-500 mb-1">OCR <SakDot field="ocr" /></label>
+            <input id="lev-ocr" className="input" value={ocr} onChange={e => { setOcr(e.target.value); markVerifierat('ocr') }} onKeyDown={e => hEnter(e, 'lev-fakturanummer')} />
           </div>
           <div className="col-span-4">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Fakturanummer</label>
-            <input id="lev-fakturanummer" className="input" value={fakturanummer} onChange={e => setFakturanummer(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusFirstEmptyKonto() } }} />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Fakturanummer <SakDot field="fakturanummer" /></label>
+            <input id="lev-fakturanummer" className="input" value={fakturanummer} onChange={e => { setFakturanummer(e.target.value); markVerifierat('fakturanummer') }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); focusFirstEmptyKonto() } }} />
           </div>
           <div className="col-span-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">Valuta</label>

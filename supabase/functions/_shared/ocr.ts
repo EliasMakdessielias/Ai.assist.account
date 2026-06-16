@@ -5,6 +5,14 @@
 // logik. categoryFromTolkning mappar resultatets `typ` till inkorgskategori (spegel av
 // src/lib/classifyDocument.js – håll dem i synk).
 
+// Modell + promptversion – lagras i tolkningsresultatets _meta för spårbarhet (vilken modell/
+// prompt som gav vilket resultat). Bumpa OCR_PROMPT_VERSION när prompten/schemat ändras.
+export const OCR_MODEL = 'gemini-2.5-flash-lite'
+export const OCR_PROMPT_VERSION = 'v2-2026-06-falt-sakerhet'
+
+// Kritiska fält som får per-fält-säkerhet (0–1) och som styr granskningsspärren i UI.
+export const OCR_CONFIDENCE_FIELDS = ['leverantor', 'fakturadatum', 'forfallodatum', 'belopp_inkl_moms', 'moms_belopp', 'fakturanummer', 'ocr'] as const
+
 // Strukturerat svar som Gemini ska returnera (svensk fakturatolkning + konteringsförslag).
 export const OCR_SCHEMA = {
   type: 'object',
@@ -37,6 +45,19 @@ export const OCR_SCHEMA = {
     leverantor_epost: { type: 'string', description: 'leverantörens e-postadress' },
     leverantor_webb: { type: 'string', description: 'leverantörens webbadress' },
     typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto, avtal, dokument eller ovrigt (se klassificeringsreglerna i prompten)' },
+    falt_sakerhet: {
+      type: 'object',
+      description: 'Din säkerhet 0–1 per kritiskt fält (kalibrerad och ärlig). Lägre för handskrivet/suddigt/härlett, 0 om fältet saknas i underlaget.',
+      properties: {
+        leverantor: { type: 'number' },
+        fakturadatum: { type: 'number' },
+        forfallodatum: { type: 'number' },
+        belopp_inkl_moms: { type: 'number' },
+        moms_belopp: { type: 'number' },
+        fakturanummer: { type: 'number' },
+        ocr: { type: 'number' },
+      },
+    },
     konteringsrader: {
       type: 'array',
       items: {
@@ -51,7 +72,7 @@ export const OCR_SCHEMA = {
       },
     },
   },
-  required: ['beskrivning', 'konteringsrader', 'invoice_type'],
+  required: ['beskrivning', 'konteringsrader', 'invoice_type', 'falt_sakerhet'],
 }
 
 // Bygger prompten. `kontoplan` = "nr namn"-rader för företagets aktiva konton.
@@ -84,6 +105,7 @@ Regler:
 - leverantor_adress / leverantor_postnr / leverantor_ort / leverantor_land / leverantor_telefon / leverantor_epost / leverantor_webb: leverantörens (AVSÄNDARENS/säljarens) kontakt- och adressuppgifter.
 - VIKTIGT: extrahera ALLTID leverantörens/säljarens uppgifter – ALDRIG mottagarens/köparens (den som fakturan är ställd till). Lämna fält tomma om de inte framgår.
 - Blanda inte ihop fakturanummer och OCR – de är olika fält.
+- falt_sakerhet: ange din säkerhet 0–1 för varje kritiskt fält (leverantor, fakturadatum, forfallodatum, belopp_inkl_moms, moms_belopp, fakturanummer, ocr). 1.0 = tydligt tryckt och otvetydigt; 0.80–0.94 = något otydligt eller delvis dolt; under 0.80 = härlett, handskrivet, suddigt eller en gissning; 0 = fältet saknas i underlaget. Var ÄRLIG och kalibrerad – handskrivna, suddiga eller gissade värden MÅSTE få lägre säkerhet så att en människa kan granska dem.
 
 DOKUMENTTYP (fältet "typ") – klassificera underlaget. Detta styr var det sorteras, så följ reglerna noga:
 - "kvitto": ett kassakvitto/butikskvitto som betalats DIREKT på plats (kort/kontant/swish). Känns igen på t.ex. "Kvitto", "Kassakvitto", "Köp", "ATT BETALA", "Köpbelopp", kortterminal-/betalrader (Kort, Kontaktlös, Mastercard/Visa, TERM, AID, ARQC), saknar namngiven köpare och saknar förfallodatum/OCR-nummer/bankgiro/plusgiro. Ett kassakvitto är en FÖRENKLAD FAKTURA och fullt giltigt underlag – men klassas alltid som "kvitto", ALDRIG "leverantorsfaktura", även om det har säljarens org.nr och momsspecifikation.
@@ -119,7 +141,7 @@ export async function runGeminiOcr(
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${OCR_MODEL}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,7 +164,10 @@ export async function runGeminiOcr(
     const gj = await resp.json()
     const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!text) throw new Error('Tomt svar från Gemini')
-    return JSON.parse(text)
+    const parsed = JSON.parse(text)
+    // Spårbarhet: vilken modell/promptversion gav resultatet (lagras i documents.tolkning).
+    parsed._meta = { model: OCR_MODEL, promptVersion: OCR_PROMPT_VERSION, extractedAt: new Date().toISOString() }
+    return parsed
   } finally {
     clearTimeout(timer)
   }
