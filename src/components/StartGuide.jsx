@@ -10,7 +10,6 @@ export default function StartGuide() {
   const { company, reloadCompany } = useAuth()
   const [step, setStep] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [accountCount, setAccountCount] = useState(null)
   // Räkenskapsår (bild 1): lista + auto-skapa-inställning. Företaget finns redan när guiden
   // körs (trigger seed_new_company skapar första året + BAS-konton).
   const [years, setYears] = useState([])
@@ -32,12 +31,8 @@ export default function StartGuide() {
   })
   const set = (k, v) => setF(s => ({ ...s, [k]: v }))
 
-  const STEPS = ['Välkommen', 'Bokföringsmetod', 'Moms', 'Räkenskapsår', 'Bankkonto', 'Kontoplan', 'Klart']
+  const STEPS = ['Välkommen', 'Bokföringsmetod', 'Moms', 'Räkenskapsår', 'Bankkonto', 'Klart']
 
-  async function checkAccounts() {
-    const { count } = await supabase.from('accounts').select('id', { count: 'exact', head: true }).eq('company_id', company.id)
-    setAccountCount(count || 0)
-  }
   async function loadYears() {
     const { data } = await supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('start_date')
     setYears(data || [])
@@ -61,16 +56,6 @@ export default function StartGuide() {
     loadYears()
   }
   const kontoplanLabel = y => (createdYears.has(y.year) ? 'Från föregående år' : `BAS ${y.year}`)
-  async function loadBas() {
-    setBusy(true)
-    try {
-      const { data, error } = await supabase.rpc('seed_bas_accounts', { p_company: company.id })
-      if (error) throw error
-      toast.success(`${data?.inserted || 0} BAS-konton laddade`)
-      await checkAccounts()
-    } catch (e) { toast.error(e.message) }
-    setBusy(false)
-  }
 
   async function finish(skip = false) {
     setBusy(true)
@@ -91,7 +76,7 @@ export default function StartGuide() {
     } catch (e) { toast.error('Kunde inte spara: ' + e.message); setBusy(false) }
   }
 
-  const next = () => { const n = step + 1; if (n === 3) loadYears(); if (n === 5) checkAccounts(); setStep(n) }
+  const next = () => { const n = step + 1; if (n === 3) loadYears(); setStep(n) }
   const back = () => setStep(s => Math.max(0, s - 1))
 
   const Field = ({ label, children, hint }) => (
@@ -226,24 +211,6 @@ export default function StartGuide() {
           )}
 
           {step === 5 && (
-            <div>
-              <h2 className="text-lg font-bold mb-1">Kontoplan</h2>
-              <p className="text-sm text-gray-500 mb-4">Företaget behöver en kontoplan. Använd BAS 2026 (standard i Sverige) eller ladda upp en egen senare.</p>
-              {accountCount === null ? <div className="text-sm text-gray-400">Kontrollerar…</div> : accountCount > 0 ? (
-                <div className="rounded-lg border p-4 bg-green-50 text-sm text-green-800" style={{ borderColor: 'rgba(22,163,74,0.3)' }}>
-                  <i className="ti ti-circle-check mr-1" />Kontoplan finns redan ({accountCount} konton). Du kan hantera den under Inställningar → Kontoplan.
-                </div>
-              ) : (
-                <button className="w-full rounded-lg border-2 border-dashed py-6 hover:border-blue-400" style={{ borderColor: 'rgba(0,0,0,0.15)' }} onClick={loadBas} disabled={busy}>
-                  <i className="ti ti-download text-3xl text-blue-600 block mb-1" />
-                  <div className="text-sm font-medium">{busy ? 'Laddar…' : 'Ladda BAS 2026 (1367 konton)'}</div>
-                  <div className="text-xs text-gray-500">Du kan ladda upp en egen kontoplan senare.</div>
-                </button>
-              )}
-            </div>
-          )}
-
-          {step === 6 && (
             <div>
               <i className="ti ti-circle-check text-4xl text-green-600 block mb-3" />
               <h2 className="text-lg font-bold mb-1">Nästan klart!</h2>
