@@ -14,6 +14,23 @@ import DocMagnifier from './DocMagnifier'
 const MIN_PANEL = 420       // krav 8: minsta panelbredd
 const MIN_WORKSPACE = 520   // krav 7: arbetsytan får inte kollapsa
 
+// Tillåtna underlagstyper vid uppladdning (knapp + drag-and-drop). Validering sker på både
+// MIME-typ och filändelse (HEIC saknar ofta korrekt MIME). Originalfilen lämnas oförändrad.
+const ACCEPT_EXT = ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'webp']
+const ACCEPT_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'image/heic', 'image/heif', 'image/webp']
+const ACCEPT_ATTR = '.pdf,.png,.jpg,.jpeg,.heic,.webp,application/pdf,image/png,image/jpeg,image/heic,image/heif,image/webp'
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024  // 25 MB per fil
+
+function fileExtOf(name = '') { const m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/); return m ? m[1] : '' }
+// Returnerar ett svenskt felmeddelande om filen inte får laddas upp, annars null.
+export function validateUploadFile(f) {
+  const ext = fileExtOf(f.name)
+  const mimeOk = ACCEPT_MIME.includes(String(f.type || '').toLowerCase())
+  if (!mimeOk && !ACCEPT_EXT.includes(ext)) return `Filtypen stöds inte (${ext || f.type || 'okänd'}). Tillåtna: PDF, JPG, PNG, HEIC, WEBP.`
+  if (f.size > MAX_UPLOAD_BYTES) return `Filen är för stor (${(f.size / 1024 / 1024).toFixed(1)} MB, max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).`
+  return null
+}
+
 function sidebarCollapsedNow() {
   try { return localStorage.getItem('sidebarCollapsed') === '1' } catch { return false }
 }
@@ -32,6 +49,9 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const [url, setUrl] = useState(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)      // drag-and-drop aktiv över panelen
+  const [uploads, setUploads] = useState([])           // per-fil status: pending|uploading|uploaded|failed
+  const dragDepth = useRef(0)                           // räknare så dragleave på barn inte släcker overlayn
   const [interpreting, setInterpreting] = useState(false)
   const [coupling, setCoupling] = useState(false)
   const [mode, setMode] = useState('auto')          // 'auto' (fit-to-panel) | 'manual'
@@ -120,32 +140,50 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  async function handleUpload(e) {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
+  // Gemensam uppladdningspipeline för både "Ladda upp"-knappen och drag-and-drop.
+  // Validerar varje fil, visar per-fil-status i panelen (inga popup-fel) och behåller
+  // originalfilen oförändrad. Den första nya filen väljs automatiskt efteråt.
+  async function uploadFiles(fileList) {
+    const files = Array.from(fileList || [])
+    if (!files.length || uploading) return
+    const items = files.map(f => ({ file: f, name: f.name, error: validateUploadFile(f) }))
+    setUploads(items.map(it => ({ name: it.name, status: it.error ? 'failed' : 'pending', error: it.error || null })))
+    const valid = items.map((it, i) => ({ ...it, i })).filter(it => !it.error)
+    if (!valid.length) return  // bara ogiltiga filer → felen visas i panelen
     setUploading(true)
+    const firstNewIndex = docs.length
     let ok = 0
-    for (const file of files) {
-      const safe = file.name.replace(/[^\w.\-]+/g, '_')
+    for (const it of valid) {
+      setUploads(u => u.map((x, ix) => ix === it.i ? { ...x, status: 'uploading' } : x))
+      const safe = it.file.name.replace(/[^\w.\-]+/g, '_')
       const path = `${company.id}/${crypto.randomUUID()}-${safe}`
-      const { error: upErr } = await supabase.storage.from('underlag').upload(path, file, { contentType: file.type })
-      if (upErr) { toast.error(`Kunde inte ladda upp ${file.name}: ${upErr.message}`); continue }
+      const { error: upErr } = await supabase.storage.from('underlag').upload(path, it.file, { contentType: it.file.type })
+      if (upErr) { setUploads(u => u.map((x, ix) => ix === it.i ? { ...x, status: 'failed', error: 'Uppladdning misslyckades: ' + upErr.message } : x)); continue }
       const { error: insErr } = await supabase.from('documents').insert({
-        company_id: company.id,
-        storage_path: path,
-        file_name: file.name,
-        mime_type: file.type,
-        file_size: file.size,
+        company_id: company.id, storage_path: path, file_name: it.file.name, mime_type: it.file.type, file_size: it.file.size,
       })
-      if (insErr) { toast.error(`Fel vid registrering: ${insErr.message}`); continue }
+      if (insErr) { setUploads(u => u.map((x, ix) => ix === it.i ? { ...x, status: 'failed', error: 'Registrering misslyckades: ' + insErr.message } : x)); continue }
+      setUploads(u => u.map((x, ix) => ix === it.i ? { ...x, status: 'uploaded' } : x))
       ok++
     }
-    if (ok) toast.success(`${ok} underlag uppladdat`)
-    e.target.value = ''
     setUploading(false)
-    await loadInbox()
-    setIdx(Math.max(0, docs.length + ok - 1)) // hoppa till det senast uppladdade
+    if (ok) {
+      await loadInbox()
+      setIdx(firstNewIndex)                                   // välj den första nya filen
+      setUploads(u => u.filter(x => x.status === 'failed'))   // behåll bara fel synliga
+    }
   }
+
+  async function handleUpload(e) {
+    await uploadFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  const dragHasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files')
+  function onDragEnter(e) { if (!dragHasFiles(e)) return; e.preventDefault(); dragDepth.current++; setDragOver(true) }
+  function onDragOver(e) { if (!dragHasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+  function onDragLeave(e) { e.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragOver(false) }
+  function onDrop(e) { e.preventDefault(); dragDepth.current = 0; setDragOver(false); if (dragHasFiles(e)) uploadFiles(e.dataTransfer.files) }
 
   async function handleDelete() {
     if (!current) return
@@ -190,7 +228,8 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   return (
     <>
     <div onMouseDown={startResize} className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-colors" title="Dra för att ändra storlek" />
-    <div className="flex flex-col h-full bg-surface-3" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: w, flexShrink: 0 }}>
+    <div className="flex flex-col h-full bg-surface-3 relative" style={{ borderLeft: '1px solid rgba(0,0,0,0.10)', width: w, flexShrink: 0 }}
+      onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       {/* Header */}
       <div className="bg-white border-b px-5 h-14 flex items-center justify-between shrink-0 gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[15px] font-bold tracking-tight truncate">{title}</span>
@@ -211,7 +250,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
             <i className="ti ti-download" /> Ladda ner
           </a>
         )}
-        <input ref={fileRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={handleUpload} />
+        <input ref={fileRef} type="file" multiple accept={ACCEPT_ATTR} className="hidden" onChange={handleUpload} />
         {current && (
           <div className="ml-auto flex items-center gap-2 text-gray-500 shrink-0">
             <button title="Anpassa till panel (Auto)" onClick={() => setMode('auto')}
@@ -231,16 +270,39 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
 
       {/* Förhandsvisning */}
       <div className="flex-1 relative overflow-hidden">
+        {/* Uppladdningsstatus per fil (krav: pending/uploading/uploaded/failed, fel i panelen) */}
+        {uploads.length > 0 && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 w-[90%] max-w-md space-y-1.5">
+            {uploads.map((u, i) => (
+              <div key={i} className="bg-white rounded-lg shadow px-3 py-2 text-xs" style={{ border: '1px solid rgba(0,0,0,0.10)' }}>
+                <div className="flex items-center gap-2">
+                  <i className={`ti ${u.status === 'failed' ? 'ti-alert-circle text-red-600' : u.status === 'uploaded' ? 'ti-circle-check-filled text-green-600' : 'ti-loader-2 text-blue-600 animate-spin'}`} />
+                  <span className="truncate flex-1" title={u.name}>{u.name}</span>
+                  <span className={u.status === 'failed' ? 'text-red-600 font-medium' : 'text-gray-400'}>
+                    {u.status === 'failed' ? 'Fel' : u.status === 'uploaded' ? 'Klar' : u.status === 'uploading' ? 'Laddar upp…' : 'Väntar'}
+                  </span>
+                </div>
+                {u.status === 'failed' && u.error && <div className="text-red-600 mt-1 leading-snug">{u.error}</div>}
+              </div>
+            ))}
+          </div>
+        )}
         <div ref={previewRef} className="absolute inset-0 overflow-auto p-4">
         <DocMagnifier enabled={magnifier && !!url} scrollRef={previewRef} className="min-h-full">
         {loading ? (
           <div className="h-full flex items-center justify-center text-gray-400">Laddar…</div>
         ) : !current ? (
           <div className="h-full flex items-center justify-center">
-            <div className="text-center text-gray-400">
-              <i className="ti ti-inbox text-4xl block mb-2 opacity-30" />
-              <div className="font-medium text-gray-500 mb-1">Inkorgen är tom</div>
-              <div className="text-sm">Ladda upp kvitton eller fakturor här.</div>
+            <div className="text-center text-gray-400 px-6">
+              <i className="ti ti-cloud-upload text-4xl block mb-2 opacity-30" />
+              {uploading ? (
+                <div className="font-medium text-gray-500">Laddar upp…</div>
+              ) : (
+                <>
+                  <div className="font-medium text-gray-500 mb-1">Dra och släpp faktura, kvitto eller underlag här</div>
+                  <div className="text-sm">PDF, JPG, PNG, HEIC eller WEBP</div>
+                </>
+              )}
             </div>
           </div>
         ) : !url ? (
@@ -320,6 +382,17 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
           </>
         )}
       </div>
+      {/* Drag-and-drop-overlay: hela panelen blir en tydlig dropzone (pekarhändelser av så
+          släppet når panelens onDrop). */}
+      {dragOver && (
+        <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center bg-blue-50/85" style={{ border: '2px dashed #2563eb' }}>
+          <div className="text-center text-blue-700">
+            <i className="ti ti-cloud-upload text-5xl block mb-2" />
+            <div className="font-semibold text-lg">Släpp filen för att ladda upp</div>
+            <div className="text-sm text-blue-600/80 mt-1">PDF, JPG, PNG, HEIC eller WEBP</div>
+          </div>
+        </div>
+      )}
     </div>
     </>
   )
