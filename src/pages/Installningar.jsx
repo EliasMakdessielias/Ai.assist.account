@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { CURRENCY_CODES } from '../lib/currency'
 import { momsperiodOptions } from '../lib/foretag'
+import { copyWithToast } from '../lib/clipboard'
 // (Mottagningsadressen läses direkt från inbox_addresses-tabellen)
 import toast from 'react-hot-toast'
 import WhatsAppSupportButton from '../components/WhatsAppSupportButton'
@@ -117,10 +118,7 @@ function MottagningsAdresser({ company }) {
     if (error) return toast.error('Kunde inte uppdatera: ' + error.message)
     toast.success(row.is_active ? 'Adress inaktiverad' : 'Adress aktiverad'); load()
   }
-  async function copy(addr) {
-    try { await navigator.clipboard.writeText(addr); toast.success('Adress kopierad') }
-    catch { toast.error('Kunde inte kopiera') }
-  }
+  const copy = addr => copyWithToast(addr, toast, 'Adress kopierad')
 
   return (
     <div className="max-w-3xl">

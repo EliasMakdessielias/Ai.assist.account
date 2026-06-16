@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { copyWithToast } from '../lib/clipboard'
 import { tolkaDocument } from '../lib/tolka'
 import { INBOX_CATEGORIES as KATS } from '../lib/inboxAddresses'
 import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
@@ -286,7 +287,7 @@ export default function Inkorg() {
             <i className="ti ti-mail text-gray-500" />
             <span className="text-gray-500">Mejla in underlag till:</span>
             <span className="font-medium text-gray-800 font-mono">{inboxAddr}</span>
-            <button className="btn text-xs py-1 px-2 ml-1" disabled={!inboxAddr} onClick={() => { navigator.clipboard?.writeText(inboxAddr); toast.success('E-postadress kopierad') }}><i className="ti ti-copy" /> Kopiera</button>
+            <button className="btn text-xs py-1 px-2 ml-1" disabled={!inboxAddr} onClick={() => copyWithToast(inboxAddr, toast)}><i className="ti ti-copy" /> Kopiera</button>
             <span className="text-xs text-green-700 ml-auto flex items-center gap-1"><i className="ti ti-sparkles" /> Klassificeras automatiskt</span>
           </div>
 

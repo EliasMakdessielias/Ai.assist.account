@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
+import { copyWithToast } from '../lib/clipboard'
 import Utbetalningar from '../components/Utbetalningar'
 import InkomnaFakturor from '../components/InkomnaFakturor'
 import { serie } from '../lib/serier'
@@ -247,7 +248,7 @@ export default function Leverantorsfakturor() {
 
           {/* Verktygsrad */}
           <div className="flex items-center justify-end gap-5 mb-4 text-[13px] text-gray-500 flex-wrap">
-            <button className="flex items-center gap-1.5 hover:text-gray-800" onClick={() => { navigator.clipboard?.writeText(inboxAddr); toast.success('E-postadress kopierad') }} title="Kopiera adress">
+            <button className="flex items-center gap-1.5 hover:text-gray-800" onClick={() => copyWithToast(inboxAddr, toast)} title="Kopiera adress">
               <i className="ti ti-mail" /> E-posta in underlag: <span className="text-gray-700">{inboxAddr}</span>
             </button>
             <button className="flex items-center gap-1.5 hover:text-gray-800" onClick={() => toast('Kommer snart', { icon: 'ℹ️' })}><i className="ti ti-photo" /> Ladda ner kopplade bilder</button>
