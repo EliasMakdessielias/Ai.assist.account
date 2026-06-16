@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { SUPPORTED_CURRENCIES } from '../lib/currency'
 import { momsperiodOptions, momsRedovisas, bokforingsmetodLabel, nextFiscalYear } from '../lib/foretag'
 import toast from 'react-hot-toast'
 
@@ -206,11 +205,6 @@ export default function StartGuide() {
                   </tbody>
                 </table>
               </div>
-              <Field label="Internvaluta">
-                <select className="input" value={f.valuta} onChange={e => set('valuta', e.target.value)}>
-                  {SUPPORTED_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code} – {c.name}</option>)}
-                </select>
-              </Field>
             </div>
           )}
 
