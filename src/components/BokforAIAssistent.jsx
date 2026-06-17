@@ -194,18 +194,18 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
                 </div>
               </div>
             )}
-            {!busy && meta?.kallor?.length > 0 && (
+            {!busy && meta && messages.some(m => m.role === 'assistant') && (
               <div className="bg-white rounded-xl p-3" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
                 <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1"><i className="ti ti-books" /> Källor</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {meta.kallor.map((k, i) => (
+                  {(meta.kallor?.length ? meta.kallor : [{ label: `BokPilots regelverk${meta.version ? ` v${meta.version}` : ''}`, avsnitt: null }]).map((k, i) => (
                     <a key={i} href={`/regelverk${k.avsnitt ? `#avsnitt-${k.avsnitt}` : ''}`} target="_blank" rel="noreferrer"
                       className="inline-flex items-center gap-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-full px-2.5 py-0.5" title="Öppna källan i regelverket">
                       <i className="ti ti-book-2" /> {k.label || (k.avsnitt ? `Avsnitt ${k.avsnitt}` : 'Källa')}
                     </a>
                   ))}
                 </div>
-                <div className="text-[10px] text-gray-400 mt-1.5">Svaren bygger på BokPilots regelverk{meta.version ? ` v${meta.version}` : ''} (sammanfattning av de inmatade källorna).</div>
+                <div className="text-[10px] text-gray-400 mt-1.5">Svaren kommer från BokPilots regelverk{meta.version ? ` v${meta.version}` : ''} (sammanfattning av de inmatade källorna). Klicka för att öppna källan.</div>
               </div>
             )}
             <div ref={endRef} />
