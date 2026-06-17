@@ -80,7 +80,11 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
       setMessages(m => [...m, { role: 'assistant', text: data.svar || 'Jag kunde inte svara just nu.' }])
       if (Array.isArray(data.konteringsforslag) && data.konteringsforslag.length) setForslag(data.konteringsforslag)
     } catch (e) {
-      setMessages(m => [...m, { role: 'assistant', text: 'Kunde inte svara: ' + (e.message || e) }])
+      const raw = String(e?.message || e)
+      const friendly = /Failed to fetch|NetworkError|load failed/i.test(raw)
+        ? 'Kunde inte nå AI-tjänsten. Kontrollera anslutningen och försök igen.'
+        : raw
+      setMessages(m => [...m, { role: 'assistant', text: friendly }])
     }
     setBusy(false)
   }

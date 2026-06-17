@@ -69,14 +69,27 @@ ${String(kontoplan || '').slice(0, 6000)}
 
 ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens fråga: ' + fraga : 'Förklara hur detta underlag bör bokföras och ge ett konteringsförslag.'}`
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: SCHEMA, thinkingConfig: { thinkingBudget: 0 } },
-      }),
+    // Anropa Gemini med omförsök vid tillfällig överbelastning (503) / rate limit (429).
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: SCHEMA, thinkingConfig: { thinkingBudget: 0 } },
     })
-    if (!r.ok) { const t = await r.text(); throw new Error(`Gemini-fel (${r.status}): ${t.slice(0, 200)}`) }
+    let r: Response | null = null, lastStatus = 0, lastText = ''
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(res => setTimeout(res, attempt * 900))
+      r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      if (r.ok) break
+      lastStatus = r.status; lastText = await r.text()
+      if (![429, 500, 503].includes(r.status)) break   // bestående fel → ingen retry
+      r = null
+    }
+    if (!r) {
+      const overbelastad = lastStatus === 503 || lastStatus === 429 || /unavailable|overloaded|high demand|quota|rate limit/i.test(lastText)
+      throw new Error(overbelastad
+        ? 'AI-tjänsten är tillfälligt överbelastad. Vänta en liten stund och försök igen.'
+        : 'AI-tjänsten kunde inte svara just nu. Försök igen om en stund.')
+    }
     const gj = await r.json()
     const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
     let parsed: any = { svar: 'Jag kunde inte svara just nu.' }
