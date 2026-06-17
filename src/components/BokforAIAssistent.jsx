@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import regelverkMd from '../../docs/AI_BOKFORINGSHJALP_REGELVERK.md?raw'
 
 // AI-stöd för bokföring av ett kopplat underlag (kvitto/leverantörsfaktura).
 // Diskret, glödande knapp (FAB) nere till höger. När ett underlag är kopplat och tolkat
@@ -68,22 +69,22 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
 
   async function ask(fraga) {
     if (busy) return
-    if (!doc?.tolkning) {
-      setMessages(m => [...m, ...(fraga ? [{ role: 'user', text: fraga }] : []),
-        { role: 'assistant', text: 'Koppla ett underlag (bild/PDF) och klicka "Tolka underlaget" först – då kan jag föreslå hur det ska bokföras.' }])
+    // Utan fråga och utan tolkat underlag finns inget att besvara – bjud in till att chatta.
+    if (!fraga && !doc?.tolkning) {
+      setMessages(m => [...m, { role: 'assistant', text: 'Ställ en fråga om bokföring (svaren kommer från regelverket/källorna), eller koppla och tolka ett underlag så föreslår jag hur det ska bokföras.' }])
       return
     }
     setBusy(true)
     if (fraga) setMessages(m => [...m, { role: 'user', text: fraga }])
     try {
       const { data, error } = await supabase.functions.invoke('bokfor-ai', {
-        body: { kind, tolkning: doc.tolkning, kontoplan, fraga: fraga || null, history: messages.slice(-6) },
+        body: { kind, tolkning: doc?.tolkning || null, kontoplan, fraga: fraga || null, history: messages.slice(-6), kb: regelverkMd },
       })
       if (error) { let msg = error.message; try { const b = await error.context.json(); if (b?.error) msg = b.error } catch { /* ignore */ } throw new Error(msg) }
       if (data?.error) throw new Error(data.error)
       setMessages(m => [...m, { role: 'assistant', text: data.svar || 'Jag kunde inte svara just nu.' }])
       const f = Array.isArray(data.konteringsforslag) ? data.konteringsforslag : []
-      const m2 = { konfidens: typeof data.konfidens === 'number' ? data.konfidens : null, kraver: !!data.kraver_manuell_granskning, regelstod: data.regelstod || null, version: data.regelverkVersion || null }
+      const m2 = { konfidens: typeof data.konfidens === 'number' ? data.konfidens : null, kraver: !!data.kraver_manuell_granskning, regelstod: data.regelstod || null, version: data.regelverkVersion || null, kallor: Array.isArray(data.kallor) ? data.kallor : [] }
       setMeta(m2)
       if (f.length) setForslag(f)
       // Spårbarhet: logga förslaget (regelverksversion, confidence, granskning) – best-effort.
@@ -148,7 +149,7 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
             {messages.length === 0 && !busy && (
               <div className="text-center text-gray-400 text-sm py-6">
                 <i className="ti ti-receipt-2 text-3xl block mb-2 opacity-30" />
-                {doc?.tolkad ? 'Fråga hur det kopplade underlaget ska bokföras.' : 'Koppla och tolka ett underlag så hjälper jag dig bokföra det.'}
+                {doc?.tolkad ? 'Fråga hur det kopplade underlaget ska bokföras – eller ställ en bokföringsfråga.' : 'Ställ en bokföringsfråga – svaren kommer från regelverket/källorna. Koppla ett underlag för konteringsförslag.'}
               </div>
             )}
             {messages.map((m, i) => (
@@ -191,6 +192,20 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
                 <div className="text-[11px] text-gray-400 mt-1.5 text-center">
                   Granska alltid förslaget innan du bokför.{meta?.version ? ` · Bygger på Bokpilots regelverk v${meta.version}` : ''}
                 </div>
+              </div>
+            )}
+            {!busy && meta?.kallor?.length > 0 && (
+              <div className="bg-white rounded-xl p-3" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1"><i className="ti ti-books" /> Källor</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {meta.kallor.map((k, i) => (
+                    <a key={i} href={`/regelverk${k.avsnitt ? `#avsnitt-${k.avsnitt}` : ''}`} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-full px-2.5 py-0.5" title="Öppna källan i regelverket">
+                      <i className="ti ti-book-2" /> {k.label || (k.avsnitt ? `Avsnitt ${k.avsnitt}` : 'Källa')}
+                    </a>
+                  ))}
+                </div>
+                <div className="text-[10px] text-gray-400 mt-1.5">Svaren bygger på BokPilots regelverk{meta.version ? ` v${meta.version}` : ''} (sammanfattning av de inmatade källorna).</div>
               </div>
             )}
             <div ref={endRef} />

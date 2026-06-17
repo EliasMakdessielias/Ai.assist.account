@@ -50,6 +50,18 @@ const SCHEMA = {
     konfidens: { type: 'number', description: 'Din säkerhet i förslaget, 0–1.' },
     kraver_manuell_granskning: { type: 'boolean', description: 'true om underlaget är otydligt/ofullständigt eller frågan inte kan avgöras säkert.' },
     regelstod: { type: 'string', description: 'Kort: vilken regel/princip förslaget bygger på (t.ex. BAS-kontologik, momsavdrag kräver giltig faktura).' },
+    kallor: {
+      type: 'array',
+      description: 'Källor i regelverket som svaret bygger på. Endast källor som faktiskt stöder svaret.',
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', description: 'Källhänvisning exakt som i regelverket, t.ex. "BAS 2026, s. 702" eller "Rex 2.0, s. 36".' },
+          avsnitt: { type: 'number', description: 'Avsnittsnummer 1–22 i regelverket där källan finns.' },
+        },
+        required: ['label'],
+      },
+    },
   },
   required: ['svar'],
 }
@@ -65,13 +77,16 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser()
     if (!user) return json({ error: 'Ej inloggad' }, 401)
 
-    const { kind, tolkning, kontoplan, fraga, history } = await req.json()
+    const { kind, tolkning, kontoplan, fraga, history, kb } = await req.json()
     const slag = kind === 'leverantorsfaktura' ? 'en leverantörsfaktura' : kind === 'kvitto' ? 'ett kvitto' : 'ett underlag'
     const hist = Array.isArray(history) ? history.slice(-6).map((m: { role: string; text: string }) => `${m.role === 'user' ? 'Användare' : 'Assistent'}: ${m.text}`).join('\n') : ''
 
     const prompt = `${REGELVERK}
 
-Du är en svensk redovisningsexpert i appen BokPilot och hjälper användaren att bokföra ${slag}. Utgå från underlagets tolkning (JSON) och företagets kontoplan nedan, och följ regelverket ovan.
+Du är BokPilots kunskapschatt för bokföring och hjälper användaren att bokföra ${slag} OCH att svara på frågor om svensk bokföring.
+
+VIKTIGAST – KÄLLBUNDENHET: Dina svar ska komma ENBART från KÄLLOR (regelverket) nedan, som är en sammanfattning av de inmatade böckerna (BAS 2026, Bokslutsboken 2026, Rex 2.0, SALK, Srf Redovisning 2026, GDPR-branschkod, Parlön) med sidhänvisningar. Hittar du inte svaret i KÄLLOR: skriv tydligt "Det framgår inte av de inmatade källorna." och gissa INTE. Hänvisa inte till annan kunskap utanför KÄLLOR.
+- Ange ALLTID fältet kallor: lista de källor du faktiskt stödde dig på (label = bok + sida exakt som i regelverket, avsnitt = avsnittsnumret 1–22). Lämna kallor tomt om svaret inte fanns i källorna.
 
 Sätt alltid: konfidens (0–1), kraver_manuell_granskning (true vid osäkerhet/ofullständigt underlag) och regelstod (kort motivering/regelhänvisning).
 
@@ -86,8 +101,11 @@ Regler:
 - Om användaren ställer en följdfråga: svara på den. Lämna konteringsforslag tomt om frågan inte gäller en ny kontering.
 - Du är READ-ONLY och bokför inget själv – användaren granskar och bokför.
 
+KÄLLOR (BokPilots regelverk – sammanfattning av de inmatade böckerna, med avsnitt och sidhänvisningar):
+${String(kb || '').slice(0, 16000) || '(inga källor medskickade)'}
+
 UNDERLAGETS TOLKNING (JSON):
-${JSON.stringify(tolkning || {}).slice(0, 8000)}
+${JSON.stringify(tolkning || {}).slice(0, 6000)}
 
 KONTOPLAN (aktiva konton):
 ${String(kontoplan || '').slice(0, 6000)}
@@ -130,6 +148,7 @@ ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens f
       konfidens: typeof parsed.konfidens === 'number' ? parsed.konfidens : null,
       kraver_manuell_granskning: !!parsed.kraver_manuell_granskning,
       regelstod: parsed.regelstod || null,
+      kallor: Array.isArray(parsed.kallor) ? parsed.kallor : [],
       regelverkVersion: REGELVERK_VERSION,
       model: usedModel,
     })

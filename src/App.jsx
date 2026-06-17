@@ -30,6 +30,7 @@ import KassaBankKonton from './pages/KassaBankKonton'
 import ImportExport from './pages/ImportExport'
 import Sie from './pages/Sie'
 import Granskning from './pages/Granskning'
+import Regelverk from './pages/Regelverk'
 import Kontoanalys from './pages/Kontoanalys'
 import Assistent from './pages/Assistent'
 import Ekonomichef from './pages/Ekonomichef'
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="installningar/import-export" element={<ImportExport />} />
           <Route path="installningar/sie" element={<Sie />} />
           <Route path="granskning" element={<Granskning />} />
+          <Route path="regelverk" element={<Regelverk />} />
           <Route path="kontoanalys" element={<Kontoanalys />} />
           <Route path="assistent" element={<Assistent />} />
           <Route path="ekonomichef" element={<Ekonomichef />} />
