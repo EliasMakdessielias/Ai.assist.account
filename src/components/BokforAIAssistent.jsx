@@ -19,6 +19,40 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
   const [busy, setBusy] = useState(false)
   const askedRef = useRef(false)
   const endRef = useRef(null)
+  const dragRef = useRef(null)
+
+  // Position (avstånd från höger/nederkant). Sparas så knappen ligger kvar där användaren släpper den.
+  const FAB = 56, EDGE = 8
+  const [pos, setPos] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('bokpilot.aiassist.pos') || 'null'); if (s && typeof s.right === 'number') return s } catch { /* ignore */ }
+    return { right: 20, bottom: 20 }
+  })
+  useEffect(() => { try { localStorage.setItem('bokpilot.aiassist.pos', JSON.stringify(pos)) } catch { /* ignore */ } }, [pos])
+  function clampPos(p) {
+    const maxR = Math.max(EDGE, window.innerWidth - FAB - EDGE)
+    const maxB = Math.max(EDGE, window.innerHeight - FAB - EDGE)
+    return { right: Math.min(maxR, Math.max(EDGE, p.right)), bottom: Math.min(maxB, Math.max(EDGE, p.bottom)) }
+  }
+  useEffect(() => { const onR = () => setPos(p => clampPos(p)); window.addEventListener('resize', onR); return () => window.removeEventListener('resize', onR) }, [])
+
+  // Dra-och-släpp av knappen. Liten rörelse = klick (öppna/stäng); större = flytt.
+  function onFabPointerDown(e) {
+    if (e.button != null && e.button !== 0) return
+    e.preventDefault()
+    const s = { x: e.clientX, y: e.clientY, right: pos.right, bottom: pos.bottom, moved: false }
+    dragRef.current = s
+    const move = ev => {
+      const dx = ev.clientX - s.x, dy = ev.clientY - s.y
+      if (!s.moved && Math.abs(dx) + Math.abs(dy) > 4) s.moved = true
+      if (s.moved) setPos(clampPos({ right: s.right - dx, bottom: s.bottom - dy }))
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+      if (!s.moved) { open ? setOpen(false) : openPanel() }   // klick = toggla panelen
+      dragRef.current = null
+    }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+  }
 
   const kontoplan = useMemo(
     () => accounts.filter(a => a.is_active !== false).map(a => `${a.account_nr} ${a.name}`).join('\n'),
@@ -65,11 +99,20 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
 
   const glow = !open && doc?.tolkad   // bjud in när ett tolkat underlag är kopplat
 
+  // Placera panelen över eller under knappen beroende på var det finns mest plats.
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800
+  const fabTop = vh - pos.bottom - FAB
+  const placeAbove = fabTop >= pos.bottom
+  const panelMaxH = Math.min(560, Math.max(220, (placeAbove ? fabTop : pos.bottom) - 12))
+  const panelStyle = placeAbove
+    ? { right: pos.right, bottom: pos.bottom + FAB + 12, maxHeight: panelMaxH }
+    : { right: pos.right, top: fabTop + FAB + 12, maxHeight: panelMaxH }
+
   return (
-    <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-3 no-print">
+    <>
       {open && (
-        <div className="w-[360px] max-w-[calc(100vw-2.5rem)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-          style={{ border: '1px solid rgba(0,0,0,0.12)', maxHeight: 'min(70vh, 560px)' }}>
+        <div className="fixed z-40 w-[360px] max-w-[calc(100vw-2.5rem)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden no-print"
+          style={{ ...panelStyle, border: '1px solid rgba(0,0,0,0.12)' }}>
           <div className="flex items-center justify-between px-4 h-12 shrink-0" style={{ background: 'linear-gradient(90deg,#6d28d9,#7c3aed)' }}>
             <span className="text-white text-sm font-semibold flex items-center gap-2"><i className="ti ti-sparkles" /> AI-bokföringshjälp</span>
             <button className="text-white/80 hover:text-white text-lg" onClick={() => setOpen(false)} title="Stäng"><i className="ti ti-x" /></button>
@@ -121,12 +164,12 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
         </div>
       )}
 
-      <button onClick={() => (open ? setOpen(false) : openPanel())}
-        className={`w-14 h-14 rounded-full text-white flex items-center justify-center shrink-0 ${glow ? 'ai-glow' : 'shadow-lg'}`}
-        style={{ background: 'linear-gradient(135deg,#6d28d9,#7c3aed)' }}
-        title="AI-bokföringshjälp">
+      <button onPointerDown={onFabPointerDown}
+        className={`fixed z-40 w-14 h-14 rounded-full text-white flex items-center justify-center no-print ${glow ? 'ai-glow' : 'shadow-lg'}`}
+        style={{ right: pos.right, bottom: pos.bottom, background: 'linear-gradient(135deg,#6d28d9,#7c3aed)', cursor: 'grab', touchAction: 'none', userSelect: 'none' }}
+        title="AI-bokföringshjälp – dra för att flytta">
         <i className={`ti ${open ? 'ti-x' : 'ti-sparkles'} text-2xl`} />
       </button>
-    </div>
+    </>
   )
 }
