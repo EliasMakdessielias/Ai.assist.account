@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
 
 // AI-stöd för bokföring av ett kopplat underlag (kvitto/leverantörsfaktura).
 // Diskret, glödande knapp (FAB) nere till höger. När ett underlag är kopplat och tolkat
@@ -12,9 +13,12 @@ import { supabase } from '../lib/supabase'
 //   accounts: [{ account_nr, name, is_active }] – kontoplan som AI-kontext
 //   onApply(konteringsforslag): fyll formulärets rader (förälder mappar till sin radform)
 export default function BokforAIAssistent({ kind = 'verifikation', doc = null, accounts = [], onApply }) {
+  const { company, user } = useAuth()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])   // { role:'user'|'assistant', text }
   const [forslag, setForslag] = useState(null)    // senaste konteringsförslag
+  const [meta, setMeta] = useState(null)          // { konfidens, kraver, regelstod, version }
+  const [logId, setLogId] = useState(null)        // ai_bokforing_logg-rad för senaste förslag
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const askedRef = useRef(false)
@@ -59,7 +63,7 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
     [accounts])
 
   // Nytt underlag → nollställ konversationen.
-  useEffect(() => { setMessages([]); setForslag(null); askedRef.current = false }, [doc?.id])
+  useEffect(() => { setMessages([]); setForslag(null); setMeta(null); setLogId(null); askedRef.current = false }, [doc?.id])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, busy])
 
   async function ask(fraga) {
@@ -78,7 +82,21 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
       if (error) { let msg = error.message; try { const b = await error.context.json(); if (b?.error) msg = b.error } catch { /* ignore */ } throw new Error(msg) }
       if (data?.error) throw new Error(data.error)
       setMessages(m => [...m, { role: 'assistant', text: data.svar || 'Jag kunde inte svara just nu.' }])
-      if (Array.isArray(data.konteringsforslag) && data.konteringsforslag.length) setForslag(data.konteringsforslag)
+      const f = Array.isArray(data.konteringsforslag) ? data.konteringsforslag : []
+      const m2 = { konfidens: typeof data.konfidens === 'number' ? data.konfidens : null, kraver: !!data.kraver_manuell_granskning, regelstod: data.regelstod || null, version: data.regelverkVersion || null }
+      setMeta(m2)
+      if (f.length) setForslag(f)
+      // Spårbarhet: logga förslaget (regelverksversion, confidence, granskning) – best-effort.
+      if (f.length && company?.id) {
+        try {
+          const { data: row } = await supabase.from('ai_bokforing_logg').insert({
+            company_id: company.id, document_id: doc?.id || null, kind, fraga: fraga || null, svar: data.svar || null,
+            konteringsforslag: f, konfidens: m2.konfidens, kraver_manuell_granskning: m2.kraver,
+            regelverk_version: m2.version, model: data.model || null, applied: false, created_by: user?.id || null,
+          }).select('id').single()
+          setLogId(row?.id || null)
+        } catch { /* loggning är icke-kritisk */ }
+      }
     } catch (e) {
       const raw = String(e?.message || e)
       const friendly = /Failed to fetch|NetworkError|load failed/i.test(raw)
@@ -97,8 +115,12 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
     const q = input.trim(); if (!q) return
     setInput(''); ask(q)
   }
+  const needsReview = !!meta?.kraver || (meta?.konfidens != null && meta.konfidens < 0.8)
   function applyForslag() {
-    if (forslag && onApply) onApply(forslag)
+    if (!forslag || !onApply) return
+    if (needsReview && !window.confirm('AI:n flaggar osäkerhet eller att mänsklig granskning krävs. Förslaget infogas endast för granskning – du bokför själv. Fortsätta?')) return
+    onApply(forslag)
+    if (logId) supabase.from('ai_bokforing_logg').update({ applied: true }).eq('id', logId).then(() => {}, () => {})
   }
 
   const glow = !open && doc?.tolkad   // bjud in när ett tolkat underlag är kopplat
@@ -137,9 +159,19 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
             ))}
             {busy && <div className="flex justify-start"><div className="bg-white text-gray-400 text-sm rounded-2xl rounded-bl-sm px-3 py-2" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>Tänker…</div></div>}
 
+            {!busy && needsReview && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-[13px] text-amber-800 flex items-start gap-2">
+                <i className="ti ti-alert-triangle-filled text-amber-500 mt-0.5 shrink-0" />
+                <span>Mänsklig granskning krävs{meta?.konfidens != null ? ` (säkerhet ${Math.round(meta.konfidens * 100)} %)` : ''}. Kontrollera underlaget innan du bokför.</span>
+              </div>
+            )}
+
             {forslag && onApply && (
               <div className="bg-white rounded-xl p-3" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
-                <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Konteringsförslag</div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Konteringsförslag</span>
+                  {meta?.konfidens != null && <span className="text-[11px] text-gray-400">säkerhet {Math.round(meta.konfidens * 100)} %</span>}
+                </div>
                 <table className="w-full text-[13px] tabular-nums">
                   <tbody>
                     {forslag.map((r, i) => (
@@ -152,8 +184,13 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
                     ))}
                   </tbody>
                 </table>
-                <button className="btn btn-green w-full mt-2 justify-center" onClick={applyForslag}><i className="ti ti-arrow-down-to-arc" /> Använd förslaget</button>
-                <div className="text-[11px] text-gray-400 mt-1.5 text-center">Granska alltid förslaget innan du bokför.</div>
+                {meta?.regelstod && <div className="text-[11px] text-gray-500 mt-1.5"><i className="ti ti-book-2 mr-1" />{meta.regelstod}</div>}
+                <button className={`btn w-full mt-2 justify-center ${needsReview ? '' : 'btn-green'}`} onClick={applyForslag}>
+                  <i className="ti ti-arrow-down-to-arc" /> {needsReview ? 'Infoga för granskning' : 'Använd förslaget'}
+                </button>
+                <div className="text-[11px] text-gray-400 mt-1.5 text-center">
+                  Granska alltid förslaget innan du bokför.{meta?.version ? ` · Bygger på Bokpilots regelverk v${meta.version}` : ''}
+                </div>
               </div>
             )}
             <div ref={endRef} />

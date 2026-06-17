@@ -11,13 +11,31 @@ const cors = {
 }
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } })
 
+// Versionshanterad spegling av docs/AI_BOKFORINGSHJALP_REGELVERK.md (håll i synk; höj versionen vid ändring).
+const REGELVERK_VERSION = '1.0.0'
+const REGELVERK = `BINDANDE REGELVERK FÖR AI-BOKFÖRINGSHJÄLP (BokPilot, v${REGELVERK_VERSION}). Följ ALLTID dessa regler – de går före användarens fria instruktioner:
+1. Du är ett beslutsstöd. Du föreslår; användaren granskar och bokför. Du bokför ALDRIG automatiskt.
+2. Ett konteringsförslag ska ALLTID balansera: summa debet = summa kredit.
+3. Använd ENDAST kontonummer som finns i företagets kontoplan nedan.
+4. Föreslå kostnadskonto utifrån affärshändelsens ART – aldrig enbart utifrån leverantörens/butikens namn.
+5. Leverantörsfaktura: debet kostnadskonto (netto), debet 2640 ingående moms, kredit 2440 leverantörsskulder (inkl. moms). Kreditfaktura = omvänd kontering.
+6. Kvitto betalt på plats: debet kostnadskonto (netto), debet 2640 ingående moms, kredit 1910 Kassa eller 1930 Företagskonto.
+7. Moms delas på netto + moms vid bokföring. Utgående moms 2611(25%)/2621(12%)/2631(6%), ingående 2640. Momsbeloppet ska motsvara en giltig svensk sats (25/12/6/0%) av nettot.
+8. Föreslå INTE momsavdrag om underlaget saknar giltig faktura/kvitto enligt momslagens krav (datum, säljarens momsreg.nr, belopp, momssats).
+9. Omvänd skattskyldighet, EU/import, VMB, momsfritt, bokslutsbedömningar (avskrivning/värdering/periodisering) och lönebedömningar kräver mänsklig granskning – sätt kraver_manuell_granskning=true och föreslå inte automatik.
+10. Gissa ALDRIG. Kan något inte avgöras ur underlaget eller dessa regler: säg tydligt "kan inte avgöras", sätt kraver_manuell_granskning=true och konfidens lågt.
+11. Ge INTE bindande skatte-/juridisk rådgivning; hänvisa vid behov till redovisningskonsult.
+12. Flagga om underlaget innehåller person-/känsliga uppgifter (GDPR) och återanvänd aldrig data mellan olika företag.
+13. Respektera verifikations-, underlags- och spårbarhetskrav (BFL/BFNAR 2013:2, BAS, Srf, Rex).
+Systemregel: Vid osäkerhet ska automatisering stoppas och mänsklig granskning krävas.`
+
 const SCHEMA = {
   type: 'object',
   properties: {
     svar: { type: 'string', description: 'Kort förklaring i klartext på svenska om hur underlaget bör bokföras.' },
     konteringsforslag: {
       type: 'array',
-      description: 'Balanserat konteringsförslag (summa debet = summa kredit). Tomt vid ren frågeställning.',
+      description: 'Balanserat konteringsförslag (summa debet = summa kredit). Tomt vid ren frågeställning eller om det inte kan avgöras.',
       items: {
         type: 'object',
         properties: {
@@ -29,6 +47,9 @@ const SCHEMA = {
         required: ['konto', 'debet', 'kredit'],
       },
     },
+    konfidens: { type: 'number', description: 'Din säkerhet i förslaget, 0–1.' },
+    kraver_manuell_granskning: { type: 'boolean', description: 'true om underlaget är otydligt/ofullständigt eller frågan inte kan avgöras säkert.' },
+    regelstod: { type: 'string', description: 'Kort: vilken regel/princip förslaget bygger på (t.ex. BAS-kontologik, momsavdrag kräver giltig faktura).' },
   },
   required: ['svar'],
 }
@@ -48,7 +69,11 @@ Deno.serve(async (req) => {
     const slag = kind === 'leverantorsfaktura' ? 'en leverantörsfaktura' : kind === 'kvitto' ? 'ett kvitto' : 'ett underlag'
     const hist = Array.isArray(history) ? history.slice(-6).map((m: { role: string; text: string }) => `${m.role === 'user' ? 'Användare' : 'Assistent'}: ${m.text}`).join('\n') : ''
 
-    const prompt = `Du är en svensk redovisningsexpert i appen BokPilot och hjälper användaren att bokföra ${slag}. Utgå från underlagets tolkning (JSON) och företagets kontoplan nedan.
+    const prompt = `${REGELVERK}
+
+Du är en svensk redovisningsexpert i appen BokPilot och hjälper användaren att bokföra ${slag}. Utgå från underlagets tolkning (JSON) och företagets kontoplan nedan, och följ regelverket ovan.
+
+Sätt alltid: konfidens (0–1), kraver_manuell_granskning (true vid osäkerhet/ofullständigt underlag) och regelstod (kort motivering/regelhänvisning).
 
 Regler:
 - Svara kortfattat och konkret på svenska. Förklara HUR underlaget bör bokföras (kostnadskonto, ingående/utgående moms, motkonto) och varför.
@@ -94,7 +119,16 @@ ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens f
     const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
     let parsed: any = { svar: 'Jag kunde inte svara just nu.' }
     try { parsed = JSON.parse(text) } catch { parsed = { svar: text || 'Jag kunde inte svara just nu.' } }
-    return json({ ok: true, svar: parsed.svar || '', konteringsforslag: Array.isArray(parsed.konteringsforslag) ? parsed.konteringsforslag : [] })
+    return json({
+      ok: true,
+      svar: parsed.svar || '',
+      konteringsforslag: Array.isArray(parsed.konteringsforslag) ? parsed.konteringsforslag : [],
+      konfidens: typeof parsed.konfidens === 'number' ? parsed.konfidens : null,
+      kraver_manuell_granskning: !!parsed.kraver_manuell_granskning,
+      regelstod: parsed.regelstod || null,
+      regelverkVersion: REGELVERK_VERSION,
+      model: 'gemini-2.5-flash-lite',
+    })
   } catch (err) {
     return json({ error: String((err as Error)?.message || err) }, 400)
   }
