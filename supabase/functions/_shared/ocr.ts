@@ -8,7 +8,7 @@
 // Modell + promptversion – lagras i tolkningsresultatets _meta för spårbarhet (vilken modell/
 // prompt som gav vilket resultat). Bumpa OCR_PROMPT_VERSION när prompten/schemat ändras.
 export const OCR_MODEL = 'gemini-2.5-flash-lite'
-export const OCR_PROMPT_VERSION = 'v2-2026-06-falt-sakerhet'
+export const OCR_PROMPT_VERSION = 'v3-2026-06-flermoms'
 
 // Kritiska fält som får per-fält-säkerhet (0–1) och som styr granskningsspärren i UI.
 export const OCR_CONFIDENCE_FIELDS = ['leverantor', 'fakturadatum', 'forfallodatum', 'belopp_inkl_moms', 'moms_belopp', 'fakturanummer', 'ocr'] as const
@@ -88,10 +88,11 @@ Regler:
 - FAKTURA ELLER KREDITFAKTURA: avgör uttryckligen om underlaget är en vanlig faktura ("debit") eller en kreditfaktura/kreditnota ("credit"). Sätt invoice_type, is_credit_invoice och credit_evidence (ordet/uttrycket som avgjorde, t.ex. "Kreditfaktura", "Kreditnota", "Kreditering", "Krediteras", "Att erhålla", "Credit note").
 - KREDITFAKTURA: returnera belopp_inkl_moms och moms_belopp som NEGATIVA tal, och OMVÄND kontering: KREDIT kostnadskonto (netto), KREDIT ingående moms (2640/2641), DEBET 2440 leverantörsskulder (= beloppet "Att erhålla"/återbetalas). Summa debet = summa kredit ska fortfarande gälla (positiva belopp i debet/kredit-kolumnerna).
 - Förväxla INTE kreditfaktura med betalkredit, kreditvillkor, kredittid, kreditgräns eller kreditkort – sådant gör INTE underlaget till en kreditfaktura.
-- DUBBELRÄKNA ALDRIG: bokför kostnaden som EN nettorad. Om fakturan visar både enskilda fakturarader OCH en delsumma/"Summa exkl moms", använd ENBART delsumman (raderna ingår redan i den). Summan av alla debet-kostnadsrader måste vara exakt = netto (summa exkl moms).
+- DUBBELRÄKNA ALDRIG: bokför kostnaden som EN nettorad per momssats. Om fakturan visar både enskilda fakturarader OCH en delsumma/"Summa exkl moms", använd ENBART delsumman (raderna ingår redan i den). Summan av alla debet-kostnadsrader måste vara exakt = netto (summa exkl moms).
+- FLERA MOMSSATSER (mycket vanligt på kvitton): om underlaget har en momssammanställning med flera satser – t.ex. tabellen "Moms% / Moms / Netto / Brutto" med rader för 6 %, 12 % och/eller 25 % – skapa EN kostnadsrad (debet) per momssats med respektive NETTO-belopp på lämpligt kostnadskonto (livsmedel/varor ofta 6 % → 4000; övrigt/förbrukning 25 % → 5400 eller annat passande konto i kontoplanen), och bokför den TOTALA ingående momsen (summan av ALLA moms-rader) på 2640. Tappa ALDRIG bort en momssats även om beloppet är litet. Summan av alla netto-rader + summan av all moms MÅSTE bli exakt totalbeloppet (Brutto/Total/"Köp").
 - ÖRESAVRUNDNING: om fakturan har "Öresavrundning"/"Öresutjämning" (t.ex. −0,25), lägg en egen rad på konto 3740 Öres- och kronutjämning. Avrundat NEDÅT (negativt) => kredit 3740; uppåt (positivt) => debet 3740. 2440 ska krediteras med "Att betala", inte netto+moms.
 - En rad får ALDRIG ha både debet och kredit – välj en sida.
-- KONTROLLERA före svar: summa debet = summa kredit (annars justera). Kredit 2440 = beloppet "Att betala".
+- KONTROLLERA FÖRE SVAR (obligatoriskt): (1) summa debet = summa kredit; (2) summan av alla netto-kostnadsrader + ingående moms = totalbeloppet inkl. moms; (3) ingen momssats är bortglömd. Stämmer det inte – justera tills det balanserar. Kredit 2440/1910/1930 = beloppet "Att betala"/"Total"/"Köp".
 - För ett kontantkvitto: kreditera 1910 Kassa eller 1930 Företagskonto istället för 2440.
 - För insättningskvitto (kontanter till banken): debet 1930 Företagskonto, kredit 1910 Kassa.
 - Föredra 2640 Ingående moms (inte 2641) om båda finns i kontoplanen.

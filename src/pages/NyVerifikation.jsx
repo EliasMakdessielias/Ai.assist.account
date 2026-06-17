@@ -167,8 +167,12 @@ export default function NyVerifikation() {
       }
     })
     setRows(nya.length ? nya : [emptyRow(), emptyRow(), emptyRow()])
+    const sd = nya.reduce((s, r) => s + parseAmt(r.debet), 0)
+    const sk = nya.reduce((s, r) => s + parseAmt(r.kredit), 0)
+    const diff = Math.round((sd - sk) * 100) / 100
     const okand = nya.filter(r => r.konto && !accounts.some(a => a.account_nr === r.konto))
-    if (okand.length) toast('Tolkat – granska konton som ej hittades i kontoplanen', { icon: '⚠️' })
+    if (Math.abs(diff) > 0.01) toast(`Tolkningen balanserar inte (differens ${fmtSEK(Math.abs(diff))}) – kontrollera t.ex. saknad momssats. AI-bokföringshjälpen kan föreslå en balanserad kontering.`, { icon: '⚠️', duration: 8000 })
+    else if (okand.length) toast('Tolkat – granska konton som ej hittades i kontoplanen', { icon: '⚠️' })
     else toast.success('Underlaget tolkat – granska och klicka Bokför')
   }
 
