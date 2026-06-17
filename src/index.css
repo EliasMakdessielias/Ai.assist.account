@@ -57,3 +57,11 @@ body { background: #f5f4f0; }
   #printable { position: absolute; left: 0; top: 0; width: 100%; padding: 24px !important; }
   .no-print { display: none !important; }
 }
+
+/* AI-bokföringsassistent – diskret pulserande glöd (icke-störande, vilar vid reduced-motion) */
+@keyframes aiGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0.45), 0 6px 16px rgba(0,0,0,0.18); }
+  50%      { box-shadow: 0 0 0 7px rgba(124,58,237,0), 0 6px 18px rgba(0,0,0,0.22); }
+}
+.ai-glow { animation: aiGlow 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ai-glow { animation: none; } }

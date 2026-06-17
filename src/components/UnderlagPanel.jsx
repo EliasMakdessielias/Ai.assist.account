@@ -43,7 +43,7 @@ function defaultSplitWidth(widthKey) {
   return resolveViewerWidth(saved, avail, { fraction: 0.5, minPx: MIN_PANEL })
 }
 
-export default function UnderlagPanel({ company, attachIds = [], onToggleAttach, onTolkat, onCouple, selectDocId, title = 'VÄLJ UNDERLAG', reloadSignal, onClose, width = 520, widthKey }) {
+export default function UnderlagPanel({ company, attachIds = [], onToggleAttach, onTolkat, onCouple, onCurrentChange, selectDocId, title = 'VÄLJ UNDERLAG', reloadSignal, onClose, width = 520, widthKey }) {
   const [docs, setDocs] = useState([])
   const [idx, setIdx] = useState(0)
   const [url, setUrl] = useState(null)
@@ -99,6 +99,8 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   }
 
   const current = docs[idx] || null
+  // Meddela föräldern vilket underlag som är valt (inkl. tolkning) – för AI-bokföringshjälpen.
+  useEffect(() => { onCurrentChange?.(current || null) }, [current])
 
   // Hämta en signerad URL för det aktuella dokumentet (privat bucket).
   // Återställ till Auto (fit-to-panel) och nollställ naturlig storlek vid byte.
@@ -202,6 +204,7 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
     try {
       const result = await tolkaDocument(current.id)
       await supabase.from('documents').update({ tolkning: result, tolkad: true }).eq('id', current.id)
+      setDocs(ds => ds.map(d => d.id === current.id ? { ...d, tolkning: result, tolkad: true } : d))
       if (!attachIds.includes(current.id)) onToggleAttach(current.id)
       onTolkat?.(result)
     } catch (err) {

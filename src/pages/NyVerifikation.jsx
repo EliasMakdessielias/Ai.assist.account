@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import BokforAIAssistent from '../components/BokforAIAssistent'
 import { tolkaDocument } from '../lib/tolka'
 
 const emptyRow = () => ({ konto: '', benamning: '', info: '', debet: '', kredit: '', debetLocked: false, kreditLocked: false })
@@ -58,6 +59,7 @@ export default function NyVerifikation() {
   const [attachIds, setAttachIds] = useState([])
   const [reloadSignal, setReloadSignal] = useState(0)
   const [kommentar, setKommentar] = useState('')
+  const [aiDoc, setAiDoc] = useState(null)              // valt underlag (för AI-bokföringshjälp)
   const [kommentarOpen, setKommentarOpen] = useState(false)
   const [searchParams] = useSearchParams()
   const initialDoc = searchParams.get('underlag')
@@ -168,6 +170,19 @@ export default function NyVerifikation() {
     const okand = nya.filter(r => r.konto && !accounts.some(a => a.account_nr === r.konto))
     if (okand.length) toast('Tolkat – granska konton som ej hittades i kontoplanen', { icon: '⚠️' })
     else toast.success('Underlaget tolkat – granska och klicka Bokför')
+  }
+
+  // Infoga AI-bokföringshjälpens konteringsförslag i raderna (användaren granskar och bokför).
+  function applyAiKontering(forslag) {
+    if (!Array.isArray(forslag) || !forslag.length) return
+    const nya = forslag.map(r => {
+      const d = parseAmt(r.debet), kr = parseAmt(r.kredit)
+      const nr = String(r.konto ?? '').trim()
+      const match = accounts.find(a => a.account_nr === nr)
+      return { konto: nr, benamning: match ? match.name : (r.benamning || ''), info: '', debet: d > 0 ? fmtSEK(d) : '', kredit: kr > 0 ? fmtSEK(kr) : '', debetLocked: kr > 0, kreditLocked: d > 0 }
+    })
+    setRows(nya)
+    toast.success('AI-förslag infogat – granska och bokför')
   }
 
   useEffect(() => {
@@ -594,8 +609,10 @@ export default function NyVerifikation() {
         <i className={`ti ${panelOpen ? 'ti-chevron-right' : 'ti-chevron-left'}`} />
       </button>
       {panelOpen && (
-        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={initialDoc} reloadSignal={reloadSignal} widthKey="bokpilot.bokforing.nyverifikation.viewerW" onClose={() => setPanelOpen(false)} />
+        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} onCurrentChange={setAiDoc} selectDocId={initialDoc} reloadSignal={reloadSignal} widthKey="bokpilot.bokforing.nyverifikation.viewerW" onClose={() => setPanelOpen(false)} />
       )}
+
+      <BokforAIAssistent kind="verifikation" doc={panelOpen ? aiDoc : null} accounts={accounts} onApply={applyAiKontering} />
     </div>
   )
 }

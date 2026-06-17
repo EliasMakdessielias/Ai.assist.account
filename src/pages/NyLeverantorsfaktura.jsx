@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import LeverantorEditor from '../components/LeverantorEditor'
+import BokforAIAssistent from '../components/BokforAIAssistent'
 import { tolkaDocument } from '../lib/tolka'
 import { serie } from '../lib/serier'
 import { missingKonteringAccounts, reactivatableAccounts, detectCreditInvoice, buildSupplierInvoicePosting, costRowsFromKontering, reconcileCostRows, buildKonteringFromPrevious, signedHeaderAmount, amountMagnitude, syncRowsWithHeader, isIngaendeMomsKonto } from '../lib/leverantorsfaktura'
@@ -65,6 +66,7 @@ export default function NyLeverantorsfaktura() {
   const [supplierRules, setSupplierRules] = useState([])     // inlärda konteringsregler för vald leverantör
   const [rulesOpen, setRulesOpen] = useState(false)
   const applForslagRef = useRef(null)                        // visat/tillämpat regelförslag (för ändringsdetektion)
+  const [aiDoc, setAiDoc] = useState(null)                   // valt underlag i panelen (för AI-bokföringshjälp)
   const markVerifierat = f => setVerifierat(v => { const next = { ...v }; (Array.isArray(f) ? f : [f]).forEach(x => { next[x] = true }); return next })
   const toggleAttach = id => setAttachIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
@@ -197,6 +199,16 @@ export default function NyLeverantorsfaktura() {
       if (idx === n.length - 1) n.push(emptyRow())
       return n
     })
+  }
+
+  // Infoga AI-bokföringshjälpens konteringsförslag i raderna (användaren granskar och bokför).
+  function applyAiKontering(forslag) {
+    if (!Array.isArray(forslag) || !forslag.length) return
+    setRows([
+      ...forslag.map(r => ({ konto: String(r.konto || ''), namn: accMap[r.konto] || r.benamning || '', info: '', debet: Number(r.debet) ? fmt(Number(r.debet)) : '', kredit: Number(r.kredit) ? fmt(Number(r.kredit)) : '' })),
+      emptyRow(),
+    ])
+    toast.success('AI-förslag infogat – granska och bokför')
   }
 
   async function toggleRule(r) {
@@ -940,7 +952,7 @@ export default function NyLeverantorsfaktura() {
       </div>
 
       {panelOpen && (
-        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} selectDocId={docId} title="KOPPLA BILD" widthKey="bokpilot.levfaktura.ny.viewerW" onClose={() => setPanelOpen(false)} />
+        <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} onCurrentChange={setAiDoc} selectDocId={docId} title="KOPPLA BILD" widthKey="bokpilot.levfaktura.ny.viewerW" onClose={() => setPanelOpen(false)} />
       )}
 
       {levEditor && (
@@ -948,6 +960,8 @@ export default function NyLeverantorsfaktura() {
           onCancel={() => setLevEditor(null)}
           onSaved={async (sup) => { setLevEditor(null); setLevForslag(null); await reloadSuppliers(); setSupplierId(sup.id) }} />
       )}
+
+      <BokforAIAssistent kind="leverantorsfaktura" doc={panelOpen ? aiDoc : null} accounts={accounts} onApply={applyAiKontering} />
     </div>
   )
 }
