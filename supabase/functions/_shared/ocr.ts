@@ -134,44 +134,49 @@ export function isOcrableFile(contentType?: string | null, filename?: string | n
 
 // Kör Gemini-OCR på en base64-kodad fil och returnerar strukturerad data enligt OCR_SCHEMA.
 // Kastar vid fel (samma feltexter som tidigare så classifyOcrError fortsätter matcha).
+// Modell-fallback vid tillfällig överbelastning/rate limit (429/500/503): modellerna har
+// separata RPM/TPM-pooler → en fallback lyckas oftast när en är full.
+export const OCR_MODELS = [OCR_MODEL, 'gemini-2.5-flash', 'gemini-2.0-flash']
+
 export async function runGeminiOcr(
   { apiKey, base64, mimeType, kontoplan, timeoutMs = 30000 }:
   { apiKey: string; base64: string; mimeType: string; kontoplan: string; timeoutMs?: number },
 ): Promise<any> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${OCR_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: buildOcrPrompt(kontoplan) }, { inlineData: { mimeType, data: base64 } }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseSchema: OCR_SCHEMA,
-            temperature: 0,
-            thinkingConfig: { thinkingBudget: 0 }, // stäng av reasoning -> snabbare
-          },
-        }),
-        signal: ctrl.signal,
-      },
-    )
-    if (!resp.ok) {
-      const errText = await resp.text()
-      throw new Error(`Gemini-fel (${resp.status}): ${errText.slice(0, 300)}`)
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: buildOcrPrompt(kontoplan) }, { inlineData: { mimeType, data: base64 } }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: OCR_SCHEMA,
+      temperature: 0,
+      thinkingConfig: { thinkingBudget: 0 }, // stäng av reasoning -> snabbare
+    },
+  })
+  let gj: any = null, usedModel = '', lastStatus = 0, lastText = ''
+  for (const model of OCR_MODELS) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    try {
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: ctrl.signal },
+      )
+      if (resp.ok) { gj = await resp.json(); usedModel = model; break }
+      lastStatus = resp.status; lastText = await resp.text()
+    } finally {
+      clearTimeout(timer)
     }
-    const gj = await resp.json()
-    const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) throw new Error('Tomt svar från Gemini')
-    const parsed = JSON.parse(text)
-    // Spårbarhet: vilken modell/promptversion gav resultatet (lagras i documents.tolkning).
-    parsed._meta = { model: OCR_MODEL, promptVersion: OCR_PROMPT_VERSION, extractedAt: new Date().toISOString() }
-    return parsed
-  } finally {
-    clearTimeout(timer)
+    if (![429, 500, 503].includes(lastStatus)) break  // bestående fel → byt inte modell
   }
+  if (!gj) {
+    // Behåll feltexten så classifyOcrError fortsätter klassa 429/quota korrekt.
+    throw new Error(`Gemini-fel (${lastStatus}): ${String(lastText).slice(0, 300)}`)
+  }
+  const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Tomt svar från Gemini')
+  const parsed = JSON.parse(text)
+  // Spårbarhet: vilken modell/promptversion gav resultatet (lagras i documents.tolkning).
+  parsed._meta = { model: usedModel, promptVersion: OCR_PROMPT_VERSION, extractedAt: new Date().toISOString() }
+  return parsed
 }
 
 // Mappar ett tolkningsresultats `typ` till inkorgskategori. Spegel av

@@ -16,7 +16,7 @@ function isQuota(e) { return /\b429\b|quota|rate.?limit|RESOURCE_EXHAUSTED/i.tes
 // Service-lås (företaget pausat/blockerat) – kontrollerad affärsavvisning, gör INGET omförsök.
 function isServiceLocked(e) { return e?.code === 'service_locked' || /Tjänsten är pausad/.test(e?.message || '') }
 function friendly() {
-  return new Error('AI-tolkningens kvot är tillfälligt slut (Google Gemini). Vänta en stund och försök igen, eller aktivera fakturering på din Gemini-nyckel för högre gränser.')
+  return new Error('AI-tolkningens kvot är tillfälligt slut (per-minut-gräns hos Google Gemini). Vänta en stund och försök igen – appen provar flera modeller automatiskt.')
 }
 // Tydligt, åtgärdbart fel när sessionen saknas/gått ut (krav 8).
 function sessionExpired() {
