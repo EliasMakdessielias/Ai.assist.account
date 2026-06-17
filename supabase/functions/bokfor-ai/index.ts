@@ -94,28 +94,32 @@ ${String(kontoplan || '').slice(0, 6000)}
 
 ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens fråga: ' + fraga : 'Förklara hur detta underlag bör bokföras och ge ett konteringsförslag.'}`
 
-    // Anropa Gemini med omförsök vid tillfällig överbelastning (503) / rate limit (429).
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`
+    // Anropa Gemini med omförsök + modell-fallback vid tillfällig överbelastning (503/429).
+    // Modellerna har separata kapacitetspooler → en fallback lyckas oftast när en är full.
+    const MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash']
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.2, responseMimeType: 'application/json', responseSchema: SCHEMA, thinkingConfig: { thinkingBudget: 0 } },
     })
-    let r: Response | null = null, lastStatus = 0, lastText = ''
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise(res => setTimeout(res, attempt * 900))
-      r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
-      if (r.ok) break
-      lastStatus = r.status; lastText = await r.text()
-      if (![429, 500, 503].includes(r.status)) break   // bestående fel → ingen retry
-      r = null
+    let gj: any = null, usedModel = '', lastStatus = 0, lastText = ''
+    for (const model of MODELS) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise(res => setTimeout(res, 700))
+        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+        if (resp.ok) { gj = await resp.json(); usedModel = model; break }
+        lastStatus = resp.status; lastText = await resp.text()
+        if (![429, 500, 503].includes(resp.status)) break   // bestående fel → testa inte fler försök
+      }
+      if (gj) break
+      if (![429, 500, 503].includes(lastStatus)) break       // icke-överbelastningsfel → byt inte modell
     }
-    if (!r) {
+    if (!gj) {
       const overbelastad = lastStatus === 503 || lastStatus === 429 || /unavailable|overloaded|high demand|quota|rate limit/i.test(lastText)
       throw new Error(overbelastad
         ? 'AI-tjänsten är tillfälligt överbelastad. Vänta en liten stund och försök igen.'
         : 'AI-tjänsten kunde inte svara just nu. Försök igen om en stund.')
     }
-    const gj = await r.json()
     const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
     let parsed: any = { svar: 'Jag kunde inte svara just nu.' }
     try { parsed = JSON.parse(text) } catch { parsed = { svar: text || 'Jag kunde inte svara just nu.' } }
@@ -127,7 +131,7 @@ ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens f
       kraver_manuell_granskning: !!parsed.kraver_manuell_granskning,
       regelstod: parsed.regelstod || null,
       regelverkVersion: REGELVERK_VERSION,
-      model: 'gemini-2.5-flash-lite',
+      model: usedModel,
     })
   } catch (err) {
     return json({ error: String((err as Error)?.message || err) }, 400)
