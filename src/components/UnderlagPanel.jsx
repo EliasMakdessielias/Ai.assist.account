@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { tolkaDocument } from '../lib/tolka'
+import { quotaFrom, cooldownUntilFrom, remainingSeconds, COOLDOWN_STORAGE_KEY } from '../lib/aiQuota'
 import { useContainerSize, previewWidthPx, computeAutoScale, clampScale, resolveViewerWidth, sidebarWidth } from '../lib/docPreview'
 import PdfCanvas from './PdfCanvas'
 import DocMagnifier from './DocMagnifier'
@@ -54,6 +55,16 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   const dragDepth = useRef(0)                           // räknare så dragleave på barn inte släcker overlayn
   const [interpreting, setInterpreting] = useState(false)
   const [coupling, setCoupling] = useState(false)
+  // AI-quota-cooldown: efter 429 inaktiveras Tolka-knappen och en countdown visas.
+  // Sparas i localStorage så att en omladdning inte kringgår cooldownen (servern enforce:ar också).
+  const [cooldownUntil, setCooldownUntil] = useState(() => { try { return Number(localStorage.getItem(COOLDOWN_STORAGE_KEY)) || 0 } catch { return 0 } })
+  const [nowTs, setNowTs] = useState(() => Date.now())
+  const cooldownLeft = remainingSeconds(cooldownUntil, nowTs)
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) return
+    const id = setInterval(() => { setNowTs(Date.now()); if (Date.now() >= cooldownUntil) clearInterval(id) }, 1000)
+    return () => clearInterval(id)
+  }, [cooldownUntil])
   const [mode, setMode] = useState('auto')          // 'auto' (fit-to-panel) | 'manual'
   const [manualScale, setManualScale] = useState(1) // manuell zoom (naturlig-relativ för bild, container-relativ för PDF)
   const [natural, setNatural] = useState({ w: 0, h: 0 }) // bildens naturliga storlek (för fit-beräkning)
@@ -199,7 +210,8 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
   }
 
   async function handleTolka() {
-    if (!current) return
+    // Idempotens/anti-retry-storm: ignorera klick medan ett jobb körs eller under cooldown.
+    if (!current || interpreting || cooldownLeft > 0) return
     setInterpreting(true)
     try {
       const result = await tolkaDocument(current.id)
@@ -208,7 +220,18 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
       if (!attachIds.includes(current.id)) onToggleAttach(current.id)
       onTolkat?.(result)
     } catch (err) {
-      toast.error(err.message || String(err))
+      const q = quotaFrom({ code: err?.code, retry_after_seconds: err?.retryAfter, scope: err?.scope })
+      if (q) {
+        const until = cooldownUntilFrom(q.seconds)
+        setCooldownUntil(until)
+        try { localStorage.setItem(COOLDOWN_STORAGE_KEY, String(until)) } catch { /* ignore */ }
+        toast.error(err.message)
+      } else if (err?.code === 'in_progress') {
+        toast('AI-tolkning pågår redan för detta underlag.', { icon: '⏳' })
+      } else {
+        // Korrekt felmeddelande – antyder ALDRIG att bilden/underlaget är fel.
+        toast.error(err.message || 'AI-tjänsten kunde inte tolka underlaget just nu. Försök igen om en stund.')
+      }
     }
     setInterpreting(false)
   }
@@ -379,10 +402,16 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
           </div>
         ) : (
           <>
+            {cooldownLeft > 0 && (
+              <div className="mb-2 flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <i className="ti ti-clock-pause text-amber-500 mt-0.5 shrink-0" />
+                <span>AI-kvoten är tillfälligt slut. Försök igen om <b className="tabular-nums">{cooldownLeft}</b> sekunder.</span>
+              </div>
+            )}
             <div className="flex justify-between items-center gap-2.5">
-              <button className="btn px-4" style={{ background: '#6d28d9', color: '#fff', borderColor: '#6d28d9' }}
-                onClick={handleTolka} disabled={!current || interpreting}>
-                <i className="ti ti-sparkles" /> {interpreting ? 'Tolkar…' : 'Tolka underlaget'}
+              <button className="btn px-4" style={{ background: cooldownLeft > 0 ? '#9ca3af' : '#6d28d9', color: '#fff', borderColor: cooldownLeft > 0 ? '#9ca3af' : '#6d28d9' }}
+                onClick={handleTolka} disabled={!current || interpreting || cooldownLeft > 0}>
+                <i className="ti ti-sparkles" /> {interpreting ? 'Tolkar…' : cooldownLeft > 0 ? `Vänta ${cooldownLeft}s` : 'Tolka underlaget'}
               </button>
               <div className="flex gap-2.5">
                 <button className="btn btn-danger px-4" onClick={handleDelete} disabled={!current}>

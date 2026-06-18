@@ -151,10 +151,17 @@ export function isOcrableFile(contentType?: string | null, filename?: string | n
 }
 
 // Kör Gemini-OCR på en base64-kodad fil och returnerar strukturerad data enligt OCR_SCHEMA.
-// Kastar vid fel (samma feltexter som tidigare så classifyOcrError fortsätter matcha).
-// Modell-fallback vid tillfällig överbelastning/rate limit (429/500/503): modellerna har
-// separata RPM/TPM-pooler → en fallback lyckas oftast när en är full.
+//
+// QUOTA-POLICY (skydd mot retry-storm):
+// - HÅRT tak: max OCR_MAX_CALLS Gemini-anrop per tolkningsförsök.
+// - 429 RESOURCE_EXHAUSTED: INGET omförsök mot samma modell – hoppa direkt till nästa modell
+//   (taket ger som mest ETT fallback-anrop). Omförsök vid 429 bränner bara mer kvot.
+// - 503/500 (tillfälligt serverfel): exponential backoff med jitter, omförsök samma modell
+//   (inom taket).
+// - Vid fel kastas ett STRUKTURERAT fel (err.quota/status/model/body/requestId/calls) så att
+//   anroparen kan logga exakt orsak och sätta rätt cooldown/status.
 export const OCR_MODELS = [OCR_MODEL, 'gemini-2.5-flash', 'gemini-2.0-flash']
+export const OCR_MAX_CALLS = 2
 
 export async function runGeminiOcr(
   { apiKey, base64, mimeType, kontoplan, timeoutMs = 30000 }:
@@ -169,43 +176,66 @@ export async function runGeminiOcr(
       thinkingConfig: { thinkingBudget: 0 }, // stäng av reasoning -> snabbare
     },
   })
-  let gj: any = null, usedModel = '', lastStatus = 0, lastText = ''
+  let calls = 0, lastStatus = 0, lastText = '', lastModel = '', lastRequestId: string | null = null
   for (const model of OCR_MODELS) {
-    // Två försök per modell: rider ut korta 429/503-toppar (per-minut-gräns) med backoff.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) await new Promise(res => setTimeout(res, 1500))
+    if (calls >= OCR_MAX_CALLS) break
+    let serverRetry = 0
+    while (calls < OCR_MAX_CALLS) {
+      calls++
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+      let resp: Response | null = null
       try {
-        const resp = await fetch(
+        resp = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
           { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: ctrl.signal },
         )
-        if (resp.ok) { gj = await resp.json(); usedModel = model; break }
-        lastStatus = resp.status; lastText = (await resp.text().catch(() => '')).slice(0, 300)
       } catch (e) {
-        // Timeout (abort) eller nätverksfel: fånga så att vi kan falla tillbaka till nästa modell
-        // i stället för att avbryta hela tolkningen.
-        lastStatus = 0; lastText = String((e as Error)?.message || e)
+        lastStatus = 0; lastText = String((e as Error)?.message || e); lastModel = model
+        break // timeout/nätverksfel → nästa modell
       } finally {
         clearTimeout(timer)
       }
-      // Omförsök samma modell endast vid tillfällig överbelastning; annars vidare till nästa modell.
-      if (![429, 500, 503].includes(lastStatus)) break
+      if (resp.ok) {
+        const gj = await resp.json().catch(() => null)
+        const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
+        if (text) {
+          const parsed = JSON.parse(text)
+          parsed._meta = { model, promptVersion: OCR_PROMPT_VERSION, extractedAt: new Date().toISOString() }
+          return parsed
+        }
+        lastStatus = 200; lastText = 'Tomt svar från Gemini'; lastModel = model
+        break // tomt/malformed svar → nästa modell
+      }
+      lastStatus = resp.status
+      lastText = (await resp.text().catch(() => '')).slice(0, 800)
+      lastModel = model
+      lastRequestId = resp.headers.get('x-request-id') || resp.headers.get('x-goog-request-id') || lastRequestId
+      // 429: ALDRIG omförsök samma modell – bränner bara kvot. Hoppa till nästa modell.
+      if (lastStatus === 429) break
+      // 503/500: exponential backoff + jitter, omförsök samma modell (inom taket).
+      if ((lastStatus === 503 || lastStatus === 500) && serverRetry < 1 && calls < OCR_MAX_CALLS) {
+        serverRetry++
+        const backoff = 600 * Math.pow(2, serverRetry - 1) + Math.floor(Math.random() * 400)
+        await new Promise(res => setTimeout(res, backoff))
+        continue
+      }
+      break // annat fel → nästa modell
     }
-    if (gj) break
-    // Fortsätt ALLTID till nästa modell om denna inte gav svar (även vid timeout/hårt fel).
   }
-  if (!gj) {
-    // Behåll feltexten så classifyOcrError fortsätter klassa 429/quota/timeout korrekt.
-    throw new Error(`Gemini-fel (${lastStatus}): ${String(lastText).slice(0, 300)}`)
-  }
-  const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Tomt svar från Gemini')
-  const parsed = JSON.parse(text)
-  // Spårbarhet: vilken modell/promptversion gav resultatet (lagras i documents.tolkning).
-  parsed._meta = { model: usedModel, promptVersion: OCR_PROMPT_VERSION, extractedAt: new Date().toISOString() }
-  return parsed
+  // Inget giltigt svar inom taket → strukturerat fel (anroparen loggar + sätter cooldown/status).
+  const quota = lastStatus === 429 || /RESOURCE_EXHAUSTED|quota|rate.?limit/i.test(lastText)
+  const msg = quota
+    ? `Gemini quota (429) på ${lastModel || 'okänd modell'}`
+    : `Gemini-fel (${lastStatus}) på ${lastModel || 'okänd modell'}: ${lastText.slice(0, 200)}`
+  const err = new Error(msg) as Error & { quota?: boolean; status?: number; model?: string; body?: string; requestId?: string | null; calls?: number }
+  err.quota = quota
+  err.status = lastStatus
+  err.model = lastModel
+  err.body = lastText
+  err.requestId = lastRequestId
+  err.calls = calls
+  throw err
 }
 
 // Mappar ett tolkningsresultats `typ` till inkorgskategori. Spegel av
