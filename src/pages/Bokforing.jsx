@@ -8,6 +8,7 @@ import Kvitto from '../components/Kvitto'
 import StamAvKonto from '../components/StamAvKonto'
 import SokBelopp from '../components/SokBelopp'
 import UnderlagPanel from '../components/UnderlagPanel'
+import ViewerToggleTab from '../components/ViewerToggleTab'
 import BokforAIAssistent from '../components/BokforAIAssistent'
 import RattaVerifikationModal from '../components/RattaVerifikationModal'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
@@ -144,11 +145,6 @@ export default function Bokforing() {
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-base font-medium">Bokföring</span>
         <div className="flex items-center gap-2">
-          {registrationViewer && (
-            <button type="button" className="btn" onClick={() => setOpen(o => !o)} title={open ? 'Dölj bildpanelen' : 'Visa bildpanelen'}>
-              <i className={`ti ${open ? 'ti-layout-sidebar-right-collapse' : 'ti-layout-sidebar-right-expand'}`} /> {open ? 'Dölj bild' : 'Visa bild'}
-            </button>
-          )}
           <Link to="/bokforing/ny" className="btn btn-primary"><i className="ti ti-plus" /> Skapa verifikation</Link>
         </div>
       </div>
@@ -299,6 +295,7 @@ export default function Bokforing() {
   return (
     <div className="flex h-screen overflow-hidden">
       <div className="flex-1 overflow-y-auto">{content}</div>
+      <ViewerToggleTab open={open} onToggle={() => setOpen(o => !o)} />
       {open && (
         <UnderlagPanel company={company} attachIds={regAttach} onToggleAttach={toggleRegAttach}
           onCurrentChange={setActiveDoc}

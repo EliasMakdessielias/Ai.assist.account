@@ -72,22 +72,22 @@ describe('Bokföring – dokumentpanel i registreringsflikar (krav 1)', () => {
     expect(screen.getByTestId('underlag-panel')).toBeTruthy()
   })
 
-  it('"Dölj bild" döljer panelen, "Visa bild" återställer den', () => {
+  it('gula fliken döljer panelen och återställer den (samma knapp)', () => {
     renderPage()
     fireEvent.click(screen.getByText('Registrera dagskassa'))
     expect(screen.getByTestId('underlag-panel')).toBeTruthy()
 
-    fireEvent.click(screen.getByText('Dölj bild'))
+    fireEvent.click(screen.getByLabelText('Dölj underlag'))
     expect(screen.queryByTestId('underlag-panel')).toBeNull()
 
-    fireEvent.click(screen.getByText('Visa bild'))
+    fireEvent.click(screen.getByLabelText('Visa underlag'))
     expect(screen.getByTestId('underlag-panel')).toBeTruthy()
   })
 
   it('dölj-läget sparas i localStorage (krav 6/8)', () => {
     renderPage()
     fireEvent.click(screen.getByText('Registrera dagskassa'))
-    fireEvent.click(screen.getByText('Dölj bild'))
+    fireEvent.click(screen.getByLabelText('Dölj underlag'))
     expect(localStorage.getItem('bokpilot.bokforing.registrera.viewerOpen')).toBe('0')
   })
 })

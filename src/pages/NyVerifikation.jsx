@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import ViewerToggleTab from '../components/ViewerToggleTab'
 import BokforAIAssistent from '../components/BokforAIAssistent'
 import { tolkaDocument } from '../lib/tolka'
 import { fetchAllAccounts } from '../lib/accountsQuery'
@@ -604,12 +605,7 @@ export default function NyVerifikation() {
       </div>
 
       {/* Hopfällningspil + underlagspanel */}
-      <button
-        className="self-center -mr-px z-20 w-7 h-12 rounded-l-lg bg-amber-400 hover:bg-amber-500 text-gray-900 flex items-center justify-center shadow shrink-0"
-        onClick={() => setPanelOpen(o => !o)}
-        title={panelOpen ? 'Dölj underlag' : 'Visa underlag'}>
-        <i className={`ti ${panelOpen ? 'ti-chevron-right' : 'ti-chevron-left'}`} />
-      </button>
+      <ViewerToggleTab open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />
       {panelOpen && (
         <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} onCurrentChange={setAiDoc} selectDocId={initialDoc} reloadSignal={reloadSignal} widthKey="bokpilot.bokforing.nyverifikation.viewerW" onClose={() => setPanelOpen(false)} />
       )}

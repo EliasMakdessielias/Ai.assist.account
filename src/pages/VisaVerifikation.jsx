@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import ViewerToggleTab from '../components/ViewerToggleTab'
 import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
 import RattaVerifikationModal from '../components/RattaVerifikationModal'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
@@ -282,12 +283,7 @@ export default function VisaVerifikation() {
 
       {/* Hopfällningspil för underlagspanelen */}
       {!couplingMode && docs.length > 0 && (
-        <button
-          className="self-center -mr-px z-20 w-7 h-12 rounded-l-lg bg-amber-400 hover:bg-amber-500 text-gray-900 flex items-center justify-center shadow shrink-0"
-          onClick={() => setPanelOpen(o => !o)}
-          title={panelOpen ? 'Dölj underlag' : 'Visa underlag'}>
-          <i className={`ti ${panelOpen ? 'ti-chevron-right' : 'ti-chevron-left'}`} />
-        </button>
+        <ViewerToggleTab open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />
       )}
 
       {/* Kopplingsläge: Inkorgen med förhandsvisning, koppla direkt */}

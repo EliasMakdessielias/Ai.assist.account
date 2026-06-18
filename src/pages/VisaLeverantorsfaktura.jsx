@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import ViewerToggleTab from '../components/ViewerToggleTab'
 import DocumentViewerPanel from '../components/viewer/DocumentViewerPanel'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
@@ -124,7 +125,6 @@ export default function VisaLeverantorsfaktura() {
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={() => navigate('/leverantorsfakturor/ny')}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
           <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
-          {!panelOpen && <button className="btn" onClick={() => setPanelOpen(true)}><i className="ti ti-photo" /> Visa bilder</button>}
         </div>
       </div>
 
@@ -199,6 +199,7 @@ export default function VisaLeverantorsfaktura() {
   return (
     <div className="flex h-screen overflow-hidden">
       {workspace}
+      {docs.length > 0 && <ViewerToggleTab open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />}
       {panelOpen && (
         <>
           <div onPointerDown={startResize} role="separator" aria-orientation="vertical" title="Dra för att ändra storlek"

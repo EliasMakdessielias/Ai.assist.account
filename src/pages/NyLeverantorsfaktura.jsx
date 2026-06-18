@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
+import ViewerToggleTab from '../components/ViewerToggleTab'
 import LeverantorEditor from '../components/LeverantorEditor'
 import BokforAIAssistent from '../components/BokforAIAssistent'
 import { tolkaDocument } from '../lib/tolka'
@@ -642,7 +643,6 @@ export default function NyLeverantorsfaktura() {
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={() => { navigate('/leverantorsfakturor/ny'); setTimeout(() => window.location.reload(), 0) }}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>
           <button className="btn font-medium" style={{ background: '#f5c518', color: '#1a1a1a', borderColor: '#f5c518' }} onClick={() => navigate('/leverantorsfakturor')}><i className="ti ti-list" /> Visa lista</button>
-          <button className="btn" onClick={() => setPanelOpen(o => !o)}><i className="ti ti-photo" /> {panelOpen ? 'Dölj bild' : 'Visa bild'}</button>
         </div>
       </div>
 
@@ -954,6 +954,7 @@ export default function NyLeverantorsfaktura() {
       </div>
       </div>
 
+      <ViewerToggleTab open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />
       {panelOpen && (
         <UnderlagPanel company={company} attachIds={attachIds} onToggleAttach={toggleAttach} onTolkat={fyllFranTolkning} onCurrentChange={setAiDoc} selectDocId={docId} title="KOPPLA BILD" widthKey="bokpilot.levfaktura.ny.viewerW" onClose={() => setPanelOpen(false)} />
       )}
