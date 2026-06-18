@@ -96,6 +96,7 @@ Regler:
 - Använd ENDAST kontonummer som finns i kontoplanen nedan.
 - Leverantörsfaktura: debet kostnadskonto (netto), debet 2640 ingående moms, kredit 2440 leverantörsskulder (totalt inkl. moms). Kreditfaktura = omvänd kontering.
 - Kvitto betalt på plats: debet kostnadskonto (netto), debet 2640 ingående moms, kredit 1910 Kassa eller 1930 Företagskonto.
+- Om underlaget är en dagsrapport/Z-rapport/kassarapport från säljarens eget kassaregister (t.ex. texten "EJ KVITTO", "Z-rapport", "dagsrapport", "FULL RAPPORT") är det INTE ett inköpskvitto – det är säljarens egen försäljning (dagskassa). Bokför då INTE ingående moms/inköp; påpeka att det bör registreras som dagskassa (utgående moms) och sätt kraver_manuell_granskning=true.
 - Påpeka osäkra fält (t.ex. om moms saknas eller belopp inte stämmer) och be användaren kontrollera.
 - Ge inte bindande skatte-/juridisk rådgivning; hänvisa vid behov till redovisningskonsult.
 - Om användaren ställer en följdfråga: svara på den. Lämna konteringsforslag tomt om frågan inte gäller en ny kontering.
@@ -112,8 +113,8 @@ ${String(kontoplan || '').slice(0, 6000)}
 
 ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens fråga: ' + fraga : 'Förklara hur detta underlag bör bokföras och ge ett konteringsförslag.'}`
 
-    // Anropa Gemini med omförsök + modell-fallback vid tillfällig överbelastning (503/429).
-    // Modellerna har separata kapacitetspooler → en fallback lyckas oftast när en är full.
+    // Anropa Gemini med omförsök + modell-fallback. Viktigt: vid HÅRT fel (t.ex. 400) på en modell
+    // ska vi falla tillbaka till NÄSTA modell – inte avbryta helt. Alla Gemini-fel loggas för diagnos.
     const MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash']
     const body = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
@@ -123,20 +124,33 @@ ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens f
     for (const model of MODELS) {
       for (let attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) await new Promise(res => setTimeout(res, 700))
-        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+        let resp: Response
+        try {
+          resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+        } catch (netErr) {
+          lastStatus = 0; lastText = String((netErr as Error)?.message || netErr)
+          console.error(`bokfor-ai: Gemini ${model} försök ${attempt} nätverksfel: ${lastText}`)
+          continue
+        }
         if (resp.ok) { gj = await resp.json(); usedModel = model; break }
-        lastStatus = resp.status; lastText = await resp.text()
-        if (![429, 500, 503].includes(resp.status)) break   // bestående fel → testa inte fler försök
+        lastStatus = resp.status
+        lastText = (await resp.text().catch(() => '')).slice(0, 600)
+        console.error(`bokfor-ai: Gemini ${model} försök ${attempt} -> HTTP ${resp.status}: ${lastText}`)
+        // Omförsök samma modell endast vid tillfälliga fel; annars vidare till nästa modell.
+        if (![429, 500, 503].includes(resp.status)) break
       }
       if (gj) break
-      if (![429, 500, 503].includes(lastStatus)) break       // icke-överbelastningsfel → byt inte modell
+      // Fortsätt ALLTID till nästa modell om denna inte gav svar (även vid hårt fel som 400).
     }
     if (!gj) {
-      const overbelastad = lastStatus === 503 || lastStatus === 429 || /unavailable|overloaded|high demand|quota|rate limit/i.test(lastText)
-      throw new Error(overbelastad
-        ? 'AI-tjänsten är tillfälligt överbelastad. Vänta en liten stund och försök igen.'
-        : 'AI-tjänsten kunde inte svara just nu. Försök igen om en stund.')
+      console.error(`bokfor-ai: alla modeller misslyckades. Sista status=${lastStatus}, text=${lastText}`)
+      const transient = lastStatus === 503 || lastStatus === 429 || lastStatus === 0 || /unavailable|overloaded|high demand|quota|rate limit|deadline|timeout/i.test(lastText)
+      return json({
+        error: transient
+          ? 'AI-tjänsten är tillfälligt överbelastad. Vänta en liten stund och försök igen.'
+          : 'AI-tjänsten kunde inte svara just nu. Försök igen om en stund.',
+      }, transient ? 503 : 502)
     }
     const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
     let parsed: any = { svar: 'Jag kunde inte svara just nu.' }
@@ -153,6 +167,7 @@ ${hist ? 'Tidigare konversation:\n' + hist + '\n' : ''}${fraga ? 'Användarens f
       model: usedModel,
     })
   } catch (err) {
+    console.error(`bokfor-ai: ofångat fel: ${String((err as Error)?.message || err)}`)
     return json({ error: String((err as Error)?.message || err) }, 400)
   }
 })
