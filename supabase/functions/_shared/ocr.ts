@@ -171,22 +171,33 @@ export async function runGeminiOcr(
   })
   let gj: any = null, usedModel = '', lastStatus = 0, lastText = ''
   for (const model of OCR_MODELS) {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-    try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: ctrl.signal },
-      )
-      if (resp.ok) { gj = await resp.json(); usedModel = model; break }
-      lastStatus = resp.status; lastText = await resp.text()
-    } finally {
-      clearTimeout(timer)
+    // Två försök per modell: rider ut korta 429/503-toppar (per-minut-gräns) med backoff.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise(res => setTimeout(res, 1500))
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+      try {
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: ctrl.signal },
+        )
+        if (resp.ok) { gj = await resp.json(); usedModel = model; break }
+        lastStatus = resp.status; lastText = (await resp.text().catch(() => '')).slice(0, 300)
+      } catch (e) {
+        // Timeout (abort) eller nätverksfel: fånga så att vi kan falla tillbaka till nästa modell
+        // i stället för att avbryta hela tolkningen.
+        lastStatus = 0; lastText = String((e as Error)?.message || e)
+      } finally {
+        clearTimeout(timer)
+      }
+      // Omförsök samma modell endast vid tillfällig överbelastning; annars vidare till nästa modell.
+      if (![429, 500, 503].includes(lastStatus)) break
     }
-    if (![429, 500, 503].includes(lastStatus)) break  // bestående fel → byt inte modell
+    if (gj) break
+    // Fortsätt ALLTID till nästa modell om denna inte gav svar (även vid timeout/hårt fel).
   }
   if (!gj) {
-    // Behåll feltexten så classifyOcrError fortsätter klassa 429/quota korrekt.
+    // Behåll feltexten så classifyOcrError fortsätter klassa 429/quota/timeout korrekt.
     throw new Error(`Gemini-fel (${lastStatus}): ${String(lastText).slice(0, 300)}`)
   }
   const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text
