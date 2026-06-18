@@ -112,7 +112,7 @@ export default function StamAvKonto() {
         <span>{title}</span>
         <span className="text-xs text-gray-500">Markerat: <b className="tabular-nums">{fmt(side === 'bok' ? sumBok : sumBank)}</b></span>
       </div>
-      <div className="max-h-[480px] overflow-y-auto">
+      <div>
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide sticky top-0">
