@@ -1,22 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { serie } from '../lib/serier'
+import { byggDagskassaRader, dagskassaFromTolkning, DAGSKASSA_NAMES as NAMES } from '../lib/dagskassa'
 
 const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? 0 : n }
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-const ACC = {
-  forsaljning: { 25: '3001', 12: '3002', 6: '3003', 0: '3004' },
-  moms: { 25: '2611', 12: '2621', 6: '2631' },
-  kontant: '1910', kort: '1580',
-}
-const NAMES = {
-  '3001': 'Försäljning 25% moms', '3002': 'Försäljning 12% moms', '3003': 'Försäljning 6% moms', '3004': 'Försäljning momsfri',
-  '2611': 'Utgående moms 25%', '2621': 'Utgående moms 12%', '2631': 'Utgående moms 6%',
-  '1910': 'Kassa', '1580': 'Kontokortsfordringar',
-}
 const empty = { vg25: '', vg12: '', vg6: '', vg0: '', moms25: '', moms12: '', moms6: '', kontant: '', kort: '' }
 
 // "0530" -> 2026-05-30 (MMDD + år), "260530" -> ÅÅMMDD, "20260530" -> ÅÅÅÅMMDD.
@@ -32,7 +23,7 @@ function normalizeDate(str) {
   return `${y}-${m}-${d}`
 }
 
-export default function Dagskassa({ underlagDoc, onUnderlagLinked }) {
+export default function Dagskassa({ underlagDoc, onUnderlagLinked, tolkning = null, tolkSignal = 0 }) {
   const { company, user } = useAuth()
   const today = new Date().toISOString().slice(0, 10)
   const [mall, setMall] = useState('exkl')
@@ -41,9 +32,26 @@ export default function Dagskassa({ underlagDoc, onUnderlagLinked }) {
   const [kommentar, setKommentar] = useState('')
   const [f, setF] = useState({ ...empty })
   const [saving, setSaving] = useState(false)
+  const filledRef = useRef(0)
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const inkl = mall === 'inkl'
+
+  // Tolka underlaget (Z-rapport/dagsrapport) → fyll formuläret. Föräldern bumpar tolkSignal.
+  useEffect(() => {
+    if (!tolkSignal || tolkSignal === filledRef.current) return
+    const v = dagskassaFromTolkning(tolkning)
+    if (!v) { toast.error('Underlaget tolkades inte som en dagskassa (Z-rapport). Kontrollera underlaget.'); filledRef.current = tolkSignal; return }
+    filledRef.current = tolkSignal
+    setMall('exkl')   // OCR ger försäljning EXKL moms per varugrupp
+    if (v.datum) applyDatum(v.datum)
+    setF({
+      ...empty,
+      vg25: v.vg25 ? fmt(v.vg25) : '', vg12: v.vg12 ? fmt(v.vg12) : '', vg6: v.vg6 ? fmt(v.vg6) : '', vg0: v.vg0 ? fmt(v.vg0) : '',
+      kontant: v.kontant ? fmt(v.kontant) : '', kort: v.kort ? fmt(v.kort) : '',
+    })
+    toast.success('Dagskassan ifylld från underlaget – kontrollera beloppen innan du bokför')
+  }, [tolkSignal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyDatum(raw) {
     let dd = normalizeDate(raw)
@@ -75,8 +83,11 @@ export default function Dagskassa({ underlagDoc, onUnderlagLinked }) {
   const momsTotal = moms[25] + moms[12] + moms[6]
   const grandTotal = salesTotal + momsTotal
   const payments = num(f.kontant) + num(f.kort)
-  const differens = payments - grandTotal
-  const balanced = Math.abs(differens) < 0.01 && payments > 0
+  // Kassadifferens (inbetalt − försäljning inkl. moms). >0 överskott, <0 manko → bokförs på 3790.
+  const kassadiff = Math.round((payments - grandTotal) * 100) / 100
+  const harDiff = Math.abs(kassadiff) >= 0.01
+  // "Väsentlig" diff (> 1 % och > 50 kr) → kräv bekräftelse innan den dumpas på 3790.
+  const vasentligDiff = Math.abs(kassadiff) > 50 && (grandTotal === 0 || Math.abs(kassadiff) > grandTotal * 0.01)
 
   // Enter i Kort: är fältet tomt fylls resterande belopp i automatiskt (så differensen blir 0).
   function onKortEnter(e) {
@@ -93,16 +104,10 @@ export default function Dagskassa({ underlagDoc, onUnderlagLinked }) {
 
   async function bokfor() {
     if (payments <= 0) return toast.error('Ange betalsätt (kontant/kort)')
-    if (!balanced) return toast.error('Differensen måste vara 0 — kontrollera beloppen')
-    const rows = []
-    const credit = (nr, b) => { if (b > 0.001) rows.push({ nr, debet: 0, kredit: Math.round(b * 100) / 100 }) }
-    const debit = (nr, b) => { if (b > 0.001) rows.push({ nr, debet: Math.round(b * 100) / 100, kredit: 0 }) }
-    credit(ACC.forsaljning[25], net[25]); credit(ACC.forsaljning[12], net[12]); credit(ACC.forsaljning[6], net[6]); credit(ACC.forsaljning[0], net[0])
-    credit(ACC.moms[25], moms[25]); credit(ACC.moms[12], moms[12]); credit(ACC.moms[6], moms[6])
-    debit(ACC.kontant, num(f.kontant)); debit(ACC.kort, num(f.kort))
+    if (grandTotal <= 0) return toast.error('Fyll i minst en försäljningsrad')
+    if (vasentligDiff && !window.confirm(`Kassadifferensen ${fmt(kassadiff)} kr bokförs på 3790 ${NAMES['3790']}. Stämmer det?`)) return
+    const { rows, totalDebet, totalKredit } = byggDagskassaRader({ net, moms, kontant: num(f.kontant), kort: num(f.kort) })
     if (!rows.length) return toast.error('Fyll i minst en försäljningsrad')
-    const totalDebet = rows.reduce((s, r) => s + r.debet, 0)
-    const totalKredit = rows.reduce((s, r) => s + r.kredit, 0)
     setSaving(true)
     try {
       const ser = serie(company, 'kassabank')
@@ -196,9 +201,21 @@ export default function Dagskassa({ underlagDoc, onUnderlagLinked }) {
         {subtotal('Inbetalt', payments)}
       </div>
 
-      <div className="grid grid-cols-[200px_220px] gap-3 items-center mb-5 pt-2 border-t max-w-[428px]" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-sm font-semibold">Differens</span>
-        <div className="text-right text-base font-bold tabular-nums pr-1" style={{ color: balanced ? '#1a7a2e' : '#A32D2D' }}>{fmt(differens)}</div>
+      <div className="mb-5 pt-2 border-t max-w-[428px]" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+        <div className="grid grid-cols-[200px_220px] gap-3 items-center">
+          <span className="text-sm font-semibold">
+            Kassadiff <span className="text-xs font-normal text-gray-400">(konto 3790)</span>
+          </span>
+          <div className="text-right text-base font-bold tabular-nums pr-1" style={{ color: harDiff ? '#A32D2D' : '#1a7a2e' }}>{fmt(kassadiff)}</div>
+        </div>
+        {harDiff && (
+          <div className="grid grid-cols-[200px_220px] gap-3">
+            <span />
+            <div className="text-right text-xs text-gray-500 pr-1">
+              {kassadiff > 0 ? 'Överskott' : 'Manko'} – bokförs på 3790 {NAMES['3790']}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mb-6 max-w-xl">

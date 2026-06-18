@@ -8,7 +8,7 @@
 // Modell + promptversion – lagras i tolkningsresultatets _meta för spårbarhet (vilken modell/
 // prompt som gav vilket resultat). Bumpa OCR_PROMPT_VERSION när prompten/schemat ändras.
 export const OCR_MODEL = 'gemini-2.5-flash-lite'
-export const OCR_PROMPT_VERSION = 'v3-2026-06-flermoms'
+export const OCR_PROMPT_VERSION = 'v4-2026-06-dagskassa'
 
 // Kritiska fält som får per-fält-säkerhet (0–1) och som styr granskningsspärren i UI.
 export const OCR_CONFIDENCE_FIELDS = ['leverantor', 'fakturadatum', 'forfallodatum', 'belopp_inkl_moms', 'moms_belopp', 'fakturanummer', 'ocr'] as const
@@ -44,7 +44,23 @@ export const OCR_SCHEMA = {
     leverantor_telefon: { type: 'string', description: 'leverantörens telefonnummer' },
     leverantor_epost: { type: 'string', description: 'leverantörens e-postadress' },
     leverantor_webb: { type: 'string', description: 'leverantörens webbadress' },
-    typ: { type: 'string', description: 'leverantorsfaktura, kvitto, insattningskvitto, avtal, dokument eller ovrigt (se klassificeringsreglerna i prompten)' },
+    typ: { type: 'string', description: 'leverantorsfaktura, kvitto, dagskassa, insattningskvitto, avtal, dokument eller ovrigt (se klassificeringsreglerna i prompten)' },
+    dagskassa: {
+      type: 'object',
+      description: 'Fylls ENDAST när typ="dagskassa" (dagsrapport/Z-rapport från säljarens eget kassaregister). Säljarens egen kassaförsäljning.',
+      properties: {
+        datum: { type: 'string', description: 'Försäljningsdatum YYYY-MM-DD (rapportens datum)' },
+        forsaljning_25: { type: 'number', description: 'Varugruppförsäljning EXKL moms, 25 % moms' },
+        forsaljning_12: { type: 'number', description: 'Varugruppförsäljning EXKL moms, 12 % moms' },
+        forsaljning_6: { type: 'number', description: 'Varugruppförsäljning EXKL moms, 6 % moms' },
+        forsaljning_0: { type: 'number', description: 'Momsfri varugruppförsäljning (0 %)' },
+        moms_25: { type: 'number', description: 'Utgående moms 25 %' },
+        moms_12: { type: 'number', description: 'Utgående moms 12 %' },
+        moms_6: { type: 'number', description: 'Utgående moms 6 %' },
+        kontant: { type: 'number', description: 'Kontant betalning (kassa)' },
+        kort: { type: 'number', description: 'Kortbetalning' },
+      },
+    },
     falt_sakerhet: {
       type: 'object',
       description: 'Din säkerhet 0–1 per kritiskt fält (kalibrerad och ärlig). Lägre för handskrivet/suddigt/härlett, 0 om fältet saknas i underlaget.',
@@ -95,6 +111,7 @@ Regler:
 - KONTROLLERA FÖRE SVAR (obligatoriskt): (1) summa debet = summa kredit; (2) summan av alla netto-kostnadsrader + ingående moms = totalbeloppet inkl. moms; (3) ingen momssats är bortglömd. Stämmer det inte – justera tills det balanserar. Kredit 2440/1910/1930 = beloppet "Att betala"/"Total"/"Köp".
 - För ett kontantkvitto: kreditera 1910 Kassa eller 1930 Företagskonto istället för 2440.
 - För insättningskvitto (kontanter till banken): debet 1930 Företagskonto, kredit 1910 Kassa.
+- DAGSKASSA / Z-RAPPORT (mycket viktigt – förväxla INTE med inköpskvitto): om underlaget är en dagsrapport/Z-rapport/kassaredovisning från säljarens EGET kassaregister (känns igen på t.ex. "Z-rapport", "Z 1", "dagsrapport", "FULL RAPPORT", "VGR TOTAL", "EJ KVITTO", "EJ KVITTO PÅ KÖP", momssammanställning med "MOMSPL"/varugrupper) är det säljarens EGEN FÖRSÄLJNING (utgående moms), INTE ett inköp. Sätt då typ="dagskassa" och fyll fältet "dagskassa": datum, forsaljning_25/12/6/0 (varugruppförsäljning EXKL moms per momssats), moms_25/12/6 (utgående moms per momssats), kontant och kort (betalsätt). Bokför konteringsrader som FÖRSÄLJNING: KREDIT 3001 (25%)/3002 (12%)/3003 (6%)/3004 (momsfri) med nettobeloppen, KREDIT 2611 (25%)/2621 (12%)/2631 (6%) med utgående moms, DEBET 1910 Kassa (kontant) och DEBET 1580 (kort). Bokför ALDRIG ingående moms (2640) eller inköp (4xxx) för en dagskassa. Om kontant+kort ≠ försäljning+moms: lägg differensen som kassadifferens på 3790 (debet vid manko, kredit vid överskott) så att debet = kredit.
 - Föredra 2640 Ingående moms (inte 2641) om båda finns i kontoplanen.
 - Sätt momssats till 25, 12, 6 eller 0.
 - beskrivning: kort, t.ex. leverantörens namn + vad det avser.
@@ -111,11 +128,12 @@ Regler:
 DOKUMENTTYP (fältet "typ") – klassificera underlaget. Detta styr var det sorteras, så följ reglerna noga:
 - "kvitto": ett kassakvitto/butikskvitto som betalats DIREKT på plats (kort/kontant/swish). Känns igen på t.ex. "Kvitto", "Kassakvitto", "Köp", "ATT BETALA", "Köpbelopp", kortterminal-/betalrader (Kort, Kontaktlös, Mastercard/Visa, TERM, AID, ARQC), saknar namngiven köpare och saknar förfallodatum/OCR-nummer/bankgiro/plusgiro. Ett kassakvitto är en FÖRENKLAD FAKTURA och fullt giltigt underlag – men klassas alltid som "kvitto", ALDRIG "leverantorsfaktura", även om det har säljarens org.nr och momsspecifikation.
 - "leverantorsfaktura": en faktura som är STÄLLD TILL köparen (företaget) och ska betalas SENARE. Enligt Skatteverkets krav på en fullständig faktura innehåller den normalt: fakturadatum (utfärdandedatum), ett unikt fakturanummer (löpnummer), säljarens momsregistreringsnummer, köparens namn och adress, varornas mängd/art eller tjänsternas omfattning/art, beskattningsunderlag per momssats samt momssats och momsbelopp – OCH betalningsuppgifter som förfallodatum och/eller OCR-nummer, bankgiro/plusgiro/IBAN. Avgörande skillnad mot kvitto: ställd till en namngiven köpare + ska betalas senare (förfallodatum/OCR/bankgiro), inte betald på plats.
+- "dagskassa": en dagsrapport/Z-rapport/kassaredovisning från säljarens EGET kassaregister (säljarens egen dagsförsäljning), t.ex. "Z-rapport", "dagsrapport", "FULL RAPPORT", "VGR TOTAL", "EJ KVITTO PÅ KÖP", momssammanställning per varugrupp. Detta är INTE ett inköpskvitto – det är företagets egen försäljning som ska registreras som dagskassa.
 - "insattningskvitto": kvitto på kontantinsättning till bank.
 - "avtal": ett avtal eller kontrakt (t.ex. orden "Avtal", "Kontrakt", "Agreement", angivna parter, villkor, giltighetstid, underskrifter).
 - "dokument": annat affärsdokument som varken är kvitto, leverantörsfaktura, insättningskvitto eller avtal.
 - "ovrigt": använd ENDAST om underlaget är oläsligt eller du inte säkert kan avgöra typen.
-- BESLUTSREGEL: betalt direkt på plats utan förfallodatum/OCR/fakturanummer-ställt-till-köpare => "kvitto". Ställd till köparen med fakturanummer och förfallodatum/OCR/bankgiro => "leverantorsfaktura".
+- BESLUTSREGEL: dagsrapport/Z-rapport från eget kassaregister (egen försäljning) => "dagskassa". Betalt direkt på plats vid ett INKÖP, utan förfallodatum/OCR/fakturanummer-ställt-till-köpare => "kvitto". Ställd till köparen med fakturanummer och förfallodatum/OCR/bankgiro => "leverantorsfaktura".
 
 KONTOPLAN (aktiva konton):
 ${kontoplan}`
@@ -186,6 +204,7 @@ export async function runGeminiOcr(
 export const OCR_TYPE_TO_CATEGORY: Record<string, string> = {
   leverantorsfaktura: 'leverantorsfaktura',
   kvitto: 'kvitto',
+  dagskassa: 'dokument',
   insattningskvitto: 'kvitto',
   avtal: 'avtal',
   dokument: 'dokument',

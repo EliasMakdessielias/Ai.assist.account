@@ -35,6 +35,7 @@ export default function Bokforing() {
   const [activeDoc, setActiveDoc] = useState(null) // aktuellt underlag i panelen (AI-kontext)
   const [regAttach, setRegAttach] = useState([])   // underlag som kopplas vid bokföring (id:n)
   const [aiOpenSignal, setAiOpenSignal] = useState(0) // öppnar AI-hjälpen efter "Tolka underlaget"
+  const [dagskassaSignal, setDagskassaSignal] = useState(0) // fyller dagskasseformuläret efter "Tolka underlaget"
   const [rattaVer, setRattaVer] = useState(null)   // verifikation som rättas (modal öppen)
   const [aiAccounts, setAiAccounts] = useState([]) // aktiva konton som kontext till AI-bokföringshjälpen
   const { open, setOpen } = useDocumentViewerLayout({
@@ -267,7 +268,7 @@ export default function Bokforing() {
             </div>
           </>
         )}
-        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa underlagDoc={underlagDoc} onUnderlagLinked={clearUnderlag} />}
+        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa underlagDoc={underlagDoc} onUnderlagLinked={clearUnderlag} tolkning={activeDoc?.tolkning} tolkSignal={dagskassaSignal} />}
         {tabs[activeTab] === 'Registrera kvitto' && <Kvitto underlagDoc={underlagDoc} onUnderlagLinked={clearUnderlag} />}
         {tabs[activeTab] === 'Stäm av konto' && <StamAvKonto />}
         {tabs[activeTab] === 'Sök belopp' && <SokBelopp />}
@@ -299,7 +300,16 @@ export default function Bokforing() {
       {open && (
         <UnderlagPanel company={company} attachIds={regAttach} onToggleAttach={toggleRegAttach}
           onCurrentChange={setActiveDoc}
-          onTolkat={result => { setActiveDoc(d => d ? { ...d, tolkning: result, tolkad: true } : d); setAiOpenSignal(n => n + 1); toast.success('Underlaget tolkat – AI-hjälpen föreslår hur det bokförs') }}
+          onTolkat={result => {
+            setActiveDoc(d => d ? { ...d, tolkning: result, tolkad: true } : d)
+            if (tabs[activeTab] === 'Registrera dagskassa') {
+              // Dagskassa: fyll formuläret direkt (Dagskassa-komponenten visar egen bekräftelse).
+              setDagskassaSignal(n => n + 1)
+            } else {
+              setAiOpenSignal(n => n + 1)
+              toast.success('Underlaget tolkat – AI-hjälpen föreslår hur det bokförs')
+            }
+          }}
           title="VÄLJ UNDERLAG"
           widthKey="bokpilot.bokforing.registrera.viewerW" onClose={() => setOpen(false)} />
       )}

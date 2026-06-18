@@ -77,6 +77,7 @@ export function classifyDocument(input = {}, opts = {}) {
 export const OCR_TYPE_TO_CATEGORY = {
   leverantorsfaktura: 'leverantorsfaktura',
   kvitto: 'kvitto',
+  dagskassa: 'dokument',
   insattningskvitto: 'kvitto',
   avtal: 'avtal',
   dokument: 'dokument',
