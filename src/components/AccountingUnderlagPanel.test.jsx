@@ -19,7 +19,14 @@ const h = vi.hoisted(() => {
 vi.mock('../lib/supabase', () => ({
   supabase: {
     storage: { from: () => ({ upload: h.upload, createSignedUrl: h.createSignedUrl }) },
-    from: () => ({ insert: h.insert }),
+    // Kedjbar query: stöder både insert (uppladdning) och loadInbox-kedjan
+    // select().eq().is().order().limit() som returnerar en tom inkorg.
+    from: () => {
+      const q = { insert: h.insert }
+      q.select = () => q; q.eq = () => q; q.is = () => q; q.order = () => q
+      q.update = () => q; q.limit = async () => ({ data: [], error: null })
+      return q
+    },
   },
 }))
 vi.mock('react-hot-toast', () => ({ default: h.toast }))

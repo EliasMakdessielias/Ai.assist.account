@@ -8,6 +8,7 @@ import Kvitto from '../components/Kvitto'
 import StamAvKonto from '../components/StamAvKonto'
 import SokBelopp from '../components/SokBelopp'
 import AccountingUnderlagPanel from '../components/AccountingUnderlagPanel'
+import BokforAIAssistent from '../components/BokforAIAssistent'
 import RattaVerifikationModal from '../components/RattaVerifikationModal'
 import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
@@ -34,12 +35,20 @@ export default function Bokforing() {
   const [dagskassaDoc, setDagskassaDoc] = useState(null)
   const [kvittoDoc, setKvittoDoc] = useState(null)
   const [rattaVer, setRattaVer] = useState(null)   // verifikation som rättas (modal öppen)
+  const [aiAccounts, setAiAccounts] = useState([]) // aktiva konton som kontext till AI-bokföringshjälpen
   const { panelW, open, setOpen, dragging, startResize } = useDocumentViewerLayout({
     widthKey: 'bokpilot.bokforing.registrera.viewerW',
     openKey: 'bokpilot.bokforing.registrera.viewerOpen',
   })
 
   useEffect(() => { if (company) loadVerifikationer() }, [company])
+
+  // Aktiva konton (kontext till AI-bokföringshjälpen). Sorteras klientsidan.
+  useEffect(() => {
+    if (!company) return
+    supabase.from('accounts').select('account_nr, name, is_active').eq('company_id', company.id).eq('is_active', true)
+      .then(({ data }) => setAiAccounts((data || []).slice().sort((a, b) => String(a.account_nr).localeCompare(String(b.account_nr)))))
+  }, [company?.id])
 
   async function loadVerifikationer() {
     setLoading(true)
@@ -281,6 +290,9 @@ export default function Bokforing() {
       {rattaVer && (
         <RattaVerifikationModal ver={rattaVer} company={company}
           onClose={() => setRattaVer(null)} onDone={res => rattadKlar(rattaVer, res)} />
+      )}
+      {registrationViewer && (
+        <BokforAIAssistent kind={activeKategori === 'kvitto' ? 'kvitto' : 'verifikation'} doc={activeDoc} accounts={aiAccounts} />
       )}
     </div>
   )

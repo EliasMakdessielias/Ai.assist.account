@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import DocumentViewerPanel from './viewer/DocumentViewerPanel'
 import { MAX_ATTACHMENT_BYTES } from '../lib/inboxAddresses'
 import { friendlyWriteError } from '../lib/serviceLock'
+import { tolkaDocument } from '../lib/tolka'
 
 // [DOCUMENT_VIEWER] Höger dokumentpanel för Bokföring → Registrera dagskassa / Registrera kvitto.
 // Komponerar den gemensamma visaren (DocumentViewerPanel) med en "VÄLJ BILD"-toolbar,
@@ -40,10 +41,47 @@ export function validateUnderlagFile(file) {
   return null
 }
 
-export default function AccountingUnderlagPanel({ company, kategori = 'dokument', doc, onSelected, onRemove, dragging = false }) {
+export default function AccountingUnderlagPanel({ company, kategori = 'dokument', doc, onSelected, onTolkat, onRemove, dragging = false }) {
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [inbox, setInbox] = useState([])          // okopplade underlag i inkorgen
+  const [showPicker, setShowPicker] = useState(false)
+  const [interpreting, setInterpreting] = useState(false)
+
+  // Hämta okopplade underlag (verifikation_id is null) så man kan koppla direkt från inkorgen.
+  const loadInbox = useCallback(async () => {
+    if (!company?.id) return
+    const { data } = await supabase.from('documents')
+      .select('id, file_name, mime_type, storage_path, kategori, tolkning, tolkad, created_at')
+      .eq('company_id', company.id).is('verifikation_id', null)
+      .order('created_at', { ascending: false }).limit(100)
+    setInbox(data || [])
+  }, [company?.id])
+  useEffect(() => { loadInbox() }, [loadInbox])
+
+  // Välj ett befintligt underlag från inkorgen → koppla det (hämta signerad URL för visning).
+  async function pickFromInbox(d) {
+    setShowPicker(false)
+    const { data: signed } = await supabase.storage.from('underlag').createSignedUrl(d.storage_path, 3600)
+    onSelected?.({ ...d, url: signed?.signedUrl || null })
+  }
+
+  // Tolka det kopplade underlaget (AI/OCR) – sparar tolkningen och delar den med AI-hjälpen.
+  async function tolka() {
+    if (!doc?.id || interpreting) return
+    setInterpreting(true)
+    try {
+      const result = await tolkaDocument(doc.id)
+      await supabase.from('documents').update({ tolkning: result, tolkad: true }).eq('id', doc.id)
+      onSelected?.({ ...doc, tolkning: result, tolkad: true })
+      onTolkat?.(result)
+      toast.success('Underlaget tolkat')
+    } catch (err) {
+      toast.error(err.message || String(err))
+    }
+    setInterpreting(false)
+  }
 
   async function upload(file) {
     if (!company?.id || !file) return
@@ -96,8 +134,6 @@ export default function AccountingUnderlagPanel({ company, kategori = 'dokument'
     handleFiles(e.dataTransfer?.files)
   }
 
-  const toolBtn = 'text-xs flex items-center gap-1 text-gray-400 cursor-not-allowed'
-
   return (
     <div className="flex flex-col h-full"
       onDragEnter={e => { e.preventDefault(); if (!dragOver) setDragOver(true) }}
@@ -108,9 +144,34 @@ export default function AccountingUnderlagPanel({ company, kategori = 'dokument'
       {/* VÄLJ BILD – toolbar */}
       <div className="bg-white border-b px-5 h-12 flex items-center gap-3 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <span className="text-[13px] font-semibold text-gray-700 mr-auto">VÄLJ BILD</span>
-        <button className={toolBtn} type="button" disabled title="Ej tillgängligt"><i className="ti ti-help-circle" /> Saknas text?</button>
-        <button className={toolBtn} type="button" disabled title="Ej tillgängligt"><i className="ti ti-refresh" /></button>
-        <button className={toolBtn} type="button" disabled title="Ej tillgängligt"><i className="ti ti-mail" /> E-posta bild</button>
+
+        {/* Koppla ett befintligt underlag från inkorgen */}
+        <div className="relative">
+          <button className="text-xs text-blue-700 hover:underline flex items-center gap-1" type="button"
+            onClick={() => { if (!showPicker) loadInbox(); setShowPicker(s => !s) }}>
+            <i className="ti ti-inbox" /> Välj från inkorgen{inbox.length ? ` (${inbox.length})` : ''}
+          </button>
+          {showPicker && (
+            <div className="absolute right-0 top-8 z-30 w-72 max-h-80 overflow-auto bg-white rounded-lg shadow-xl" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+              {inbox.length === 0 ? (
+                <div className="px-3 py-3 text-sm text-gray-400">Inga okopplade underlag i inkorgen.</div>
+              ) : inbox.map(d => (
+                <button key={d.id} type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 border-b last:border-b-0" style={{ borderColor: 'rgba(0,0,0,0.06)' }}
+                  onClick={() => pickFromInbox(d)}>
+                  <i className={`ti ${d.mime_type === 'application/pdf' ? 'ti-file-type-pdf' : 'ti-photo'} text-gray-400 shrink-0`} />
+                  <span className="truncate flex-1">{d.file_name || 'Underlag'}</span>
+                  {d.tolkad && <i className="ti ti-sparkles text-purple-500 text-xs shrink-0" title="Tolkad" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Tolka underlaget (AI/OCR) */}
+        <button className="text-xs flex items-center gap-1 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline" style={{ color: '#6d28d9' }} type="button" onClick={tolka} disabled={!doc || interpreting}>
+          <i className="ti ti-sparkles" /> {interpreting ? 'Tolkar…' : 'Tolka underlaget'}
+        </button>
+
         <button className="text-xs text-blue-700 hover:underline flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed" type="button" onClick={openPicker} disabled={uploading}>
           <i className="ti ti-upload" /> {uploading ? 'Laddar upp…' : 'Ladda upp'}
         </button>
