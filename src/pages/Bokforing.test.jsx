@@ -39,7 +39,8 @@ vi.mock('../components/Dagskassa', () => ({ default: () => <div data-testid="dag
 vi.mock('../components/Kvitto', () => ({ default: () => <div data-testid="kvitto-form" /> }))
 vi.mock('../components/StamAvKonto', () => ({ default: () => <div /> }))
 vi.mock('../components/SokBelopp', () => ({ default: () => <div /> }))
-vi.mock('../components/AccountingUnderlagPanel', () => ({ default: () => <div data-testid="underlag-panel">PANEL</div> }))
+vi.mock('../components/UnderlagPanel', () => ({ default: () => <div data-testid="underlag-panel">PANEL</div> }))
+vi.mock('../components/BokforAIAssistent', () => ({ default: () => <div data-testid="ai-fab" /> }))
 
 const renderPage = () => render(<MemoryRouter><Bokforing /></MemoryRouter>)
 beforeEach(() => {
@@ -55,15 +56,13 @@ describe('Bokföring – dokumentpanel i registreringsflikar (krav 1)', () => {
   it('visar INTE panel på fliken Verifikationer', () => {
     renderPage()
     expect(screen.queryByTestId('underlag-panel')).toBeNull()
-    expect(screen.queryByRole('separator')).toBeNull()
   })
 
-  it('visar panel + splitter på "Registrera dagskassa"', () => {
+  it('visar panel på "Registrera dagskassa"', () => {
     renderPage()
     fireEvent.click(screen.getByText('Registrera dagskassa'))
     expect(screen.getByTestId('dagskassa-form')).toBeTruthy()
     expect(screen.getByTestId('underlag-panel')).toBeTruthy()
-    expect(screen.getByRole('separator')).toBeTruthy()
   })
 
   it('visar panel på "Registrera kvitto"', () => {
@@ -80,7 +79,6 @@ describe('Bokföring – dokumentpanel i registreringsflikar (krav 1)', () => {
 
     fireEvent.click(screen.getByText('Dölj bild'))
     expect(screen.queryByTestId('underlag-panel')).toBeNull()
-    expect(screen.queryByRole('separator')).toBeNull()
 
     fireEvent.click(screen.getByText('Visa bild'))
     expect(screen.getByTestId('underlag-panel')).toBeTruthy()

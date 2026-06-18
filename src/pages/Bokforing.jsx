@@ -7,10 +7,9 @@ import Dagskassa from '../components/Dagskassa'
 import Kvitto from '../components/Kvitto'
 import StamAvKonto from '../components/StamAvKonto'
 import SokBelopp from '../components/SokBelopp'
-import AccountingUnderlagPanel from '../components/AccountingUnderlagPanel'
+import UnderlagPanel from '../components/UnderlagPanel'
 import BokforAIAssistent from '../components/BokforAIAssistent'
 import RattaVerifikationModal from '../components/RattaVerifikationModal'
-import DocumentSplitLayout from '../components/viewer/DocumentSplitLayout'
 import { useDocumentViewerLayout } from '../lib/viewer/useDocumentViewerLayout'
 
 const verNum = v => parseInt((v.ver_nr || '').replace(/\D/g, ''), 10) || 0
@@ -32,16 +31,20 @@ export default function Bokforing() {
   const [serie, setSerie] = useState('Alla')
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [dagskassaDoc, setDagskassaDoc] = useState(null)
-  const [kvittoDoc, setKvittoDoc] = useState(null)
+  const [activeDoc, setActiveDoc] = useState(null) // aktuellt underlag i panelen (AI-kontext)
+  const [regAttach, setRegAttach] = useState([])   // underlag som kopplas vid bokföring (id:n)
   const [rattaVer, setRattaVer] = useState(null)   // verifikation som rättas (modal öppen)
   const [aiAccounts, setAiAccounts] = useState([]) // aktiva konton som kontext till AI-bokföringshjälpen
-  const { panelW, open, setOpen, dragging, startResize } = useDocumentViewerLayout({
+  const { open, setOpen } = useDocumentViewerLayout({
     widthKey: 'bokpilot.bokforing.registrera.viewerW',
     openKey: 'bokpilot.bokforing.registrera.viewerOpen',
   })
+  const toggleRegAttach = id => setRegAttach(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
   useEffect(() => { if (company) loadVerifikationer() }, [company])
+
+  // Nollställ underlagskoppling när man byter flik.
+  useEffect(() => { setActiveDoc(null); setRegAttach([]) }, [activeTab])
 
   // Aktiva konton (kontext till AI-bokföringshjälpen). Sorteras klientsidan.
   useEffect(() => {
@@ -130,19 +133,10 @@ export default function Bokforing() {
   )
 
   const registrationViewer = tabs[activeTab] === 'Registrera dagskassa' || tabs[activeTab] === 'Registrera kvitto'
-  const activeDoc = tabs[activeTab] === 'Registrera dagskassa' ? dagskassaDoc : tabs[activeTab] === 'Registrera kvitto' ? kvittoDoc : null
-  const setActiveDoc = tabs[activeTab] === 'Registrera dagskassa' ? setDagskassaDoc : setKvittoDoc
-  const activeKategori = tabs[activeTab] === 'Registrera kvitto' ? 'kvitto' : 'dokument'
-  const viewerPanel = registrationViewer ? (
-    <AccountingUnderlagPanel
-      company={company}
-      kategori={activeKategori}
-      doc={activeDoc}
-      dragging={dragging}
-      onSelected={setActiveDoc}
-      onRemove={() => setActiveDoc(null)}
-    />
-  ) : null
+  const aiKind = tabs[activeTab] === 'Registrera kvitto' ? 'kvitto' : 'verifikation'
+  // Underlag som kopplas vid bokföring (Dagskassa/Kvitto behöver bara id:t för att länka).
+  const underlagDoc = regAttach.length ? { id: regAttach[0] } : null
+  const clearUnderlag = () => { setRegAttach([]); setActiveDoc(null) }
 
   const content = (
     <div>
@@ -276,8 +270,8 @@ export default function Bokforing() {
             </div>
           </>
         )}
-        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa underlagDoc={dagskassaDoc} onUnderlagLinked={() => setDagskassaDoc(null)} />}
-        {tabs[activeTab] === 'Registrera kvitto' && <Kvitto underlagDoc={kvittoDoc} onUnderlagLinked={() => setKvittoDoc(null)} />}
+        {tabs[activeTab] === 'Registrera dagskassa' && <Dagskassa underlagDoc={underlagDoc} onUnderlagLinked={clearUnderlag} />}
+        {tabs[activeTab] === 'Registrera kvitto' && <Kvitto underlagDoc={underlagDoc} onUnderlagLinked={clearUnderlag} />}
         {tabs[activeTab] === 'Stäm av konto' && <StamAvKonto />}
         {tabs[activeTab] === 'Sök belopp' && <SokBelopp />}
         {activeTab !== 0 && !['Registrera dagskassa', 'Registrera kvitto', 'Stäm av konto', 'Sök belopp'].includes(tabs[activeTab]) && (
@@ -292,18 +286,23 @@ export default function Bokforing() {
           onClose={() => setRattaVer(null)} onDone={res => rattadKlar(rattaVer, res)} />
       )}
       {registrationViewer && (
-        <BokforAIAssistent kind={activeKategori === 'kvitto' ? 'kvitto' : 'verifikation'} doc={activeDoc} accounts={aiAccounts} />
+        <BokforAIAssistent kind={aiKind} doc={activeDoc} accounts={aiAccounts} />
       )}
     </div>
   )
 
   if (!registrationViewer) return content
 
+  // Samma rika underlagspanel som Skapa verifikation (UnderlagPanel): bläddra inkorgen,
+  // zooma, Tolka och Koppla. onCurrentChange ger AI-hjälpen aktuellt underlag.
   return (
-    <DocumentSplitLayout open={open} panelW={panelW} startResize={startResize} panel={viewerPanel} onToggle={() => setOpen(o => !o)}>
-      <div className="flex-1 overflow-hidden">
-        {content}
-      </div>
-    </DocumentSplitLayout>
+    <div className="flex h-screen overflow-hidden">
+      <div className="flex-1 overflow-y-auto">{content}</div>
+      {open && (
+        <UnderlagPanel company={company} attachIds={regAttach} onToggleAttach={toggleRegAttach}
+          onCurrentChange={setActiveDoc} title="VÄLJ UNDERLAG"
+          widthKey="bokpilot.bokforing.registrera.viewerW" onClose={() => setOpen(false)} />
+      )}
+    </div>
   )
 }
