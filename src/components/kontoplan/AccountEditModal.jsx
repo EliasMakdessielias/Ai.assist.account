@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { basClass, basType, CLASS_NAMES } from '../../lib/kontoplan'
 import toast from 'react-hot-toast'
@@ -17,6 +17,20 @@ export default function AccountEditModal({ open, account, companyId, existingNrs
     opening_balance: account?.opening_balance ?? 0,
   }))
   const [busy, setBusy] = useState(false)
+  // Synka formuläret när modalen öppnas eller när ett annat konto väljs. Utan detta körs
+  // useState-initieraren bara en gång (när account var undefined) → rutan öppnas alltid tom.
+  useEffect(() => {
+    if (!open) return
+    setForm({
+      account_nr: account?.account_nr || '',
+      name: account?.name || '',
+      vat_code: account?.vat_code || '',
+      sru: account?.sru || '',
+      is_active: account?.is_active ?? true,
+      opening_balance: account?.opening_balance ?? 0,
+    })
+    setBusy(false)
+  }, [open, account?.id])
   if (!open) return null
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
