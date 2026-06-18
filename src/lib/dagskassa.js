@@ -49,19 +49,74 @@ export function byggDagskassaRader({ net = {}, moms = {}, kontant = 0, kort = 0 
   return { rows, kassadiff, salesTotal, momsTotal, grandTotal, payments, totalDebet, totalKredit }
 }
 
-// Plockar ut dagskasse-fält ur ett OCR-tolkningsresultat (tolkning.dagskassa).
-// Returnerar formulärvärden (tal) eller null om underlaget inte är en dagskassa.
-export function dagskassaFromTolkning(tolkning) {
-  const d = tolkning?.dagskassa
-  if (!d || typeof d !== 'object') return null
-  const n = v => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(x) ? 0 : x }
-  const vals = {
-    datum: typeof d.datum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.datum) ? d.datum : null,
-    vg25: n(d.forsaljning_25), vg12: n(d.forsaljning_12), vg6: n(d.forsaljning_6), vg0: n(d.forsaljning_0),
-    moms25: n(d.moms_25), moms12: n(d.moms_12), moms6: n(d.moms_6),
-    kontant: n(d.kontant), kort: n(d.kort),
+const n = v => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(x) ? 0 : x }
+
+// Momssats ur en benämning, t.ex. "Vara 25% (netto)" → 25, "Momsfri" → 0. null om ingen sats.
+function rateFromText(s) {
+  const t = String(s || '').toLowerCase()
+  const m = t.match(/(\d{1,2})\s*%/)
+  if (m) { const r = parseInt(m[1], 10); if ([25, 12, 6, 0].includes(r)) return r }
+  if (/momsfri|moms\s*0\b|0\s*%/.test(t)) return 0
+  return null
+}
+
+// Härleder dagskasse-belopp ur konteringsraderna när modellen INTE fyllt dagskassa-objektet.
+// Modellen fyller raderna pålitligare än det egna objektet, och benämningarna ("Vara 25%",
+// "Moms 12%", "Kontant", "Kort") + konton avslöjar kategori. Belopp tas oavsett debet/kredit-sida.
+export function dagskassaFromRader(rader) {
+  if (!Array.isArray(rader)) return null
+  const net = { 25: 0, 12: 0, 6: 0, 0: 0 }, moms = { 25: 0, 12: 0, 6: 0 }
+  let kontant = 0, kort = 0, har = false
+  for (const r of rader) {
+    const ben = String(r?.benamning || '').toLowerCase()
+    const konto = String(r?.konto || '')
+    const amt = Math.abs(n(r?.debet)) || Math.abs(n(r?.kredit))
+    if (!amt) continue
+    if (konto === '1910' || /kontant/.test(ben)) { kontant += amt; har = true; continue }
+    if (konto === '1580' || /\bkort\b|kortbet/.test(ben)) { kort += amt; har = true; continue }
+    const rate = rateFromText(ben)
+    const isMoms = /moms/.test(ben) || ['2611', '2621', '2631', '2640', '2641'].includes(konto)
+    if (isMoms) { if (rate === 25 || rate === 12 || rate === 6) { moms[rate] += amt; har = true } continue }
+    if (rate !== null) { net[rate] += amt; har = true; continue }
+    if (konto === '3001') { net[25] += amt; har = true }
+    else if (konto === '3002') { net[12] += amt; har = true }
+    else if (konto === '3003') { net[6] += amt; har = true }
+    else if (konto === '3004') { net[0] += amt; har = true }
   }
-  // Minst något belopp måste finnas för att räknas som ifylld dagskassa.
-  const har = vals.vg25 || vals.vg12 || vals.vg6 || vals.vg0 || vals.kontant || vals.kort
-  return har ? vals : null
+  if (!har) return null
+  const r2 = x => Math.round(x * 100) / 100
+  return {
+    datum: null,
+    vg25: r2(net[25]), vg12: r2(net[12]), vg6: r2(net[6]), vg0: r2(net[0]),
+    moms25: r2(moms[25]), moms12: r2(moms[12]), moms6: r2(moms[6]),
+    kontant: r2(kontant), kort: r2(kort),
+  }
+}
+
+// Plockar ut dagskasse-fält ur ett OCR-tolkningsresultat.
+// 1) Föredrar det strukturerade dagskassa-objektet (tolkning.dagskassa).
+// 2) Faller annars tillbaka på att härleda ur konteringsraderna när typ="dagskassa"
+//    (modellen sätter ofta typ rätt men glömmer fylla objektet).
+// Returnerar formulärvärden (tal) eller null.
+export function dagskassaFromTolkning(tolkning) {
+  if (!tolkning) return null
+  const d = tolkning.dagskassa
+  if (d && typeof d === 'object') {
+    const vals = {
+      datum: typeof d.datum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.datum) ? d.datum : null,
+      vg25: n(d.forsaljning_25), vg12: n(d.forsaljning_12), vg6: n(d.forsaljning_6), vg0: n(d.forsaljning_0),
+      moms25: n(d.moms_25), moms12: n(d.moms_12), moms6: n(d.moms_6),
+      kontant: n(d.kontant), kort: n(d.kort),
+    }
+    if (vals.vg25 || vals.vg12 || vals.vg6 || vals.vg0 || vals.kontant || vals.kort) return vals
+  }
+  // Fallback: härled ur raderna när underlaget är klassat som dagskassa.
+  if (String(tolkning.typ || '').toLowerCase() === 'dagskassa') {
+    const derived = dagskassaFromRader(tolkning.konteringsrader)
+    if (derived) {
+      const datum = typeof tolkning.fakturadatum === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tolkning.fakturadatum) ? tolkning.fakturadatum : null
+      return { ...derived, datum }
+    }
+  }
+  return null
 }

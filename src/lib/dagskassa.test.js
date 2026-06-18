@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byggDagskassaRader, dagskassaFromTolkning, DAGSKASSA_ACC } from './dagskassa'
+import { byggDagskassaRader, dagskassaFromTolkning, dagskassaFromRader, DAGSKASSA_ACC } from './dagskassa'
 
 const sum = (rows, sida) => Math.round(rows.reduce((s, r) => s + r[sida], 0) * 100) / 100
 const rad = (rows, nr) => rows.find(r => r.nr === nr)
@@ -91,5 +91,39 @@ describe('dagskassaFromTolkning', () => {
     const v = dagskassaFromTolkning({ dagskassa: { datum: '2026/01/02', forsaljning_25: '1 234,50' } })
     expect(v.datum).toBeNull()
     expect(v.vg25).toBe(1234.5)
+  })
+
+  it('faller tillbaka på konteringsrader när dagskassa-objektet saknas (typ=dagskassa)', () => {
+    // Verkligt fall: modellen satte typ=dagskassa men fyllde inte objektet, och la
+    // beloppen på fel konton (4000/2640) med rätt benämningar.
+    const v = dagskassaFromTolkning({
+      typ: 'dagskassa', fakturadatum: '2026-04-06',
+      konteringsrader: [
+        { konto: '4000', debet: 4079.6, kredit: 0, benamning: 'Vara 25% (netto)' },
+        { konto: '4000', debet: 23507.73, kredit: 0, benamning: 'Vara 12% (netto)' },
+        { konto: '4000', debet: 0.12, kredit: 0, benamning: 'Vara 0% (netto)' },
+        { konto: '2640', debet: 0, kredit: 815.92, benamning: 'Moms 25%' },
+        { konto: '2640', debet: 0, kredit: 2518.71, benamning: 'Moms 12%' },
+        { konto: '1910', debet: 0, kredit: 4853.93, benamning: 'Kontant betalning' },
+        { konto: '1580', debet: 0, kredit: 22749.92, benamning: 'Kort betalning' },
+      ],
+    })
+    expect(v).toMatchObject({
+      datum: '2026-04-06', vg25: 4079.6, vg12: 23507.73, vg0: 0.12,
+      moms25: 815.92, moms12: 2518.71, kontant: 4853.93, kort: 22749.92,
+    })
+  })
+
+  it('dagskassaFromRader: belopp tas oavsett debet/kredit-sida, betalsätt via konto', () => {
+    const v = dagskassaFromRader([
+      { konto: '3001', kredit: 1000, debet: 0, benamning: 'Försäljning 25%' },
+      { konto: '2611', kredit: 250, debet: 0, benamning: 'Utgående moms 25%' },
+      { konto: '1910', debet: 1250, kredit: 0, benamning: 'Kassa' },
+    ])
+    expect(v).toMatchObject({ vg25: 1000, moms25: 250, kontant: 1250 })
+  })
+
+  it('härleder INTE när underlaget inte är dagskassa', () => {
+    expect(dagskassaFromTolkning({ typ: 'kvitto', konteringsrader: [{ konto: '4000', debet: 100, kredit: 0, benamning: 'Vara 25%' }] })).toBeNull()
   })
 })

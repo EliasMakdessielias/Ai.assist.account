@@ -41,7 +41,13 @@ export default function Dagskassa({ underlagDoc, onUnderlagLinked, tolkning = nu
   useEffect(() => {
     if (!tolkSignal || tolkSignal === filledRef.current) return
     const v = dagskassaFromTolkning(tolkning)
-    if (!v) { toast.error('Underlaget tolkades inte som en dagskassa (Z-rapport). Kontrollera underlaget.'); filledRef.current = tolkSignal; return }
+    if (!v) {
+      filledRef.current = tolkSignal
+      const typ = String(tolkning?.typ || '').toLowerCase()
+      if (typ === 'dagskassa') toast('Kunde inte läsa ut dagskassans belopp automatiskt – fyll i fälten manuellt.', { icon: 'ℹ️' })
+      else toast('Det här underlaget är inte en dagskassa/Z-rapport. Använd Registrera kvitto eller Skapa verifikation i stället.', { icon: 'ℹ️' })
+      return
+    }
     filledRef.current = tolkSignal
     setMall('exkl')   // OCR ger försäljning EXKL moms per varugrupp
     if (v.datum) applyDatum(v.datum)
