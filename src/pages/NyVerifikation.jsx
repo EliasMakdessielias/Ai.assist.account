@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import BokforAIAssistent from '../components/BokforAIAssistent'
 import { tolkaDocument } from '../lib/tolka'
+import { fetchAllAccounts } from '../lib/accountsQuery'
 
 const emptyRow = () => ({ konto: '', benamning: '', info: '', debet: '', kredit: '', debetLocked: false, kreditLocked: false })
 
@@ -195,14 +196,11 @@ export default function NyVerifikation() {
   }, [company])
 
   async function loadAccounts() {
-    // Ladda HELA kontoplanen. Aktiva konton används för förslag/autocomplete,
-    // men validering sker mot alla konton som finns (även inaktiva).
-    const { data } = await supabase
-      .from('accounts')
-      .select('account_nr, name, is_active')
-      .eq('company_id', company.id)
-      .order('account_nr')
-    setAccounts(data || [])
+    // Ladda HELA kontoplanen (batchat förbi PostgREST:s 1000-radersgräns). Aktiva konton
+    // används för förslag/autocomplete, men validering sker mot alla konton (även inaktiva).
+    // Utan batchning saknas höga konton (7xxx/8xxx) när företaget har >1000 konton.
+    const data = await fetchAllAccounts(supabase, company.id, { columns: 'account_nr, name, is_active' }).catch(() => [])
+    setAccounts(data)
   }
 
   function updateRow(idx, field, value) {

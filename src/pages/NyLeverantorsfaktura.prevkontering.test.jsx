@@ -38,7 +38,7 @@ vi.mock('../lib/supabase', () => {
     const p = {}
     p.select = (c) => { st.selectCols = c || ''; return p }
     p.eq = (col, val) => { st.eqs.push([col, val]); return p }
-    p.not = () => p; p.order = () => p; p.limit = () => p; p.in = () => p; p.update = () => p; p.insert = () => p
+    p.not = () => p; p.order = () => p; p.limit = () => p; p.range = () => p; p.in = () => p; p.update = () => p; p.insert = () => p
     const data = () => {
       switch (table) {
         case 'accounts': return ACCOUNTS

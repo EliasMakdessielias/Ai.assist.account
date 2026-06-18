@@ -14,6 +14,7 @@ import { effektivNiva, granskningskravda } from '../lib/faltSakerhet'
 import { samlaKorrigeringar } from '../lib/larande'
 import { belopptyp, bestRuleFor, findMatchingRule, ruleConfidence, rulesFromKontering, RULE_AUTOFILL } from '../lib/supplierRules'
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, isSupportedCurrency, normalizeCurrency } from '../lib/currency'
+import { fetchAllAccounts } from '../lib/accountsQuery'
 
 const fmt = n => Number(n || 0).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const today = () => new Date().toISOString().slice(0, 10)
@@ -73,8 +74,10 @@ export default function NyLeverantorsfaktura() {
   useEffect(() => { if (company) init() }, [company?.id])
 
   async function init() {
-    const [{ data: acc }, { data: sup }, { data: inv }] = await Promise.all([
-      supabase.from('accounts').select('account_nr, name, is_active, is_locked').eq('company_id', company.id).order('account_nr'),
+    // Konton batchas förbi PostgREST:s 1000-radersgräns – annars saknas höga konton
+    // (6xxx/7xxx/8xxx) i validering/autocomplete när företaget har >1000 konton.
+    const [acc, { data: sup }, { data: inv }] = await Promise.all([
+      fetchAllAccounts(supabase, company.id, { columns: 'account_nr, name, is_active, is_locked' }).catch(() => []),
       supabase.from('suppliers').select('id, name, org_nr, bankgiro, default_motkonto').eq('company_id', company.id).order('name'),
       supabase.from('supplier_invoices').select('lopnr').eq('company_id', company.id),
     ])

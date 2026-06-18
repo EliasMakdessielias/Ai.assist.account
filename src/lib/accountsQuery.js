@@ -39,6 +39,22 @@ export async function fetchAccountsPage(supabase, params) {
   return { items: data || [], totalCount, page, pageSize, totalPages: computeTotalPages(totalCount, pageSize) }
 }
 
+// Hämtar ALLA konton (batchat förbi PostgREST:s 1000-radersgräns). Bokföringsformulär
+// MÅSTE använda detta – annars saknas höga konton (7xxx/8xxx) i listan och validering/
+// autocomplete tror felaktigt att t.ex. 7690 inte finns när företaget har >1000 konton.
+export async function fetchAllAccounts(supabase, companyId, { columns = 'account_nr, name, is_active', batch = 1000 } = {}) {
+  const all = []
+  for (let from = 0; ; from += batch) {
+    const { data, error } = await supabase
+      .from('accounts').select(columns).eq('company_id', companyId)
+      .order('account_nr').range(from, from + batch - 1)
+    if (error) throw error
+    all.push(...(data || []))
+    if (!data || data.length < batch) break
+  }
+  return all
+}
+
 // Hämtar ALLA kontonummer (batchat förbi 1000-gränsen). Används för
 // dubblettkontroll vid skapande och korrekt förhandsgranskning vid import.
 export async function fetchAllAccountNumbers(supabase, companyId, batch = 1000) {
