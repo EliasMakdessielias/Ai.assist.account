@@ -242,6 +242,20 @@ export default function UnderlagPanel({ company, attachIds = [], onToggleAttach,
         </div>
       </div>
 
+      {/* Rullista över alla uppladdade underlag – välj vilket som ska visas */}
+      {docs.length > 0 && (
+        <div className="bg-white border-b px-5 py-1.5 flex items-center gap-2 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          <i className="ti ti-files text-gray-400 shrink-0" title="Underlag" />
+          <select className="input text-xs py-1 flex-1 min-w-0" value={idx} aria-label="Välj underlag att visa"
+            title="Välj underlag att visa" onChange={e => setIdx(Number(e.target.value))}>
+            {docs.map((d, i) => (
+              <option key={d.id} value={i}>{`${i + 1}. ${d.file_name || 'Underlag'}`}</option>
+            ))}
+          </select>
+          <span className="text-xs text-gray-400 tabular-nums shrink-0">{idx + 1}/{docs.length}</span>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="bg-white border-b px-5 h-10 flex items-center gap-4 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <button className="text-sm text-blue-700 font-medium flex items-center gap-1 disabled:opacity-40"
