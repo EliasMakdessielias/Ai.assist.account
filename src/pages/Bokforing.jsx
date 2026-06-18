@@ -33,6 +33,7 @@ export default function Bokforing() {
   const [loading, setLoading] = useState(true)
   const [activeDoc, setActiveDoc] = useState(null) // aktuellt underlag i panelen (AI-kontext)
   const [regAttach, setRegAttach] = useState([])   // underlag som kopplas vid bokföring (id:n)
+  const [aiOpenSignal, setAiOpenSignal] = useState(0) // öppnar AI-hjälpen efter "Tolka underlaget"
   const [rattaVer, setRattaVer] = useState(null)   // verifikation som rättas (modal öppen)
   const [aiAccounts, setAiAccounts] = useState([]) // aktiva konton som kontext till AI-bokföringshjälpen
   const { open, setOpen } = useDocumentViewerLayout({
@@ -286,7 +287,7 @@ export default function Bokforing() {
           onClose={() => setRattaVer(null)} onDone={res => rattadKlar(rattaVer, res)} />
       )}
       {registrationViewer && (
-        <BokforAIAssistent kind={aiKind} doc={activeDoc} accounts={aiAccounts} />
+        <BokforAIAssistent kind={aiKind} doc={activeDoc} accounts={aiAccounts} openSignal={aiOpenSignal} />
       )}
     </div>
   )
@@ -300,7 +301,9 @@ export default function Bokforing() {
       <div className="flex-1 overflow-y-auto">{content}</div>
       {open && (
         <UnderlagPanel company={company} attachIds={regAttach} onToggleAttach={toggleRegAttach}
-          onCurrentChange={setActiveDoc} title="VÄLJ UNDERLAG"
+          onCurrentChange={setActiveDoc}
+          onTolkat={result => { setActiveDoc(d => d ? { ...d, tolkning: result, tolkad: true } : d); setAiOpenSignal(n => n + 1); toast.success('Underlaget tolkat – AI-hjälpen föreslår hur det bokförs') }}
+          title="VÄLJ UNDERLAG"
           widthKey="bokpilot.bokforing.registrera.viewerW" onClose={() => setOpen(false)} />
       )}
     </div>

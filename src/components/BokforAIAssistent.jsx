@@ -13,7 +13,8 @@ import regelverkMd from '../../docs/AI_BOKFORINGSHJALP_REGELVERK.md?raw'
 //   doc: aktuellt kopplat dokument ({ id, file_name, tolkning, tolkad }) eller null
 //   accounts: [{ account_nr, name, is_active }] – kontoplan som AI-kontext
 //   onApply(konteringsforslag): fyll formulärets rader (förälder mappar till sin radform)
-export default function BokforAIAssistent({ kind = 'verifikation', doc = null, accounts = [], onApply }) {
+//   openSignal: ökas av föräldern (t.ex. efter "Tolka underlaget") för att öppna panelen + fråga direkt
+export default function BokforAIAssistent({ kind = 'verifikation', doc = null, accounts = [], onApply, openSignal = 0 }) {
   const { company, user } = useAuth()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])   // { role:'user'|'assistant', text }
@@ -112,6 +113,10 @@ export default function BokforAIAssistent({ kind = 'verifikation', doc = null, a
     setOpen(true)
     if (!askedRef.current && doc?.tolkning) { askedRef.current = true; ask(null) }
   }
+  // Föräldern kan be panelen öppnas + fråga direkt (t.ex. efter "Tolka underlaget").
+  useEffect(() => {
+    if (openSignal > 0 && doc?.tolkning) { setOpen(true); askedRef.current = true; ask(null) }
+  }, [openSignal]) // eslint-disable-line react-hooks/exhaustive-deps
   function send() {
     const q = input.trim(); if (!q) return
     setInput(''); ask(q)
