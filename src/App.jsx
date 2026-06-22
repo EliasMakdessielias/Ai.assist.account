@@ -20,6 +20,7 @@ import NyLeverantorsfaktura from './pages/NyLeverantorsfaktura'
 import VisaLeverantorsfaktura from './pages/VisaLeverantorsfaktura'
 import KassaBank from './pages/KassaBank'
 import Lon from './pages/Lon'
+import Manadskontroll from './pages/Manadskontroll'
 import Anstallda from './pages/Anstallda'
 import SectionTabsLayout from './components/SectionTabsLayout'
 import { sectionByBasePath } from './lib/sectionTabs'
@@ -100,6 +101,7 @@ export default function App() {
             <Route path="loner" element={<Lon />} />
             <Route path="anstallda" element={<Anstallda />} />
           </Route>
+          <Route path="manadskontroll" element={<Manadskontroll />} />
           <Route path="rapporter" element={<Rapporter />} />
           <Route path="moms" element={<Moms />} />
           <Route path="kunder" element={<Kunder />} />

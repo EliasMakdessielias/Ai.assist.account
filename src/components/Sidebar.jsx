@@ -22,6 +22,7 @@ const navItems = [
   { label: 'Kontoanalys', icon: 'ti-report-search', to: '/kontoanalys' },
   { label: 'Lön', icon: 'ti-wallet', to: '/lon' },
   { label: 'Moms', icon: 'ti-receipt-tax', to: '/moms' },
+  { label: 'Månadskontroll', icon: 'ti-checklist', to: '/manadskontroll', badgeKey: 'mc' },
   { label: 'Rapporter', icon: 'ti-chart-bar', to: '/rapporter' },
   { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
   { section: 'Register' },
@@ -48,6 +49,20 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const [hamtar, setHamtar] = useState(false)
   const orgDebounce = useRef(null)
   const lastOrgLookup = useRef('')
+
+  // Månadskontroll: kritiska/höga öppna punkter → badge (uppdateras i realtid).
+  const [mcCounts, setMcCounts] = useState({ critical: 0, high: 0, open: 0 })
+  useEffect(() => {
+    if (!company?.id) return
+    let active = true
+    const load = async () => { const { data } = await supabase.rpc('mc_open_counts', { p_company: company.id }); if (active && data) setMcCounts(data) }
+    load()
+    const ch = supabase.channel('sidebar-mc')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_control_items' }, load)
+      .subscribe()
+    return () => { active = false; supabase.removeChannel(ch) }
+  }, [company?.id])
+  const mcBadge = mcCounts.critical > 0 ? { n: mcCounts.critical, bg: '#dc2626' } : (mcCounts.high > 0 ? { n: mcCounts.high, bg: '#f97316' } : null)
 
   // Hämtar företagsnamnet automatiskt från organisationsnumret (officiell källa via
   // edge-funktionen hamta-foretag). Best-effort: misslyckas tyst så namnet kan skrivas manuellt.
@@ -130,9 +145,12 @@ export default function Sidebar({ collapsed = false, onToggle }) {
               ? <div key={i} className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }} />
               : <div key={i} className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{item.section}</div>
           ) : (
-            <NavLink key={i} to={item.to} end={item.to === '/'} className={linkClass} title={collapsed ? item.label : undefined}>
+            <NavLink key={i} to={item.to} end={item.to === '/'} className={s => `${linkClass(s)} relative`} title={collapsed ? item.label : undefined}>
               <i className={`ti ${item.icon} text-[17px] w-5 text-center`} />
-              {!collapsed && item.label}
+              {!collapsed && <span className="flex-1">{item.label}</span>}
+              {item.badgeKey === 'mc' && mcBadge && (collapsed
+                ? <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full" style={{ background: mcBadge.bg }} />
+                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: mcBadge.bg }}>{mcBadge.n > 9 ? '9+' : mcBadge.n}</span>)}
             </NavLink>
           )
         )}

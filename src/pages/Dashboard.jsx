@@ -104,10 +104,11 @@ export default function Dashboard() {
               <Metric label="Verifikationer" value={verCount + ' st'} sub="Totalt" />
             </div>
 
-            <div className="grid grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-5 gap-3 mb-6">
               {[
                 { to: '/bokforing/ny', icon: 'ti-file-invoice', box: 'bg-blue-50', ic: 'text-blue-700', t: 'Skapa verifikation', s: 'Ny bokföring' },
                 { to: '/fakturor/ny', icon: 'ti-file-plus', box: 'bg-green-50', ic: 'text-green-700', t: 'Skapa faktura', s: 'Ny kundfordran' },
+                { to: '/manadskontroll', icon: 'ti-checklist', box: 'bg-purple-50', ic: 'text-purple-700', t: 'Månadskontroll', s: 'Kontrollera månadsavslut' },
                 { to: '/rapporter', icon: 'ti-chart-bar', box: 'bg-amber-50', ic: 'text-amber-700', t: 'Rapporter', s: 'Resultat & balans' },
                 { to: '/moms', icon: 'ti-receipt-tax', box: 'bg-red-50', ic: 'text-red-700', t: 'Momsrapport', s: 'Deklarera moms' },
               ].map(a => (
