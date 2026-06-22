@@ -16,7 +16,7 @@ const GREETING = 'Hej! Jag är BokPilots AI-support. Jag hjälper dig direkt hä
 const fmtTime = (ts) => { try { return new Date(ts).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
 
 // ── Inmatningsrad: text, emoji, filbilaga och röstinspelning (om mikrofon tillåts) ──
-function Composer({ files, setFiles, onSend, busy, placeholder }) {
+function Composer({ files, setFiles, onSend, busy, placeholder, attachHint }) {
   const [text, setText] = useState('')
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -50,13 +50,28 @@ function Composer({ files, setFiles, onSend, busy, placeholder }) {
 
   return (
     <div className="px-3 py-2.5 border-t bg-white shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-      {files.length > 0 && <div className="mb-2"><AttachmentPicker files={files} onChange={setFiles} disabled={busy} /></div>}
+      {files.length > 0 && (
+        <div className="mb-2">
+          <div className="flex flex-wrap gap-1.5">
+            {files.map((f, i) => {
+              const isAudio = (f.type || '').startsWith('audio/')
+              return (
+                <span key={i} className="inline-flex items-center gap-1 bg-gray-100 rounded px-2 py-0.5 text-[11px] text-gray-700">
+                  <i className={`ti ${isAudio ? 'ti-microphone' : 'ti-file'}`} />{isAudio ? 'Röstmeddelande' : f.name}
+                  <button type="button" className="text-gray-400 hover:text-red-600" onClick={() => setFiles(files.filter((_, x) => x !== i))} disabled={busy}><i className="ti ti-x" /></button>
+                </span>
+              )
+            })}
+          </div>
+          {attachHint && <div className="text-[10px] text-amber-700 mt-1"><i className="ti ti-info-circle mr-0.5" />{attachHint}</div>}
+        </div>
+      )}
       <div className="flex items-end gap-1.5 relative">
         <div className="relative">
           <button className="text-gray-400 hover:text-gray-700 p-1.5" title="Emoji" onClick={() => setEmojiOpen(o => !o)}><i className="ti ti-mood-smile text-lg" /></button>
           {emojiOpen && (
-            <div className="absolute bottom-10 left-0 z-20 bg-white rounded-lg shadow-xl p-2 grid grid-cols-6 gap-1" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
-              {EMOJIS.map(e => <button key={e} className="text-lg hover:bg-gray-100 rounded p-0.5" onClick={() => { setText(v => v + e); setEmojiOpen(false) }}>{e}</button>)}
+            <div className="absolute bottom-10 left-0 z-20 bg-white rounded-lg shadow-xl p-2 grid grid-cols-6 gap-1 w-56" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+              {EMOJIS.map(e => <button key={e} className="text-lg hover:bg-gray-100 rounded p-1 leading-none" onClick={() => { setText(v => v + e); setEmojiOpen(false) }}>{e}</button>)}
             </div>
           )}
         </div>
@@ -192,22 +207,38 @@ function SupportPanel() {
     setBusy(false)
   }
 
-  async function escalate() {
+  async function escalate(extra) {
+    // extra kan vara en sträng (medskickat meddelande) eller ett klick-event (ignoreras).
+    const extraText = typeof extra === 'string' ? extra.trim() : ''
     if (!company || busy) return
     setBusy(true)
     const c = ctx()
-    const firstUser = aiMessages.find(m => m.role === 'user')?.text
+    const firstUser = extraText || aiMessages.find(m => m.role === 'user')?.text
     const subject = (firstUser || `Support – ${c.sida}`).slice(0, 80)
-    const transcript = aiMessages.filter(m => m.role !== 'system').map(m => `${m.role === 'user' ? 'Kund' : 'AI-support'}: ${m.text}`).join('\n')
+    const parts = aiMessages.filter(m => m.role !== 'system').map(m => `${m.role === 'user' ? 'Kund' : 'AI-support'}: ${m.text}`)
+    if (extraText) parts.push(`Kund: ${extraText}`)
+    const transcript = parts.join('\n')
     const body = `Eskalerat från AI-support.\n\n${contextBlock(c)}\n\n--- Konversation med AI-support ---\n${transcript || '(ingen tidigare konversation)'}`
     const { data, error } = await supabase.rpc('create_support_ticket', { p_company_id: company.id, p_subject: subject, p_category: 'other', p_priority: 'normal', p_body: body })
     if (error) { setBusy(false); return toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skapa ärende') }
-    if (files.length && data?.ticket_id) { try { await uploadSupportAttachments(supabase, { files, companyId: company.id, ticketId: data.ticket_id, messageId: data.message_id }) } catch (e) { toast.error(e.message) } }
+    const sent = files
     setFiles([])
     const t = { id: data.ticket_id, status: 'new', subject }
     setActiveTicket(t); setMode('ticket'); await loadTicket(data.ticket_id)
+    if (sent.length && data?.ticket_id) { try { await uploadSupportAttachments(supabase, { files: sent, companyId: company.id, ticketId: data.ticket_id, messageId: data.message_id }); await loadTicket(data.ticket_id) } catch (e) { toast.error(e.message) } }
     toast.success('Ärende skapat – support är notifierad')
     setBusy(false)
+  }
+
+  // Bilagor (foto, fil, röstmeddelande) kan AI inte läsa → de skickas alltid till mänsklig support.
+  async function handleSend(text) {
+    if (files.length > 0) {
+      if (activeTicket) { setMode('ticket'); await sendTicketReply(text) }
+      else { await escalate(text) }
+      return
+    }
+    if (mode === 'ai') return sendAi(text)
+    return sendTicketReply(text)
   }
 
   const hasTicket = !!activeTicket
@@ -225,7 +256,9 @@ function SupportPanel() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {mode === 'ai' && !hasTicket && <button className="btn text-xs" onClick={escalate} disabled={busy}><i className="ti ti-user" /> Prata med support</button>}
+          {mode === 'ai' && (hasTicket
+            ? <button className="btn text-xs" onClick={() => setMode('ticket')}><i className="ti ti-user" /> Till mitt ärende</button>
+            : <button className="btn text-xs" onClick={escalate} disabled={busy}><i className="ti ti-user" /> Prata med support</button>)}
           <button className="text-gray-400 hover:text-gray-700 p-1.5" title="Minimera" onClick={closeSupport}><i className="ti ti-minus text-lg" /></button>
           <button className="text-gray-400 hover:text-gray-700 p-1.5" title="Stäng" onClick={closeSupport}><i className="ti ti-x text-lg" /></button>
         </div>
@@ -294,8 +327,9 @@ function SupportPanel() {
         <div ref={endRef} />
       </div>
 
-      <Composer files={files} setFiles={setFiles} busy={busy} onSend={mode === 'ai' ? sendAi : sendTicketReply}
-        placeholder={mode === 'ai' ? 'Skriv din fråga…' : 'Svara support…'} />
+      <Composer files={files} setFiles={setFiles} busy={busy} onSend={handleSend}
+        placeholder={mode === 'ai' ? 'Skriv din fråga…' : 'Svara support…'}
+        attachHint={mode === 'ai' ? 'Bilagor skickas till support (AI kan inte läsa filer).' : null} />
       <div className="text-[10px] text-gray-400 px-3 pb-2 -mt-1">{mode === 'ai' ? 'AI-support svarar utifrån handboken – granska alltid bokföring själv.' : 'Du chattar med BokPilots support.'}</div>
     </div>
   )

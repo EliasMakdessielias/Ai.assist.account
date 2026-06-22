@@ -108,8 +108,8 @@ export default function SupportAiChat({ onEscalated }) {
           <div className="relative">
             <button className="text-gray-400 hover:text-gray-700 p-1.5" title="Emoji" onClick={() => setEmojiOpen(o => !o)}><i className="ti ti-mood-smile text-lg" /></button>
             {emojiOpen && (
-              <div className="absolute bottom-10 left-0 z-20 bg-white rounded-lg shadow-xl p-2 grid grid-cols-6 gap-1" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
-                {EMOJIS.map(e => <button key={e} className="text-lg hover:bg-gray-100 rounded p-0.5" onClick={() => { setInput(v => v + e); setEmojiOpen(false) }}>{e}</button>)}
+              <div className="absolute bottom-10 left-0 z-20 bg-white rounded-lg shadow-xl p-2 grid grid-cols-6 gap-1 w-56" style={{ border: '0.5px solid rgba(0,0,0,0.12)' }}>
+                {EMOJIS.map(e => <button key={e} className="text-lg hover:bg-gray-100 rounded p-1 leading-none" onClick={() => { setInput(v => v + e); setEmojiOpen(false) }}>{e}</button>)}
               </div>
             )}
           </div>

@@ -4,7 +4,8 @@ import { supabase } from '../lib/supabase'
 import { validateFiles, formatBytes, ACCEPT_ATTR, MAX_FILES_PER_MESSAGE, openSupportAttachment } from '../lib/supportAttachments'
 
 // Filväljare + chips för valda filer (innan skick). Validerar filtyp/storlek/antal i frontend.
-export function AttachmentPicker({ files, onChange, disabled }) {
+// compact=true → enbart gem-ikon (för täta inmatningsrader), utan etikett/chips.
+export function AttachmentPicker({ files, onChange, disabled, compact }) {
   const ref = useRef(null)
   function add(e) {
     const picked = [...e.target.files]
@@ -13,6 +14,14 @@ export function AttachmentPicker({ files, onChange, disabled }) {
     e.target.value = ''
     if (err) return toast.error(err)
     onChange(next)
+  }
+  if (compact) {
+    return (
+      <>
+        <button type="button" className="text-gray-400 hover:text-gray-700 p-1.5" title="Bifoga fil" disabled={disabled} onClick={() => ref.current?.click()}><i className="ti ti-paperclip text-lg" /></button>
+        <input ref={ref} type="file" multiple hidden accept={ACCEPT_ATTR} onChange={add} />
+      </>
+    )
   }
   return (
     <div>
