@@ -54,3 +54,22 @@ do $$ begin
     execute 'alter publication supabase_realtime add table public.support_messages';
   end if;
 end $$;
+
+-- Adminbadge: antal supportärenden som väntar på agent (nya + kundsvar). Endast supportbehörighet.
+create or replace function public.support_admin_queue_count()
+returns integer language sql security definer set search_path = public stable as $$
+  select case when public.can_view_support()
+    then (select count(*)::int from public.support_tickets where status in ('new', 'waiting_for_support'))
+    else 0 end;
+$$;
+grant execute on function public.support_admin_queue_count() to authenticated;
+
+-- Realtime på support_tickets så adminbadgen uppdateras live (statusbyten/nya ärenden).
+do $$ begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'support_tickets'
+  ) then
+    execute 'alter publication supabase_realtime add table public.support_tickets';
+  end if;
+end $$;

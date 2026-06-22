@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
 import { APP_ORIGIN } from '../lib/host'
 
 // BokPilot Control Center – admin-skal (host-gated på admin.bokpilot.se).
@@ -19,6 +21,20 @@ export default function AdminLayout({ access }) {
     (need === 'support' && access.canViewSupport) || (need === 'billing' && access.canViewBilling)
   const roleLabel = access.isSuperadmin ? 'Superadmin' : access.isReadOnly ? 'Read-only' : (access.roles || []).join(', ') || 'Admin'
 
+  // Support-kö: antal ärenden som väntar på agent (nya + kundsvar). Uppdateras i realtid.
+  const [supportQueue, setSupportQueue] = useState(0)
+  useEffect(() => {
+    if (!access.canViewSupport) return
+    let active = true
+    const load = async () => { const { data } = await supabase.rpc('support_admin_queue_count'); if (active) setSupportQueue(Number(data) || 0) }
+    load()
+    const ch = supabase.channel('admin-support-queue')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, load)
+      .subscribe()
+    return () => { active = false; supabase.removeChannel(ch) }
+  }, [access.canViewSupport])
+  const badgeFor = item => (item.to === '/support' ? supportQueue : 0)
+
   return (
     <div className="flex h-screen overflow-hidden bg-surface-3">
       <aside className="w-64 shrink-0 bg-white flex flex-col" style={{ borderRight: '1px solid rgba(0,0,0,0.10)' }}>
@@ -30,7 +46,12 @@ export default function AdminLayout({ access }) {
           {NAV.filter(item => allow(item.need)).map(item => (
             <NavLink key={item.to} to={item.to} end={item.end}
               className={({ isActive }) => `flex items-center gap-3 px-5 py-2.5 text-sm ${isActive ? 'text-gray-900 font-medium bg-amber-50 border-r-2 border-amber-500' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`}>
-              <i className={`ti ${item.icon} text-base`} /> {item.label}
+              <i className={`ti ${item.icon} text-base`} /> <span>{item.label}</span>
+              {badgeFor(item) > 0 && (
+                <span className="ml-auto text-[11px] font-bold bg-red-500 text-white rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center" title={`${badgeFor(item)} ärenden väntar på support`}>
+                  {badgeFor(item) > 9 ? '9+' : badgeFor(item)}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
