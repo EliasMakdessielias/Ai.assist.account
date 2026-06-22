@@ -159,18 +159,26 @@ export default function Anstallda() {
                 <th className="text-left px-4 py-2.5 border-b w-40" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Personnummer</th>
                 <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>E-post</th>
                 <th className="text-left px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Telefon</th>
-                <th className="text-right px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Bruttolön/mån</th>
+                <th className="text-right px-4 py-2.5 border-b w-32" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Månadslön</th>
+                <th className="text-left px-4 py-2.5 border-b w-20" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Tabell</th>
                 <th className="text-left px-4 py-2.5 border-b w-24" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Status</th>
-                <th className="px-4 py-2.5 border-b w-20" style={{ borderColor: 'rgba(0,0,0,0.10)' }} />
+                <th className="text-right px-4 py-2.5 border-b w-24" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Åtgärder</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="7" className="text-center py-12 text-gray-400">Laddar…</td></tr>
+                <tr><td colSpan="8" className="text-center py-12 text-gray-400">Laddar…</td></tr>
               ) : visible.length === 0 ? (
-                <tr><td colSpan="7" className="text-center py-14 text-gray-400">
-                  <i className="ti ti-users text-3xl block mb-2 opacity-30" />
-                  {items.length ? 'Inga anställda matchar.' : 'Inga anställda ännu – lägg till din första.'}
+                <tr><td colSpan="8" className="text-center py-16 text-gray-400">
+                  <i className="ti ti-user text-3xl block mb-2 opacity-30" />
+                  {items.length ? (
+                    <div className="text-sm">Inga anställda matchar.</div>
+                  ) : (
+                    <>
+                      <div className="font-semibold text-gray-700 mb-1">Inga anställda ännu</div>
+                      <div className="text-sm">Lägg till anställda för att komma igång med lönehantering.</div>
+                    </>
+                  )}
                 </td></tr>
               ) : visible.map(e => (
                 <tr key={e.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setEditing({ ...emptyEmployee, ...e, namn: displayName(e) === '–' ? '' : displayName(e) })}>
@@ -179,6 +187,7 @@ export default function Anstallda() {
                   <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.epost || '–'}</td>
                   <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.telefon || '–'}</td>
                   <td className="px-4 py-2.5 border-b text-right text-gray-700 tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.manadslon != null ? `${fmt(e.manadslon)} kr` : '–'}</td>
+                  <td className="px-4 py-2.5 border-b text-gray-600 tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.sidoinkomst ? 'Sidoink.' : (e.skattetabell || '–')}</td>
                   <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${e.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{e.is_active ? 'Aktiv' : 'Inaktiv'}</span>
                   </td>
