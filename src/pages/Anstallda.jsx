@@ -6,21 +6,25 @@ import { validatePersonnummer, normalizePersonnummer, maskPersonnummer } from '.
 import { useSectionActions } from '../components/SectionTabsLayout'
 
 const fmt = n => (n || n === 0) ? Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '–'
-
-const ANSTALLNINGSFORM = [
-  ['tillsvidare', 'Tillsvidare'], ['visstid', 'Visstid'],
-  ['provanstallning', 'Provanställning'], ['timanstalld', 'Timanställd'],
-]
-const ANSTALLNINGSFORM_LABEL = Object.fromEntries(ANSTALLNINGSFORM)
+const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n }
 
 const emptyEmployee = {
-  fornamn: '', efternamn: '', personnummer: '', befattning: '', epost: '', telefon: '',
-  anstallningsform: 'tillsvidare', lonetyp: 'manad', manadslon: '', timlon: '',
-  skattetabell: '', skattekolumn: '1', arbetsgivaravgift_procent: '31.42',
-  clearingnr: '', kontonr: '', anstallningsdatum: '', slutdatum: '', is_active: true,
+  namn: '', personnummer: '', epost: '', telefon: '',
+  anstallningsdatum: new Date().toISOString().slice(0, 10), slutdatum: '', is_active: true,
+  undanta_arbetsgivaravgift: false,
+  manadslon: '', sidoinkomst: false, kommun: '', skattetabell: '', bankkontonummer: '',
+  ack_bruttolon: '', ack_prelskatt: '',
 }
 
-const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n }
+// Liten iOS-stil toggle.
+function Toggle({ checked, onChange }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}>
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </button>
+  )
+}
 
 export default function Anstallda() {
   const { company, user } = useAuth()
@@ -28,13 +32,13 @@ export default function Anstallda() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [showInactive, setShowInactive] = useState(false)
+  const [filter, setFilter] = useState('alla')   // alla | aktiva | inaktiva
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { if (company) load() }, [company?.id])
 
-  // Placera "Ny anställd" i den delade toppraden (bredvid flikarna).
+  // "Ny anställd" i den delade toppraden (bredvid flikarna).
   useEffect(() => {
     setActions(<button className="btn btn-primary" onClick={() => setEditing({ ...emptyEmployee })}><i className="ti ti-plus" /> Ny anställd</button>)
     return () => setActions(null)
@@ -42,42 +46,44 @@ export default function Anstallda() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('employees').select('*').eq('company_id', company.id).order('efternamn')
+    const { data } = await supabase.from('employees').select('*').eq('company_id', company.id).order('namn', { nullsFirst: false })
     setItems(data || [])
     setLoading(false)
   }
 
+  const displayName = e => e.namn || [e.fornamn, e.efternamn].filter(Boolean).join(' ') || '–'
+
   async function save() {
     const e = editing
-    if (!e.fornamn?.trim() || !e.efternamn?.trim()) return toast.error('För- och efternamn krävs')
-    if (e.personnummer?.trim()) {
-      const v = validatePersonnummer(e.personnummer)
-      if (!v.valid) return toast.error('Ogiltigt personnummer: ' + v.reason)
-    }
-    if (e.lonetyp === 'manad' && num(e.manadslon) == null) return toast.error('Ange månadslön')
-    if (e.lonetyp === 'timme' && num(e.timlon) == null) return toast.error('Ange timlön')
+    if (!e.namn?.trim()) return toast.error('Namn krävs')
+    if (!e.personnummer?.trim()) return toast.error('Personnummer krävs')
+    const v = validatePersonnummer(e.personnummer)
+    if (!v.valid) return toast.error('Ogiltigt personnummer: ' + v.reason)
+    if (!e.anstallningsdatum) return toast.error('Startdatum krävs')
+    if (num(e.manadslon) == null) return toast.error('Ange bruttolön per månad')
 
     setSaving(true)
     const payload = {
-      fornamn: e.fornamn.trim(), efternamn: e.efternamn.trim(),
-      personnummer: e.personnummer?.trim() ? normalizePersonnummer(e.personnummer) : null,
-      befattning: e.befattning?.trim() || null, epost: e.epost?.trim() || null, telefon: e.telefon?.trim() || null,
-      anstallningsform: e.anstallningsform, lonetyp: e.lonetyp,
-      manadslon: e.lonetyp === 'manad' ? num(e.manadslon) : null,
-      timlon: e.lonetyp === 'timme' ? num(e.timlon) : null,
-      skattetabell: e.skattetabell ? parseInt(e.skattetabell, 10) : null,
-      skattekolumn: e.skattekolumn ? parseInt(e.skattekolumn, 10) : null,
-      arbetsgivaravgift_procent: num(e.arbetsgivaravgift_procent) ?? 31.42,
-      clearingnr: e.clearingnr?.trim() || null, kontonr: e.kontonr?.trim() || null,
+      namn: e.namn.trim(), fornamn: null, efternamn: null,
+      personnummer: normalizePersonnummer(e.personnummer),
+      epost: e.epost?.trim() || null, telefon: e.telefon?.trim() || null,
       anstallningsdatum: e.anstallningsdatum || null, slutdatum: e.slutdatum || null,
       is_active: e.is_active !== false,
+      undanta_arbetsgivaravgift: !!e.undanta_arbetsgivaravgift,
+      lonetyp: 'manad', manadslon: num(e.manadslon),
+      sidoinkomst: !!e.sidoinkomst,
+      kommun: e.sidoinkomst ? null : (e.kommun?.trim() || null),
+      skattetabell: e.sidoinkomst || !e.skattetabell ? null : parseInt(e.skattetabell, 10),
+      bankkontonummer: e.bankkontonummer?.trim() || null,
+      ack_bruttolon: num(e.ack_bruttolon) ?? 0,
+      ack_prelskatt: num(e.ack_prelskatt) ?? 0,
     }
     let error
     if (e.id) ({ error } = await supabase.from('employees').update(payload).eq('id', e.id))
     else ({ error } = await supabase.from('employees').insert({ ...payload, company_id: company.id, created_by: user?.id || null }))
     setSaving(false)
     if (error) return toast.error('Kunde inte spara: ' + error.message)
-    toast.success('Anställd sparad')
+    toast.success(e.id ? 'Anställd uppdaterad' : 'Anställd skapad')
     setEditing(null)
     load()
   }
@@ -90,51 +96,59 @@ export default function Anstallda() {
   }
 
   async function remove(emp) {
-    if (!confirm(`Ta bort ${emp.fornamn} ${emp.efternamn}? Detta går inte att ångra.`)) return
+    if (!confirm(`Ta bort ${displayName(emp)}? Detta går inte att ångra.`)) return
     const { error } = await supabase.from('employees').delete().eq('id', emp.id)
     if (error) return toast.error('Kunde inte ta bort: ' + error.message)
     toast.success('Anställd borttagen')
     load()
   }
 
-  const lonText = e => e.lonetyp === 'timme'
-    ? (e.timlon != null ? `${fmt(e.timlon)} kr/tim` : '–')
-    : (e.manadslon != null ? `${fmt(e.manadslon)} kr/mån` : '–')
-
   const visible = items.filter(e => {
-    if (!showInactive && !e.is_active) return false
+    if (filter === 'aktiva' && !e.is_active) return false
+    if (filter === 'inaktiva' && e.is_active) return false
     if (!search) return true
     const s = search.toLowerCase()
-    return `${e.fornamn} ${e.efternamn}`.toLowerCase().includes(s) || (e.personnummer || '').includes(search) || (e.befattning || '').toLowerCase().includes(s)
+    return displayName(e).toLowerCase().includes(s) || (e.personnummer || '').includes(search) || (e.epost || '').toLowerCase().includes(s)
   })
 
+  const set = (k, val) => setEditing(s => ({ ...s, [k]: val }))
   const field = (key, label, props = {}) => (
     <div className={props.w === 2 ? 'col-span-2' : ''}>
-      <label className="block text-xs font-medium text-gray-500 mb-1">{label}{props.required ? ' *' : ''}</label>
-      <input className="input" type={props.type || 'text'} inputMode={props.inputMode} placeholder={props.placeholder}
-        value={editing[key] ?? ''} onChange={ev => setEditing(s => ({ ...s, [key]: ev.target.value }))} />
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}{props.required ? ' *' : ''}</label>
+      <input className="input" type={props.type || 'text'} inputMode={props.inputMode} placeholder={props.placeholder} disabled={props.disabled}
+        value={editing[key] ?? ''} onChange={ev => set(key, ev.target.value)} />
+      {props.hint && <p className="text-[11px] text-gray-400 mt-1">{props.hint}</p>}
     </div>
   )
-  const select = (key, label, opts) => (
-    <div>
-      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-      <select className="input" value={editing[key]} onChange={ev => setEditing(s => ({ ...s, [key]: ev.target.value }))}>
-        {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
+  const toggleRow = (key, label, hint) => (
+    <div className="flex items-start gap-3 py-1">
+      <Toggle checked={!!editing[key]} onChange={val => set(key, val)} />
+      <div>
+        <div className="text-sm text-gray-700">{label}</div>
+        {hint && <div className="text-[11px] text-gray-400">{hint}</div>}
+      </div>
     </div>
   )
+  const sectionTitle = t => <div className="col-span-2 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-2 mb-0.5">{t}</div>
+
+  const counts = { alla: items.length, aktiva: items.filter(e => e.is_active).length, inaktiva: items.filter(e => !e.is_active).length }
 
   return (
     <>
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+            {[['alla', 'Alla'], ['aktiva', 'Aktiva'], ['inaktiva', 'Inaktiva']].map(([k, l]) => (
+              <button key={k} onClick={() => setFilter(k)}
+                className={`px-3 py-1 text-[13px] rounded-md transition-colors ${filter === k ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'}`}>
+                {l} <span className="text-gray-400">{counts[k]}</span>
+              </button>
+            ))}
+          </div>
           <div className="relative max-w-xs flex-1">
-            <input className="input pl-8" placeholder="Sök namn, personnr eller befattning" value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="input pl-8" placeholder="Sök namn, personnr eller e-post" value={search} onChange={e => setSearch(e.target.value)} />
             <i className="ti ti-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
           </div>
-          <label className="text-sm text-gray-500 flex items-center gap-1.5 cursor-pointer ml-3">
-            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} /> Visa inaktiva
-          </label>
         </div>
 
         <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
@@ -142,11 +156,11 @@ export default function Anstallda() {
             <thead>
               <tr className="bg-gray-50 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                 <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Namn</th>
-                <th className="text-left px-4 py-2.5 border-b w-40" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Personnr</th>
-                <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Befattning</th>
-                <th className="text-left px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Anställning</th>
-                <th className="text-right px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Lön</th>
-                <th className="text-left px-4 py-2.5 border-b w-28" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Status</th>
+                <th className="text-left px-4 py-2.5 border-b w-40" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Personnummer</th>
+                <th className="text-left px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>E-post</th>
+                <th className="text-left px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Telefon</th>
+                <th className="text-right px-4 py-2.5 border-b w-36" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Bruttolön/mån</th>
+                <th className="text-left px-4 py-2.5 border-b w-24" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>Status</th>
                 <th className="px-4 py-2.5 border-b w-20" style={{ borderColor: 'rgba(0,0,0,0.10)' }} />
               </tr>
             </thead>
@@ -159,12 +173,12 @@ export default function Anstallda() {
                   {items.length ? 'Inga anställda matchar.' : 'Inga anställda ännu – lägg till din första.'}
                 </td></tr>
               ) : visible.map(e => (
-                <tr key={e.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setEditing({ ...emptyEmployee, ...e })}>
-                  <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.fornamn} {e.efternamn}</td>
+                <tr key={e.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setEditing({ ...emptyEmployee, ...e, namn: displayName(e) === '–' ? '' : displayName(e) })}>
+                  <td className="px-4 py-2.5 border-b font-medium" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{displayName(e)}</td>
                   <td className="px-4 py-2.5 border-b text-gray-600 tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.personnummer ? maskPersonnummer(e.personnummer) : '–'}</td>
-                  <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.befattning || '–'}</td>
-                  <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{ANSTALLNINGSFORM_LABEL[e.anstallningsform] || e.anstallningsform}</td>
-                  <td className="px-4 py-2.5 border-b text-right text-gray-700 tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{lonText(e)}</td>
+                  <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.epost || '–'}</td>
+                  <td className="px-4 py-2.5 border-b text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.telefon || '–'}</td>
+                  <td className="px-4 py-2.5 border-b text-right text-gray-700 tabular-nums" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{e.manadslon != null ? `${fmt(e.manadslon)} kr` : '–'}</td>
                   <td className="px-4 py-2.5 border-b" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${e.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{e.is_active ? 'Aktiv' : 'Inaktiv'}</span>
                   </td>
@@ -183,41 +197,50 @@ export default function Anstallda() {
 
       {editing && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => !saving && setEditing(null)}>
-          <div className="bg-white rounded-xl w-full max-w-2xl shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-              <span className="text-base font-medium">{editing.id ? 'Redigera anställd' : 'Ny anställd'}</span>
-              <button className="text-gray-400 hover:text-gray-700" onClick={() => setEditing(null)}><i className="ti ti-x" /></button>
+          <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b flex items-start justify-between sticky top-0 bg-white z-10" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+              <div>
+                <div className="text-base font-semibold">{editing.id ? 'Redigera anställd' : 'Ny anställd'}</div>
+                <div className="text-xs text-gray-400 mt-0.5">Fyll i information om den {editing.id ? 'anställda' : 'nya anställda'}</div>
+              </div>
+              <button className="text-gray-400 hover:text-gray-700" onClick={() => setEditing(null)}><i className="ti ti-x text-lg" /></button>
             </div>
-            <div className="px-5 py-4 grid grid-cols-2 gap-4">
-              {field('fornamn', 'Förnamn', { required: true })}
-              {field('efternamn', 'Efternamn', { required: true })}
-              {field('personnummer', 'Personnummer', { placeholder: 'ÅÅÅÅMMDD-XXXX' })}
-              {field('befattning', 'Befattning')}
-              {select('anstallningsform', 'Anställningsform', ANSTALLNINGSFORM)}
-              {select('lonetyp', 'Lönetyp', [['manad', 'Månadslön'], ['timme', 'Timlön']])}
-              {editing.lonetyp === 'manad'
-                ? field('manadslon', 'Månadslön (kr)', { inputMode: 'decimal' })
-                : field('timlon', 'Timlön (kr)', { inputMode: 'decimal' })}
-              {field('arbetsgivaravgift_procent', 'Arbetsgivaravgift (%)', { inputMode: 'decimal' })}
-              {field('skattetabell', 'Skattetabell', { inputMode: 'numeric', placeholder: 't.ex. 34' })}
-              {field('skattekolumn', 'Skattekolumn', { inputMode: 'numeric' })}
-              {field('epost', 'E-post', { type: 'email' })}
-              {field('telefon', 'Telefon')}
-              {field('clearingnr', 'Clearingnr')}
-              {field('kontonr', 'Kontonummer')}
-              {field('anstallningsdatum', 'Anställningsdatum', { type: 'date' })}
-              {field('slutdatum', 'Slutdatum', { type: 'date' })}
-              <label className="col-span-2 text-sm text-gray-600 flex items-center gap-2 mt-1">
-                <input type="checkbox" checked={editing.is_active !== false} onChange={e => setEditing(s => ({ ...s, is_active: e.target.checked }))} />
-                Aktiv (inkluderas i lönekörningar)
-              </label>
-              <p className="col-span-2 text-[11px] text-gray-400 flex items-start gap-1.5">
+
+            <div className="px-6 py-4 grid grid-cols-2 gap-4">
+              {sectionTitle('Personuppgifter')}
+              {field('namn', 'Namn', { w: 2, required: true, placeholder: 'Anna Andersson' })}
+              {field('personnummer', 'Personnummer', { w: 2, required: true, placeholder: '19900101-1234', hint: 'Format: YYYYMMDD-XXXX eller YYYYMMDDXXXX' })}
+              {field('epost', 'E-post', { type: 'email', placeholder: 'anna@email.com' })}
+              {field('telefon', 'Telefon', { placeholder: '+46701234567', hint: 'Krävs för säker leverans av lönebesked via SMS.' })}
+
+              {sectionTitle('Anställningsuppgifter')}
+              {field('anstallningsdatum', 'Startdatum', { type: 'date', required: true })}
+              {field('slutdatum', 'Slutdatum (valfritt)', { type: 'date' })}
+              <div className="col-span-2 space-y-1">
+                {toggleRow('is_active', 'Aktiv anställning')}
+                {toggleRow('undanta_arbetsgivaravgift', 'Undanta från arbetsgivaravgifter', 'Arbetsgivaravgifter beräknas ej vid lönekörning för denna anställd')}
+              </div>
+
+              {sectionTitle('Löneinformation')}
+              {field('manadslon', 'Bruttolön / månad', { w: 2, required: true, inputMode: 'decimal', placeholder: '35000', hint: 'Lön före skatt. Nettolön beräknas automatiskt vid lönekörning.' })}
+              <div className="col-span-2">{toggleRow('sidoinkomst', 'Sidoinkomst', 'Anställningen är inte mottagarens huvudsakliga inkomst – skatteavdrag görs med fast procentsats istället för skattetabell.')}</div>
+              {field('kommun', 'Kommun', { placeholder: 'Sök kommun…', disabled: editing.sidoinkomst, hint: 'Välj kommun för att tilldela skattetabell' })}
+              {field('skattetabell', 'Skattetabell', { inputMode: 'numeric', disabled: editing.sidoinkomst, placeholder: 't.ex. 34', hint: 'Hämtas från Skatteverket utifrån kommun' })}
+              {field('bankkontonummer', 'Bankkontonummer', { w: 2, placeholder: '1234567890', hint: 'För utbetalning av lön' })}
+
+              {sectionTitle('Ingående ackumulerade värden')}
+              <p className="col-span-2 -mt-1 text-[11px] text-gray-400">Fyll i om du migrerar från ett annat system mitt under ett år. Lämna tomt annars.</p>
+              {field('ack_bruttolon', 'Ack. bruttolön (kr)', { inputMode: 'decimal', placeholder: '0', hint: 'Utbetald bruttolön före i år' })}
+              {field('ack_prelskatt', 'Ack. preliminärskatt (kr)', { inputMode: 'decimal', placeholder: '0', hint: 'Dragen skatt före i år' })}
+
+              <p className="col-span-2 text-[11px] text-gray-400 flex items-start gap-1.5 mt-1">
                 <i className="ti ti-shield-lock mt-0.5" /> Personnummer är en känslig personuppgift och lagras endast för ditt företag (GDPR).
               </p>
             </div>
-            <div className="px-5 py-3 border-t flex justify-end gap-2.5 sticky bottom-0 bg-white" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+
+            <div className="px-6 py-3 border-t flex justify-end gap-2.5 sticky bottom-0 bg-white" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
               <button className="btn" onClick={() => setEditing(null)} disabled={saving}>Avbryt</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Sparar…' : 'Spara'}</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Sparar…' : editing.id ? 'Spara' : 'Skapa'}</button>
             </div>
           </div>
         </div>

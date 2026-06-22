@@ -31,3 +31,16 @@ create policy employees_policy on public.employees for all
   using (company_id in (select user_company_ids()))
   with check (company_id in (select user_company_ids()));
 create index if not exists employees_company_idx on public.employees (company_id, is_active);
+
+-- v2: ny "Ny anställd"-design (enkelt Namn-fält, sidoinkomst, undantag avgifter, kommun,
+-- bankkontonummer, ingående ackumulerade värden). Additivt.
+alter table public.employees
+  add column if not exists namn text,
+  add column if not exists sidoinkomst boolean not null default false,
+  add column if not exists undanta_arbetsgivaravgift boolean not null default false,
+  add column if not exists kommun text,
+  add column if not exists bankkontonummer text,
+  add column if not exists ack_bruttolon numeric not null default 0,
+  add column if not exists ack_prelskatt numeric not null default 0;
+alter table public.employees alter column fornamn drop not null;
+alter table public.employees alter column efternamn drop not null;
