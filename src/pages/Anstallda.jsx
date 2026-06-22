@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { validatePersonnummer, normalizePersonnummer, maskPersonnummer } from '../lib/personnummer'
+import { useSectionActions } from '../components/SectionTabsLayout'
 
 const fmt = n => (n || n === 0) ? Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '–'
 
@@ -23,6 +24,7 @@ const num = v => { const n = parseFloat(String(v ?? '').replace(/\s/g, '').repla
 
 export default function Anstallda() {
   const { company, user } = useAuth()
+  const { setActions } = useSectionActions()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -31,6 +33,12 @@ export default function Anstallda() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { if (company) load() }, [company?.id])
+
+  // Placera "Ny anställd" i den delade toppraden (bredvid flikarna).
+  useEffect(() => {
+    setActions(<button className="btn btn-primary" onClick={() => setEditing({ ...emptyEmployee })}><i className="ti ti-plus" /> Ny anställd</button>)
+    return () => setActions(null)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
     setLoading(true)
@@ -117,13 +125,8 @@ export default function Anstallda() {
   )
 
   return (
-    <div>
-      <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Anställda</span>
-        <button className="btn btn-primary" onClick={() => setEditing({ ...emptyEmployee })}><i className="ti ti-plus" /> Ny anställd</button>
-      </div>
-
-      <div className="p-7">
+    <>
+      <div>
         <div className="flex items-center justify-between mb-4">
           <div className="relative max-w-xs flex-1">
             <input className="input pl-8" placeholder="Sök namn, personnr eller befattning" value={search} onChange={e => setSearch(e.target.value)} />
@@ -219,6 +222,6 @@ export default function Anstallda() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
