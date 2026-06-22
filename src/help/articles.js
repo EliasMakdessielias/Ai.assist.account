@@ -515,6 +515,18 @@ export const HELP_ARTICLES = [
     errors: [['Moms på kvitto utan giltigt underlag', 'Dra inte moms utan korrekt kvitto/faktura.'], ['Fel sats', 'Justera mot underlaget.']],
     example: 'Representation har begränsad avdragsrätt – kontrollera momsen.' }),
 
+  // ─────────────────────────── Månadskontroll ───────────────────────────
+  a({ id: 'help-monthly-control', slug: 'manadskontroll', title: 'Månadskontroll', category: 'Månadskontroll',
+    keywords: ['månadskontroll', 'månadsavslut', 'periodavslut', 'kontroll', 'checklista', 'avstämning'],
+    related: ['skapa-verifikation', 'importera-bankhandelser', 'momsrapport'],
+    summary: 'Hitta och åtgärda allt som måste vara klart innan månaden kan stängas.',
+    purpose: 'Månadskontroll samlar ofullständiga moment – okopplade underlag, obalanserade verifikationer, ej bokförda eller förfallna fakturor, omatchade bankhändelser m.m. – i en prioriterad lista per månad.',
+    when: 'Vid månadsavslut, eller löpande för att hålla bokföringen i ordning.',
+    steps: ['Gå till Månadskontroll i sidomenyn.', 'Välj månad högst upp.', 'Klicka "Kör månadskontroll" för att analysera perioden.', 'Arbeta uppifrån – kritiska (röda) punkter först.', 'Öppna en punkt för detaljer, "Gå till" rätt vy, eller be AI om hjälp.', 'Markera som påbörjad/löst, eller ignorera med motivering.'],
+    fields: [['Prioritet', 'Kritisk (röd) blockerar avslut, Hög (orange), Normal (blå), Låg (grå).'], ['Status per område', 'Antal öppna punkter per modul – klicka för att filtrera.'], ['Progress', 'Andel åtgärdade punkter för månaden.'], ['Badge i menyn', 'Antal kritiska (röd) eller höga (orange) öppna punkter.']],
+    errors: [['En punkt gäller inte längre', 'Kör kontrollen igen – punkter som inte längre stämmer löses automatiskt.'], ['Vill inte åtgärda en punkt', 'Ignorera den med motivering så är beslutet spårbart.'], ['Osäker på varför en punkt uppstod', 'Öppna punkten och välj "Be AI om hjälp".']],
+    example: 'I juni: 1 obalanserad verifikation (kritisk) och 4 okopplade underlag (hög) – du åtgärdar dem och progress går mot 100 %.' }),
+
   // ─────────────────────────── Rapporter ───────────────────────────
   a({ id: 'help-report-result', slug: 'rapport-resultat', title: 'Resultatrapport', category: 'Rapporter',
     keywords: ['resultat', 'rapport', 'intäkter', 'kostnader', 'p&l'], related: ['rapport-balans', 'rapport-huvudbok', 'exportera-rapporter'],

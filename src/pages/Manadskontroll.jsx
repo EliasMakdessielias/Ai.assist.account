@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
+import HelpButton from '../components/HelpButton'
 import {
   MODULES, MODULE_LABEL, MODULE_ICON, PRIORITY_META, ITEM_STATUS_META, CONTROL_STATUS_META,
   isOpenStatus, sortItems, nextAction, monthOptions,
@@ -123,6 +124,7 @@ export default function Manadskontroll() {
         <div className="ml-auto flex items-center gap-2">
           <button className="btn text-sm" disabled={!openItems.length} onClick={() => askAi('summary', { items: openItems }, 'Månadens risker')}><i className="ti ti-sparkles" /> Sammanfatta risker</button>
           <button className="btn text-sm" disabled={!openItems.length} onClick={() => askAi('checklist', { items: openItems }, 'Checklista för månadsavslut')}><i className="ti ti-list-check" /> Skapa checklista</button>
+          <HelpButton slug="manadskontroll" variant="icon" />
         </div>
       </div>
 

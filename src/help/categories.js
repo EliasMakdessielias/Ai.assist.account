@@ -12,6 +12,7 @@ export const HELP_CATEGORIES = [
   { key: 'Kontoanalys', icon: 'ti-report-search', requiredRole: 'user' },
   { key: 'Lön', icon: 'ti-wallet', requiredRole: 'user' },
   { key: 'Moms', icon: 'ti-receipt-tax', requiredRole: 'user' },
+  { key: 'Månadskontroll', icon: 'ti-checklist', requiredRole: 'user' },
   { key: 'Rapporter', icon: 'ti-chart-bar', requiredRole: 'user' },
   { key: 'AI-granskning', icon: 'ti-shield-check', requiredRole: 'user' },
   { key: 'Kunder', icon: 'ti-users', requiredRole: 'user' },

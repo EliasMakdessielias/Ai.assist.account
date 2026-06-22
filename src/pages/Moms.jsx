@@ -170,6 +170,11 @@ export default function Moms() {
       if (e2) throw e2
       const used = [...new Set(verRows.map(r => r.nr))]
       await supabase.from('accounts').update({ is_active: true }).eq('company_id', company.id).in('account_nr', used).eq('is_active', false)
+      // Registrera momsrapporten för perioden (löser moms-punkter i Månadskontroll). Icke-kritisk.
+      try {
+        const [yy, mm] = sel.value.split('-').map(Number)
+        await supabase.rpc('upsert_vat_report', { p_company_id: company.id, p_year: yy, p_month: mm, p_status: 'submitted', p_utgaende: r0(totUtg), p_ingaende: r0(totIng), p_difference: 0, p_verifikation_id: ver.id })
+      } catch { /* momsrapport-registrering är icke-kritisk */ }
       // Notis: momsrapport redo (länkar till verifikationen). Stör inte flödet om den fallerar.
       try { await supabase.rpc('notify_vat_report_ready', { p_company_id: company.id, p_verifikation_id: ver.id, p_period: sel.label }) } catch { /* notis är icke-kritisk */ }
       toast.success(`Momsredovisning ${ver.ver_nr} bokförd!`)

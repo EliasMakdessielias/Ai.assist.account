@@ -63,6 +63,16 @@ create table if not exists public.monthly_control_events (
 --   assign_mc_item(item, user) / comment_mc_item(item, body) -> uuid
 --   mc_open_counts(company) -> jsonb {critical, high, open}   (sidomeny/dashboard-badge)
 
+-- ── Schemalagd körning (migration monthly_control_scheduled_run) ────────────
+--   run_monthly_control tillåter system-/cron-kontext (auth.uid() = null); inloggade
+--   användare kontrolleras strikt mot företagstillhörighet.
+--   cron_run_monthly_controls() uppdaterar alla EXISTERANDE öppna kontroller för innevarande
+--   månad. pg_cron-jobb 'monthly-control-daily' kör 03:15 varje natt.
+
+-- ── Moms (migrationer vat_reports_table + monthly_control_add_moms_rules) ────
+--   vat_reports (company/year/month, status, utgaende/ingaende/differens) + upsert_vat_report.
+--   Moms-sidan registrerar momsrapporten vid bokförd momsredovisning (status 'submitted').
+
 -- ── Regler som motorn kör (schema-verifierade) ──────────────────────────────
 -- Inkorg:   unlinked_inbox_documents(hög), untolkad_documents(normal),
 --           low_confidence_documents(normal), failed_ai_interpretations(hög)
@@ -72,10 +82,13 @@ create table if not exists public.monthly_control_events (
 -- Kundfakt: unbooked_customer_invoices(hög)  [verifikation_id saknas]
 -- Bank:     unmatched_bank_transactions(hög)
 -- Lön:      employees_missing_data(normal)
+-- Moms:     vat_report_not_created(normal, endast vid momsaktivitet i perioden),
+--           vat_report_not_checked(normal), vat_report_difference(kritisk)
 --
 -- DEFERRED (kräver data/struktur som ännu inte finns – byggs när underlaget finns):
---   * Moms: ingen momsrapport-tabell finns → momsrapport-status/differens kan inte kontrolleras.
 --   * Kontoavstämning per konto: ingen avstämd-flagga per konto (endast verifikation_rows.avstamd).
 --   * Kundfaktura förfallen/utkast + lönekörning utkast/ej bokförd: status-vokabulär ej fastställt
 --     (tabellerna invoices/salaries saknar data) → undviker gissade filter (bokföringskorrekthet).
+--   * Moms-periodfrekvens (månad/kvartal/år) lagras ej → vat_report_not_created gated på
+--     faktisk momsaktivitet i månaden (normal prio, kan ignoreras med motivering för kvartalsmoms).
 --   * E-postunderlag utan företagsmatchning: plattformsnivå (inbound_email_log), ej företagsskopat.
