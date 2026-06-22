@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase'
 import { askSupportAi } from '../lib/supportAi'
 import { workContext, contextSummary, contextBlock } from '../lib/supportContext'
 import { AttachmentPicker } from './SupportAttachments'
-import { uploadSupportAttachments, openSupportAttachment } from '../lib/supportAttachments'
+import { uploadSupportAttachments, downloadSupportAttachment } from '../lib/supportAttachments'
 import { customerStatusLabel } from '../lib/support'
 
 const EMOJIS = ['👍', '🙏', '🙂', '😊', '✅', '❌', '⚠️', '❓', '🧾', '💳', '📊', '📎']
@@ -92,7 +92,7 @@ function Composer({ files, setFiles, onSend, busy, placeholder, attachHint }) {
 // ── Bilagor i ett ärendemeddelande (klickbara, signerad URL) ──
 function MsgAttachments({ items }) {
   if (!items?.length) return null
-  async function open(att) { try { window.open(await openSupportAttachment(supabase, att), '_blank', 'noopener') } catch (e) { toast.error(e.message) } }
+  async function open(att) { try { await downloadSupportAttachment(supabase, att) } catch (e) { toast.error(e.message) } }
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
       {items.map(a => {

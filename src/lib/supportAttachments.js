@@ -71,3 +71,20 @@ export async function openSupportAttachment(supabase, att) {
   if (error || !data?.signedUrl) throw new Error('Kunde inte öppna bilagan')
   return data.signedUrl
 }
+
+// Ladda ner bilagan som blob och spara lokalt. Undviker popup-blockerare/navigeringsspärrar
+// (öppnar inte en ny flik mot storage-URL:en) – fungerar i alla miljöer. Loggar via signerad URL.
+export async function downloadSupportAttachment(supabase, att) {
+  const url = await openSupportAttachment(supabase, att)
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('Kunde inte hämta bilagan')
+  const blob = await res.blob()
+  const obj = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = obj
+  a.download = att.file_name || 'bilaga'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(obj), 10000)
+}

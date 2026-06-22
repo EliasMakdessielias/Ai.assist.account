@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
-import { validateFiles, formatBytes, ACCEPT_ATTR, MAX_FILES_PER_MESSAGE, openSupportAttachment } from '../lib/supportAttachments'
+import { validateFiles, formatBytes, ACCEPT_ATTR, MAX_FILES_PER_MESSAGE, downloadSupportAttachment } from '../lib/supportAttachments'
 
 // Filväljare + chips för valda filer (innan skick). Validerar filtyp/storlek/antal i frontend.
 // compact=true → enbart gem-ikon (för täta inmatningsrader), utan etikett/chips.
@@ -47,7 +47,7 @@ export function AttachmentPicker({ files, onChange, disabled, compact }) {
 export function AttachmentList({ items, onTone = 'light' }) {
   if (!items?.length) return null
   async function open(att) {
-    try { const url = await openSupportAttachment(supabase, att); window.open(url, '_blank', 'noopener') }
+    try { await downloadSupportAttachment(supabase, att) }
     catch { toast.error('Kunde inte öppna bilagan') }
   }
   const cls = onTone === 'dark' ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
