@@ -25,7 +25,9 @@ export function searchArticles(query, access = {}) {
   const q = String(query || '').trim().toLowerCase()
   const pool = visibleArticles(access)
   if (!q) return []
-  const terms = q.split(/\s+/).filter(Boolean)
+  // Ignorera ultrakorta ord (t.ex. "i", "på") som annars matchar nästan allt.
+  const terms = q.split(/\s+/).filter(t => t.length >= 2)
+  if (terms.length === 0) return []
   const scored = []
   for (const art of pool) {
     const h = haystack(art)

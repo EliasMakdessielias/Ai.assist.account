@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 import { AttachmentPicker, AttachmentList } from '../components/SupportAttachments'
 import { uploadSupportAttachments } from '../lib/supportAttachments'
 import WhatsAppSupportButton from '../components/WhatsAppSupportButton'
+import SupportAiChat from '../components/SupportAiChat'
 
 const Pill = ({ tone, children }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${TONE_CLASS[tone] || TONE_CLASS.gray}`}>{children}</span>
@@ -20,6 +21,7 @@ const emptyForm = () => ({ subject: '', category: 'invoice_import', priority: 'n
 export default function Support() {
   const { company, user } = useAuth()
   const { ticketId } = useParams()
+  const [tab, setTab] = useState(ticketId ? 'arenden' : 'ai')   // 'ai' = AI-support (default), 'arenden' = Mina ärenden
   const [tickets, setTickets] = useState([])
   const [sel, setSel] = useState(null)         // { ticket, messages }
   const [loading, setLoading] = useState(true)
@@ -90,10 +92,20 @@ export default function Support() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium flex items-center gap-2"><i className="ti ti-headset text-blue-600" /> Support</span>
-        <button className="btn btn-primary text-sm" onClick={() => { setCreating(true); setSel(null) }}><i className="ti ti-plus" /> Nytt ärende</button>
+        <div className="flex items-center gap-1 h-full">
+          {[['ai', 'AI-support'], ['arenden', 'Mina ärenden']].map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k)}
+              className={`px-4 h-full flex items-center text-sm font-medium border-b-2 -mb-px ${tab === k ? 'text-gray-900 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>{l}</button>
+          ))}
+        </div>
+        {tab === 'arenden' && <button className="btn btn-primary text-sm" onClick={() => { setCreating(true); setSel(null) }}><i className="ti ti-plus" /> Nytt ärende</button>}
       </div>
 
+      {tab === 'ai' ? (
+        <div className="p-7 max-w-3xl">
+          <SupportAiChat onEscalated={(id) => { setTab('arenden'); setCreating(false); loadList(); if (id) openTicket(id) }} />
+        </div>
+      ) : (
       <div className="p-7 max-w-5xl grid grid-cols-1 md:grid-cols-[320px_1fr] gap-6">
         {/* Vänsterkolumn: ärendelista + sekundär WhatsApp-väg */}
         <div className="self-start space-y-4">
@@ -196,6 +208,7 @@ export default function Support() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }
