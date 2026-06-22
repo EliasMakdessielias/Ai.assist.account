@@ -20,7 +20,10 @@ const navItems = [
   { label: 'Leverantörsfakturor', icon: 'ti-file-import', to: '/leverantorsfakturor' },
   { label: 'Kassa och bank', icon: 'ti-building-bank', to: '/kassa-bank' },
   { label: 'Kontoanalys', icon: 'ti-report-search', to: '/kontoanalys' },
-  { label: 'Lön', icon: 'ti-wallet', to: '/lon' },
+  { label: 'Lön', icon: 'ti-wallet', to: '/lon', children: [
+    { label: 'Löner', icon: 'ti-report-money', to: '/lon' },
+    { label: 'Anställda', icon: 'ti-id-badge-2', to: '/lon/anstallda' },
+  ] },
   { label: 'Moms', icon: 'ti-receipt-tax', to: '/moms' },
   { label: 'Rapporter', icon: 'ti-chart-bar', to: '/rapporter' },
   { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
@@ -39,6 +42,7 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const canManageBilling = !!platformAccess?.canManageBilling
   const location = useLocation()
   const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
+  const [lonOpen, setLonOpen] = useState(location.pathname.startsWith('/lon'))
   const [menuOpen, setMenuOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -128,6 +132,34 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             collapsed
               ? <div key={i} className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }} />
               : <div key={i} className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{item.section}</div>
+          ) : item.children ? (
+            collapsed ? (
+              <NavLink key={i} to={item.to} className={linkClass} title={item.label}>
+                <i className={`ti ${item.icon} text-[17px] w-5 text-center`} />
+              </NavLink>
+            ) : (
+              <div key={i}>
+                <button onClick={() => setLonOpen(o => !o)}
+                  className={`flex items-center gap-2.5 px-5 py-2 text-[13.5px] w-full transition-colors ${
+                    location.pathname.startsWith('/lon') ? 'text-gray-900 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                  }`}>
+                  <i className={`ti ${item.icon} text-[17px] w-5 text-center`} />
+                  {item.label}
+                  <i className={`ti ti-chevron-down text-sm ml-auto transition-transform ${lonOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <div className={`nav-submenu ${lonOpen ? 'open' : ''}`}>
+                  {item.children.map((c, ci) => (
+                    <NavLink key={ci} to={c.to} end
+                      className={({ isActive }) => `flex items-center gap-2.5 px-5 pl-12 py-1.5 text-[13px] transition-colors ${
+                        isActive ? 'text-blue-700 font-medium bg-blue-50' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+                      }`}>
+                      <i className={`ti ${c.icon} text-[16px] w-5 text-center`} />
+                      {c.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            )
           ) : (
             <NavLink key={i} to={item.to} end={item.to === '/'} className={linkClass} title={collapsed ? item.label : undefined}>
               <i className={`ti ${item.icon} text-[17px] w-5 text-center`} />

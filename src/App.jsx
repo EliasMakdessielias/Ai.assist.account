@@ -20,6 +20,7 @@ import NyLeverantorsfaktura from './pages/NyLeverantorsfaktura'
 import VisaLeverantorsfaktura from './pages/VisaLeverantorsfaktura'
 import KassaBank from './pages/KassaBank'
 import Lon from './pages/Lon'
+import Anstallda from './pages/Anstallda'
 import Rapporter from './pages/Rapporter'
 import Moms from './pages/Moms'
 import Kunder from './pages/Kunder'
@@ -92,6 +93,7 @@ export default function App() {
           <Route path="leverantorsfakturor/:id" element={<VisaLeverantorsfaktura />} />
           <Route path="kassa-bank" element={<KassaBank />} />
           <Route path="lon" element={<Lon />} />
+          <Route path="lon/anstallda" element={<Anstallda />} />
           <Route path="rapporter" element={<Rapporter />} />
           <Route path="moms" element={<Moms />} />
           <Route path="kunder" element={<Kunder />} />
