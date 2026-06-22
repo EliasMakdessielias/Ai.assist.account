@@ -12,7 +12,8 @@ describe('konstanter (krav 5)', () => {
     expect(MAX_FILES_PER_MESSAGE).toBe(5)
   })
   it('tillåtna + blockerade filtyper (krav 3/4)', () => {
-    expect(ALLOWED_EXT).toEqual(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'csv', 'xlsx', 'docx', 'json'])
+    // Dokument/bild + ljud (röstmeddelanden i supportwidgeten).
+    expect(ALLOWED_EXT).toEqual(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'csv', 'xlsx', 'docx', 'json', 'webm', 'm4a', 'mp3', 'ogg', 'wav'])
     for (const b of ['exe', 'bat', 'cmd', 'js', 'msi', 'ps1', 'sh', 'html']) expect(BLOCKED_EXT).toContain(b)
   })
 })

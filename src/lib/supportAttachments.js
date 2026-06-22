@@ -5,8 +5,9 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024       // 10 MB per fil
 export const MAX_FILES_PER_MESSAGE = 5
 export const SUPPORT_BUCKET = 'support'
 
-export const ALLOWED_EXT = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'csv', 'xlsx', 'docx', 'json']
+export const ALLOWED_EXT = ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'csv', 'xlsx', 'docx', 'json', 'webm', 'm4a', 'mp3', 'ogg', 'wav']
 export const BLOCKED_EXT = ['exe', 'bat', 'cmd', 'com', 'scr', 'js', 'jar', 'msi', 'sh', 'ps1', 'vbs', 'dll', 'app', 'html', 'htm', 'svg', 'zip']
+// Endast dokument/bild i filväljaren; ljudmeddelanden spelas in separat (mikrofon).
 export const ACCEPT_ATTR = '.pdf,.png,.jpg,.jpeg,.webp,.txt,.csv,.xlsx,.docx,.json'
 
 export function fileExt(name) {
