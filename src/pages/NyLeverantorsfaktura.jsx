@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import ViewerToggleTab from '../components/ViewerToggleTab'
@@ -639,6 +640,7 @@ export default function NyLeverantorsfaktura() {
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
         <div className="flex items-baseline gap-3">
           <span className="text-[15px] font-bold tracking-tight">LEVERANTÖRSFAKTURA {nextLopnr || ''}{editId ? ' – ÄNDRA' : '*'}</span>
+          <HelpButton slug="skapa-leverantorsfaktura" />
         </div>
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={() => { navigate('/leverantorsfakturor/ny'); setTimeout(() => window.location.reload(), 0) }}><i className="ti ti-plus" /> Skapa leverantörsfaktura</button>

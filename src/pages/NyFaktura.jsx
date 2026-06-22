@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import { bokforKundfaktura } from '../lib/bokforing'
 import { serie } from '../lib/serier'
 import { enforceAndToast } from '../lib/planLimits'
@@ -94,7 +95,7 @@ export default function NyFaktura() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-[15px] font-bold tracking-tight">NY FAKTURA</span>
+        <div className="flex items-center gap-1.5"><span className="text-[15px] font-bold tracking-tight">NY FAKTURA</span><HelpButton slug="skapa-kundfaktura" /></div>
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={() => save('draft')} disabled={saving}>Spara utkast</button>
           <button className="btn btn-green" onClick={() => save('sent')} disabled={saving}>{saving ? 'Sparar…' : 'Skapa faktura'}</button>

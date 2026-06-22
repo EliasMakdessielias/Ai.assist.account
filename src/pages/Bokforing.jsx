@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import toast from 'react-hot-toast'
 import Dagskassa from '../components/Dagskassa'
 import Kvitto from '../components/Kvitto'
@@ -144,7 +145,8 @@ export default function Bokforing() {
   const content = (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Bokföring</span>
+        <div className="flex items-center gap-1.5"><span className="text-base font-medium">Bokföring</span>
+          <HelpButton slug={tabs[activeTab] === 'Registrera kvitto' ? 'bokfora-kvitto' : tabs[activeTab] === 'Registrera dagskassa' ? 'registrera-dagskassa' : 'skapa-verifikation'} /></div>
         <div className="flex items-center gap-2">
           <Link to="/bokforing/ny" className="btn btn-primary"><i className="ti ti-plus" /> Skapa verifikation</Link>
         </div>

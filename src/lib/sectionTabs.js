@@ -10,6 +10,7 @@ export const SECTION_TABS = [
     menuItem: 'Lön',
     basePath: '/lon',
     defaultTab: 'loner',
+    help: 'hantera-loner-och-anstallda',
     tabs: [
       { label: 'Löner', path: '/lon/loner', key: 'loner' },
       { label: 'Anställda', path: '/lon/anstallda', key: 'anstallda' },

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import toast from 'react-hot-toast'
 import { copyWithToast } from '../lib/clipboard'
 import { tolkaDocument } from '../lib/tolka'
@@ -257,7 +258,7 @@ export default function Inkorg() {
     <DocumentSplitLayout open={!!selected} panelW={panelW} startResize={startResize} panel={viewerPanel}>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-          <span className="text-base font-medium">Inkorg</span>
+          <div className="flex items-center gap-1.5"><span className="text-base font-medium">Inkorg</span><HelpButton slug="ladda-upp-underlag" /></div>
           <div className="flex items-center gap-2.5">
             <button className="btn" onClick={() => downloadZip(visible, { selected: false })} disabled={downloading || visible.length === 0}
               title={visible.length === 0 ? 'Inga filer i fliken' : `Ladda ner alla ${cur.label.toLowerCase()} som ZIP`}>

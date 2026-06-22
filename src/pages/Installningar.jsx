@@ -2,6 +2,7 @@ import { useEffect, useState, createContext, useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import { CURRENCY_CODES } from '../lib/currency'
 import { momsperiodOptions } from '../lib/foretag'
 import { copyWithToast } from '../lib/clipboard'
@@ -212,7 +213,7 @@ export default function Installningar() {
    <FormCtx.Provider value={{ form, set, s, setS, setSerie }}>
     <div className="pb-16" onKeyDown={handleEnterNav}>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Företagsinställningar</span>
+        <div className="flex items-center gap-1.5"><span className="text-base font-medium">Företagsinställningar</span><HelpButton slug="foretagsinstallningar" /></div>
         <button className="btn btn-primary" onClick={save} disabled={saving || !form}><i className="ti ti-device-floppy" /> {saving ? 'Sparar…' : 'Spara'}</button>
       </div>
 

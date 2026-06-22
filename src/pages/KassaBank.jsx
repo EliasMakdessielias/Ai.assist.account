@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import toast from 'react-hot-toast'
 import { parseFile, parseAmount, parseDate, guessColumns } from '../lib/parseBank'
 import { serie } from '../lib/serier'
@@ -431,7 +432,7 @@ export default function KassaBank() {
   return (
     <div className="pb-20" onClick={() => { setRowMenu(null); setActMenu(false); setTopMenu(false) }}>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Kassa- och bankhändelser</span>
+        <div className="flex items-center gap-1.5"><span className="text-base font-medium">Kassa- och bankhändelser</span><HelpButton slug="importera-bankhandelser" /></div>
         <div className="relative" onClick={e => e.stopPropagation()}>
           <div className="flex items-stretch rounded-lg overflow-hidden" style={{ background: '#6d28d9' }}>
             <button className="text-white text-sm font-medium px-4 py-2 hover:brightness-110" onClick={() => { setPasteText(''); setPasteOpen(true) }}>

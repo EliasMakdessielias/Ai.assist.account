@@ -29,6 +29,7 @@ const navItems = [
   { label: 'Leverantörer', icon: 'ti-building-store', to: '/leverantorer' },
   { label: 'Produkter', icon: 'ti-package', to: '/produkter' },
   { section: 'Hjälp' },
+  { label: 'Handbok', icon: 'ti-book-2', to: '/help' },
   { label: 'Support', icon: 'ti-headset', to: '/support' },
 ]
 

@@ -23,6 +23,7 @@ import Lon from './pages/Lon'
 import Anstallda from './pages/Anstallda'
 import SectionTabsLayout from './components/SectionTabsLayout'
 import { sectionByBasePath } from './lib/sectionTabs'
+import Help from './pages/Help'
 import Rapporter from './pages/Rapporter'
 import Moms from './pages/Moms'
 import Kunder from './pages/Kunder'
@@ -111,6 +112,8 @@ export default function App() {
           <Route path="admin/system" element={<Systemovervakning />} />
           <Route path="admin/ocr-test" element={<OcrTest />} />
           <Route path="admin/support" element={<SupportAdmin />} />
+          <Route path="help" element={<Help />} />
+          <Route path="help/:slug" element={<Help />} />
           <Route path="support" element={<Support />} />
           <Route path="support/:ticketId" element={<Support />} />
           <Route path="admin/billing" element={<BillingAdmin />} />

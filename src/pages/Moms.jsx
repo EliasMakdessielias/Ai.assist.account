@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import toast from 'react-hot-toast'
 import { serie } from '../lib/serier'
 import { granskaMomsFynd } from '../lib/momskontroll'
@@ -204,7 +205,7 @@ export default function Moms() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Ny momsredovisning</span>
+        <div className="flex items-center gap-1.5"><span className="text-base font-medium">Ny momsredovisning</span><HelpButton slug="momsrapport" /></div>
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={() => setEdits({})} disabled={saving}>Återställ</button>
           <button className="btn btn-primary px-6" onClick={bokfor} disabled={saving || loading}>{saving ? 'Bokför…' : 'Bokför'}</button>

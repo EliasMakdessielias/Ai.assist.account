@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -38,7 +39,7 @@ export default function Fakturor() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Fakturor</span>
+        <div className="flex items-center gap-1.5"><span className="text-base font-medium">Fakturor</span><HelpButton slug="skapa-kundfaktura" /></div>
         <Link to="/fakturor/ny" className="btn btn-primary"><i className="ti ti-plus" /> Ny faktura</Link>
       </div>
 

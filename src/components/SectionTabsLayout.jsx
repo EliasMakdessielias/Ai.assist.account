@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useOutletContext } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { visibleTabs } from '../lib/sectionTabs'
+import HelpButton from './HelpButton'
 
 // Återanvändbar layout: huvudvalets undersidor visas som horisontella toppflikar i
 // innehållsytan (ingen dropdown i sidomenyn). Aktiv flik = blå underlinje. Varje undersida
@@ -28,7 +29,7 @@ export default function SectionTabsLayout({ config }) {
             </NavLink>
           ))}
         </nav>
-        <div className="shrink-0">{actions}</div>
+        <div className="flex items-center gap-2 shrink-0">{actions}{config.help && <HelpButton slug={config.help} />}</div>
       </div>
       <div className="p-7">
         <Outlet context={{ setActions }} />

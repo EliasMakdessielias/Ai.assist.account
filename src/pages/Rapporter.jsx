@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 
 const fmt = n => Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -79,7 +80,7 @@ export default function Rapporter() {
   return (
     <div>
       <div className="bg-white border-b sticky top-0 z-10 px-7 h-14 flex items-center justify-between no-print" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-base font-medium">Rapporter</span>
+        <div className="flex items-center gap-1.5"><span className="text-base font-medium">Rapporter</span><HelpButton slug="rapport-resultat" /></div>
         <div className="flex items-center gap-3">
           <select className="input w-auto" value={period} onChange={e => setPeriod(e.target.value)}>
             <option value="all">Alla perioder</option>

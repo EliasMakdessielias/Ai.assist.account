@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import HelpButton from '../components/HelpButton'
 import toast from 'react-hot-toast'
 import UnderlagPanel from '../components/UnderlagPanel'
 import ViewerToggleTab from '../components/ViewerToggleTab'
@@ -463,7 +464,7 @@ export default function NyVerifikation() {
       <div className="flex flex-col flex-1 overflow-hidden">
       {/* Top bar */}
       <div className="bg-white border-b px-7 h-14 flex items-center justify-between shrink-0 sticky top-0 z-10" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
-        <span className="text-[15px] font-bold tracking-tight">{ersatterInfo ? 'VERIFIKATION – ERSÄTTNING' : 'VERIFIKATION – NY'}</span>
+        <div className="flex items-center gap-1.5"><span className="text-[15px] font-bold tracking-tight">{ersatterInfo ? 'VERIFIKATION – ERSÄTTNING' : 'VERIFIKATION – NY'}</span><HelpButton slug="skapa-verifikation" /></div>
         <div className="flex items-center gap-2.5">
           <button className="btn" onClick={bokfor} disabled={saving}><i className="ti ti-plus" /> Skapa verifikation</button>
           <button className="btn btn-primary" onClick={() => navigate('/bokforing')}><i className="ti ti-list" /> Visa lista</button>
