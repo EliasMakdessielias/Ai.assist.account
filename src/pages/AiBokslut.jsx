@@ -4,6 +4,10 @@ import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import HelpButton from '../components/HelpButton'
+import { useAutosaveDraft } from '../hooks/useAutosaveDraft'
+import AutosaveIndicator from '../components/offline/AutosaveIndicator'
+import RestoreDraftBanner from '../components/offline/RestoreDraftBanner'
+import { isAutosavePilotEnabled } from '../lib/offline/flags'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
   ATTACHMENT_TYPES, ATTACHMENT_TYPE_LABEL, ATTACHMENT_STATUS_META, attachmentTypeForCategory, hasDifferens,
@@ -303,7 +307,7 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer check={selected} user={user} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
+      {selected && <CheckDrawer check={selected} user={user} company={company} fy={fy} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
         onCreateAttachment={c => { setSelected(null); setEditAttachment({ _fromCheck: true, check_id: c.id, type: attachmentTypeForCategory(c.category), account_nr: c.account_nr || '', saldo_huvudbok: c.saldo ?? '', title: 'Bilaga – ' + categoryLabel(c.category) }) }}
         onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
       {editAttachment && <AttachmentModal initial={editAttachment} engagement={engagement} perms={perms} locked={locked} onClose={() => setEditAttachment(null)} onSaved={async () => { setEditAttachment(null); await loadEngagement() }} />}
@@ -311,11 +315,19 @@ export default function AiBokslut() {
   )
 }
 
-function CheckDrawer({ check, user, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
+function CheckDrawer({ check, user, company, fy, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
   const NO_RESOLVE = 'Endast admin kan markera kontroller som klara/ignorerade'
   const LOCKED = 'Engagemanget är låst – inga ändringar tillåts'
   const [busy, setBusy] = useState(false)
   const [comment, setComment] = useState('')
+
+  // Etapp 2A: lokal autosave-pilot för kommentarsutkast (flaggstyrd, ingen serversynk).
+  const pilotOn = isAutosavePilotEnabled({ company })
+  const autosaveIdentity = {
+    userId: user?.id, companyId: company?.id, fiscalYearId: fy?.id,
+    engagementId: check.engagement_id, entityType: 'bokslut_check_comment', fieldId: check.id,
+  }
+  const autosave = useAutosaveDraft({ enabled: pilotOn, identity: autosaveIdentity, value: comment })
 
   async function act(rpc, args, ok) {
     setBusy(true)
@@ -369,10 +381,38 @@ function CheckDrawer({ check, user, perms = {}, locked = false, hasAttachment = 
           <div>
             <div className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Kommentar</div>
             {check.comment && <div className="bg-gray-50 rounded-lg px-3 py-2 text-[13px] mb-2">{check.comment}</div>}
+            {pilotOn && autosave.restorable && (
+              <RestoreDraftBanner
+                draft={autosave.restorable}
+                companyName={company?.name}
+                fiscalYearLabel={fy ? `${fy.year}` : null}
+                currentValue={comment}
+                onRestore={() => { const p = autosave.restore(); if (p != null) setComment(p) }}
+                onDiscard={() => autosave.discard()}
+                onKeep={() => autosave.dismissBanner()}
+              />
+            )}
+            {pilotOn && autosave.otherTab && (
+              <div className="text-[11px] text-amber-700 mb-1"><i className="ti ti-windows mr-0.5" />Det här utkastet redigeras även i en annan flik.</div>
+            )}
             <div className="flex gap-2">
               <textarea className="input text-sm flex-1" rows={2} placeholder="Skriv en kommentar…" value={comment} onChange={e => setComment(e.target.value)} />
-              <button className="btn btn-primary self-end" disabled={busy || locked || !comment.trim() || !perms.comment_check} onClick={async () => { await act('bokslut_comment_check', { p_check: check.id, p_comment: comment }, 'Kommentar sparad'); setComment('') }}><i className="ti ti-send" /></button>
+              <button className="btn btn-primary self-end" disabled={busy || locked || !comment.trim() || !perms.comment_check} onClick={async () => {
+                try {
+                  const { error } = await supabase.rpc('bokslut_comment_check', { p_check: check.id, p_comment: comment })
+                  if (error) throw error
+                  toast.success('Kommentar sparad')
+                  if (pilotOn) await autosave.clearLocal()   // server bekräftat → ta bort lokalt utkast
+                  setComment('')
+                  await onChanged()
+                } catch (e) {
+                  // Serverfel/timeout/401/403/5xx → behåll det lokala utkastet (raderas EJ).
+                  await logDenied({ engagement: check.engagement_id }, 'bokslut_comment_check', e)
+                  toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte spara kommentaren')
+                }
+              }}><i className="ti ti-send" /></button>
             </div>
+            {pilotOn && <div className="mt-1"><AutosaveIndicator status={autosave.status} lastSavedAt={autosave.lastSavedAt} storageError={autosave.storageError} /></div>}
           </div>
 
           <div>

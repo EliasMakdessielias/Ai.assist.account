@@ -125,6 +125,9 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
+    // Etapp 2A: vid EXPLICIT utloggning – rensa den utloggade användarens lokala pilotutkast (säkerhet).
+    // Best-effort, får aldrig blockera utloggningen. Tillfälliga sessionsfel (ej signOut) rensar inget.
+    try { const uid = user?.id; if (uid) { const m = await import('../lib/offline/autosaveStore'); await m.purgeUserDrafts(uid) } } catch { /* ignore */ }
     await supabase.auth.signOut()
     setUser(null); setCompanies([]); setCompany(null); setIsAdmin(false); setPlatformAccess(null)
   }

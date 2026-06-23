@@ -20,3 +20,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // Etapp 1A: PWA (endast prod-bygge) + centralt nätverkshälsolager. Påverkar inte sparflöden.
 registerPWA()
 startNetworkHealth()
+
+// Etapp 2A: retention-rensning av utgångna lokala pilotutkast (best-effort, påverkar inget sparflöde).
+import('./lib/offline/autosaveStore').then(m => m.purgeExpired()).catch(() => {})
+import('./lib/offline/flags').then(m => { try { window.__bokpilotFlags = { autosavePilot: m.isAutosavePilotEnabled } } catch { /* ignore */ } }).catch(() => {})

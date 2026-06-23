@@ -209,6 +209,102 @@ Origin-servern (localhost:4173) **stoppades på riktigt** under testerna:
 - Funktionellt: kill switch (`/kill-sw.html` / `window.__bokpilotKillSwitch()` / `bokpilot.pwa.disabled=1`) +
   deploy-stub av `sw.js`. CSP-RO kan tas bort genom att radera `headers`-blocket i `vercel.json` (rewrites kvar).
 
+## Etapp 2A – lokal autosave-pilot ✅ (klar)
+
+**Pilot:** kommentarsutkastet i CheckDrawer på `/ai-bokslut` (bokslut-check-kommentar). Vald för att det är ett
+fritt textfält inom ett bokslutsengagemang, **aldrig** del av godkänt årsredovisningsinnehåll eller bokföring,
+med en tydlig befintlig serverspar-väg (`bokslut_comment_check`). Ingen ändring av bokföringsdata/serverlogik.
+
+### Installerade paket
+- **Inga.** Dexie utvärderades men handrullad IndexedDB-wrapper räcker för 2 stores (mindre yta, inget beroende).
+
+### IndexedDB-schema (`bokpilot-offline`, v1)
+- `autosaveEntries` (keyPath `id`) – pilotens textutkast.
+- `localMetadata` (keyPath `key`) – reserverad för diagnostik (oanvänd i 2A).
+- Post-fält: `id, schemaVersion, userId, companyId, fiscalYearId, engagementId, entityType, fieldId, payload,
+  payloadHash, localRevision, writerTabId, createdAt, updatedAt, expiresAt, appBuildId, status`. Status: `local`.
+  **Lagras ALDRIG:** token, refresh-token, lösenord, API-nyckel, session, hela användarobjekt.
+
+### Sammansatt nyckel
+`userId|companyId|fiscalYearId|engagementId|entityType|fieldId` (entityType=`bokslut_check_comment`,
+fieldId=check-id). Hela identiteten verifieras vid **läsning, skrivning och rensning** (`identityMatches`).
+Inget utkast kan hittas via enbart entityId/aktivt bolag.
+
+### Autosave
+Hook `useAutosaveDraft`: debounce 800 ms, hash-dedup (`payloadHash`, undviker identiska skrivningar), atomisk
+`localRevision` via en IndexedDB-transaktion, fångar `QuotaExceededError`/lagringsfel (status → fel, formuläret
+fortsätter funka), blockerar aldrig UI. Tomt fält → lokalt utkast raderas. Texter: "Sparar lokalt…",
+"Sparat lokalt på den här enheten", "… Ännu inte sparad på servern", "Lokal lagring misslyckades".
+Ordet "synkad" används aldrig.
+
+### Återställning (aldrig automatisk)
+`RestoreDraftBanner` visar tidpunkt, bolag, räkenskapsår, "finns endast lokalt på den här enheten" + val:
+**Återställ / Visa skillnad / Behåll nuvarande / Radera lokalt utkast**. Återställning kräver aktivt klick;
+ingen auto-merge, ingen tyst överskrivning av serverinnehåll.
+
+### Bekräftat serversparande
+Lokalt utkast raderas ENDAST efter bekräftad lyckad `bokslut_comment_check` (i success-grenen → `clearLocal`).
+Vid fel/timeout/401/403/5xx behålls utkastet (catch-grenen rör det inte). "Synkad" visas inte.
+
+### Företags-/års-/användarisolering
+Nyckeln innehåller bolag, år, engagemang och användare → byte ger annan nyckel → tidigare kontexts text kan
+aldrig visas i ny kontext. Utkast laddas bara vid fullständig nyckelmatchning. Gammalt utkast lämnas lokalt
+tills retention/explicit radering.
+
+### Logout-policy
+- **Explicit utloggning** (`useAuth.signOut`): purgar den utloggade användarens pilotutkast (best-effort,
+  dynamisk import, blockerar aldrig utloggningen).
+- **Tillfälligt sessionsfel** (ej `signOut`): rensar INGET (drafts user-keyade; visas aldrig för annan användare).
+- **Medveten avgränsning (2A):** en blockerande "varning före utloggning"-dialog lades INTE till (skulle ändra
+  delad auth/signout-UX i flera anropsställen). Fältet auto-flushas inom ~1 s och är användarisolerat + purgas
+  vid logout. Pre-logout-varning kan läggas till senare.
+- **Ärlig begränsning:** application-level isolation, **inte** kryptografisk isolering mot XSS eller lokal
+  enhetsåtkomst. IndexedDB beskrivs aldrig som krypterad eller garanterad/permanent lagring.
+
+### Multi-tab
+Varje flik har ett `tabId`; `BroadcastChannel('bokpilot-autosave')`. Vid redigering av samma utkast i annan
+flik visas "Det här utkastet redigeras även i en annan flik". Ingen tyst last-write-wins; `localRevision`
+uppräknas atomärt. (Full serverkonflikthantering byggs inte här.)
+
+### Retention & lagring
+`expiresAt = updatedAt + 30 dagar`; `purgeExpired()` körs vid appstart (rensar endast utgångna). Tak
+`MAX_ENTRIES=200` (äldst först), `MAX_PAYLOAD_BYTES=50 KB`. `navigator.storage.estimate()` för diagnostik.
+`persist()` begärs aldrig automatiskt.
+
+### Feature flag
+`src/lib/offline/flags.js`: AV i produktion som standard; PÅ i dev/preview; PÅ för testbolag
+(`4f0d40a9-…`) eller via `localStorage bokpilot.flags.autosavePilot='1'`. Av → exakt tidigare beteende
+(ingen banner/indikator, ingen IDB-skrivning), och avstängning raderar inte befintlig lokal data.
+Diagnostik via `window.__bokpilotFlags`. Flaggan är inte enda säkerhetskontrollen.
+
+### Ändrade/skapade filer (2A)
+Nya: `src/lib/offline/{idb.js,autosaveStore.js,flags.js,autosaveStore.test.js}`,
+`src/hooks/useAutosaveDraft.js`, `src/components/offline/{AutosaveIndicator.jsx,RestoreDraftBanner.jsx}`.
+Ändrade: `src/pages/AiBokslut.jsx` (CheckDrawer-kommentar wired bakom flagga; clearLocal vid lyckad server-spar),
+`src/hooks/useAuth.jsx` (purge vid explicit logout), `src/main.jsx` (retention-purge + flagg-diagnostik).
+**Orört:** alla sparflöden, RPC:er, RLS, triggers, bokföring.
+
+### Testresultat (2A)
+- **Enhetstester:** 822 gröna (7 nya rena helpers: makeId-determinism/full-nyckel, payloadHash, isExpired,
+  identityComplete/Matches, byteLength, retention). (Känd flaky: datumkänsligt Kontoanalys-test – orelaterat.)
+- **Live (prod-build, Chromium, riktig IndexedDB):** skriv→debounce→**IDB-post med full identitet, payload,
+  status=local, INGA tokens**; reload→**RestoreDraftbanner**; återställ→rätt text; **server-spar→lokalt utkast
+  borttaget först efter bekräftelse**; **multi-tab-varning**; nyckel = full sammansatt identitet (isolering);
+  **flagga av → ingen banner/indikator/IDB-skrivning och befintlig data bevarad**; SW-cache = endast shell/assets
+  (inga IDB/API-svar).
+- **Code-path-verifierat (ej forcerat live):** serverfel/401/403/5xx behåller lokalt utkast (clearLocal endast i
+  success-grenen). Rekommenderas att slutverifieras manuellt med nätverksfel i produktion.
+
+### Kända risker (2A)
+- App-level isolation, ej krypto/XSS-skydd (dokumenterat).
+- Ingen blockerande pre-logout-varning (medveten avgränsning; purge sker ändå).
+- Retention/quota live-testades via enhetstester + startup-purge; quota-fel testat via kodväg.
+
+### Rollback (2A)
+Sätt flaggan av (default i prod) → exakt tidigare beteende, ingen radering. Ta bort hook-anropet i CheckDrawer
+för fullständig återgång. Lokal data kan rensas via `purgeUserDrafts`/retention eller genom att radera
+IndexedDB `bokpilot-offline`. Inget befintligt flöde påverkas.
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
-- **Etapp 2:** lokal autosave-pilot (IndexedDB/Dexie) för EN godkänd utkasttyp, ingen synk.
-  Rekommenderad pilot: kundfakturautkast (eller AI-Bokslut-anteckning som lägsta risk). Se Etapp 0-rapport.
+- **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
+  Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.
