@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
@@ -11,6 +11,20 @@ import {
 const fmt = ts => { try { return new Date(ts).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }) } catch { return '–' } }
 const Chip = ({ meta }) => <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${meta?.chip || 'bg-gray-100 text-gray-500'}`}>{meta?.label || '—'}</span>
 const RiskChip = ({ r }) => { const m = RISK_META[r]; return <span className="inline-flex items-center gap-1 text-[12px] font-medium"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: m?.dot }} />{m?.label || r}</span> }
+
+// Logga nekad åtgärd (behörighet/lås/licens/medlemskap) via separat RPC i egen transaktion.
+// Skriver i bokslut_denied_log (endast plattformsadmin kan läsa). Stör aldrig originalfelet/UI.
+async function logDenied({ company = null, engagement = null }, attempted, err) {
+  const msg = err?.message || ''
+  const denied = err?.code === '42501' || /behörighet saknas|låst|licens|medlem|forbidden|not_licensed/i.test(msg)
+  if (!denied) return
+  try {
+    await supabase.rpc('log_bokslut_denied', {
+      p_action: attempted, p_reason: msg, p_company: company, p_engagement: engagement,
+      p_context: { route: '/ai-bokslut' },
+    })
+  } catch { /* loggning får ej störa */ }
+}
 
 function Stat({ label, value, tone = 'gray' }) {
   const tones = { red: 'text-red-600', orange: 'text-orange-600', gray: 'text-gray-800' }
@@ -44,6 +58,15 @@ export default function AiBokslut() {
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState(null)
   const [perms, setPerms] = useState({})
+  const loggedNoLicenseRef = useRef(null)
+
+  // Logga försök att öppna modulen utan licens (en gång per bolag).
+  useEffect(() => {
+    if (licensed === false && company?.id && loggedNoLicenseRef.current !== company.id) {
+      loggedNoLicenseRef.current = company.id
+      logDenied({ company: company.id }, 'open_module', { message: 'Licens saknas (ai_bokslut_arsredovisning)' })
+    }
+  }, [licensed, company?.id])
 
   useEffect(() => {
     if (!company?.id) return
@@ -82,7 +105,7 @@ export default function AiBokslut() {
     if (!engagement) return
     setRunning(true)
     try { await supabase.rpc('run_bokslut_analysis', { p_engagement: engagement.id }); toast.success('Analys körd'); await loadEngagement() }
-    catch (e) { toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Analysen misslyckades') }
+    catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'run_analysis', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Analysen misslyckades') }
     setRunning(false)
   }
 
@@ -90,7 +113,7 @@ export default function AiBokslut() {
     if (!engagement) return
     if (s === 'last' && !window.confirm('Lås engagemanget? Efter låsning kan inga ändringar göras – endast läsning. Det går inte att låsa upp.')) return
     try { const { error } = await supabase.rpc('set_bokslut_engagement_status', { p_engagement: engagement.id, p_status: s }); if (error) throw error; toast.success('Status uppdaterad'); await loadEngagement() }
-    catch (e) { toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+    catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'set_status:' + s, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
   }
 
   const fy = years.find(y => y.id === fyId)
@@ -222,7 +245,7 @@ function CheckDrawer({ check, user, perms = {}, locked = false, onClose, onChang
   async function act(rpc, args, ok) {
     setBusy(true)
     try { const { error } = await supabase.rpc(rpc, args); if (error) throw error; if (ok) toast.success(ok); await onChanged() }
-    catch (e) { toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Åtgärden misslyckades') }
+    catch (e) { await logDenied({ engagement: check.engagement_id }, args?.p_status ? `${rpc}:${args.p_status}` : rpc, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Åtgärden misslyckades') }
     setBusy(false)
   }
   const setStatus = (s, label) => act('bokslut_set_check_status', { p_check: check.id, p_status: s, p_comment: null }, label)

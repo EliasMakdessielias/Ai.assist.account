@@ -80,9 +80,15 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   grindat i UI. Approve/create_draft är definierade och admin-only (enforce när de byggs i Steg 2).
 - **Roll-vokabulär:** endast `admin` och `member` finns i appen (default `admin`); fler nivåer
   (t.ex. redovisningskonsult/granskare) saknas och kan läggas till i `bokslut_can` när rollen införs.
-- **Nekande-audit:** nekade åtgärder ger tydligt fel men skrivs INTE till `bokslut_audit_log` (en RAISE rullar
-  tillbaka transaktionen inkl. en ev. auditrad; kräver out-of-band-loggning – noterat för senare). Beviljade
-  åtgärder loggas alltid.
+- **Nekande-audit (åtgärdat, separat tabell):** nekade åtgärder loggas i en egen tabell `bokslut_denied_log`
+  via RPC:n `log_bokslut_denied` (egen transaktion → överlever att den nekade åtgärdens transaktion rullas
+  tillbaka av RAISE). Loggar user_id, company_id, engagement_id (om tillgängligt), role, action, reason,
+  context (route) och created_at. Täcker även **utan licens** (open_module) och **utan medlemskap/forbidden**
+  (run_analysis) eftersom RPC:n inte kräver medlemskap. **Endast plattformsadmin** kan läsa tabellen (RLS via
+  `is_platform_admin()`) – säkerhetsdata visas aldrig i kund-UI (därför flyttad UT ur `bokslut_audit_log` som
+  visas på sidan). Avvägning: loggningen är klientdriven (anropas vid SQLSTATE 42501 / licens-/medlemsavslag);
+  helt server-garanterad logg även för direkta API-anrop skulle kräva autonom transaktion (dblink) med lagrade
+  DB-uppgifter – medvetet bortvalt p.g.a. credential-/säkerhetsrisk.
 - `status='last'` kan nu sättas av admin från UI (med bekräftelse) och blockerar därefter alla mutationer
   (check-åtgärder, statusändring, ny analys). **Ingen upplåsning** finns (avsiktligt i detta steg) – noterat
   som möjlig framtida funktion (t.ex. superadmin-unlock).
@@ -117,6 +123,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_engagements` (company_id, fiscal_year_id [unik], regelverk, status, ansvarig_user_id, last_analysis_at, open/critical/high_count)
 - `bokslut_checks` (engagement_id, company_id, category, title, description, account_nr, saldo, risk_level, status, suggested_action, source, action_url, rule_key, assigned_to, comment, source_data, resolved_by/at)
 - `bokslut_audit_log` (engagement_id, company_id, user_id, action, model, prompt_version, detail)
+- `bokslut_denied_log` (user_id, company_id, engagement_id, role, action, reason, context, created_at) –
+  **endast plattformsadmin läser** (RLS `is_platform_admin()`); skrivs via `log_bokslut_denied`. Ingen FK mot
+  bokföring; rör ingen bokföringsdata.
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -124,6 +133,7 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_can(p_company, p_action) -> boolean` (rollmappning mot user_companies.role)
 - `bokslut_my_permissions(p_company) -> jsonb` (alla åtgärder inkl. manage_status → bool, för UI-grindning)
 - `set_bokslut_engagement_status(p_engagement, p_status)` (admin-only; klar_for_konsult/godkand/avvisad/last; loggar)
+- `log_bokslut_denied(p_action, p_reason, p_company, p_engagement, p_context)` (separat logg-RPC → bokslut_denied_log, egen tx)
 - `bokslut_get_or_create(p_company, p_fiscal_year_id) -> jsonb` (loggar created/opened)
 - `run_bokslut_analysis(p_engagement) -> jsonb`
 - `bokslut_set_check_status(p_check, p_status, p_comment)`
@@ -139,7 +149,8 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - SQL-referens: `supabase/ai_bokslut.sql`
 
 **Migrationer:** `ai_bokslut_tables_and_license`, `ai_bokslut_engine_and_actions`, `ai_bokslut_audit_engagement_open`,
-`ai_bokslut_role_permissions`, `ai_bokslut_engagement_status_transitions`
+`ai_bokslut_role_permissions`, `ai_bokslut_engagement_status_transitions`, `ai_bokslut_log_denied`,
+`ai_bokslut_denied_log_table`
 
 **Behörighetsmodell:** licens + medlemskap = grund. Roll (`user_companies.role`): admin = alla 8 åtgärder;
 member = read/run_analysis/assign_check/comment_check. Speglas i `src/lib/bokslut.js` (`BOKSLUT_ROLE_ACTIONS`).
