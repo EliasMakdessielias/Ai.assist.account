@@ -125,11 +125,28 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
-    // Etapp 2A: vid EXPLICIT utloggning – rensa den utloggade användarens lokala pilotutkast (säkerhet).
-    // Best-effort, får aldrig blockera utloggningen. Tillfälliga sessionsfel (ej signOut) rensar inget.
-    try { const uid = user?.id; if (uid) { const m = await import('../lib/offline/autosaveStore'); await m.purgeUserDrafts(uid) } } catch { /* ignore */ }
-    await supabase.auth.signOut()
+    // Etapp 2B: EXPLICIT utloggning. Om lokala pilotutkast finns – bekräfta innan utloggning.
+    // Radera ENDAST efter uttrycklig bekräftelse OCH lyckad utloggning. Misslyckad utloggning behåller utkast.
+    // (Tillfälligt sessionsfel går aldrig denna väg och rensar därför inget.)
+    const uid = user?.id
+    let store = null
+    try { store = await import('../lib/offline/autosaveStore') } catch { /* offline-lager saknas → vanlig utloggning */ }
+    let drafts = []
+    if (store && uid) { try { drafts = await store.listUserDrafts(uid) } catch { drafts = [] } }
+    if (drafts.length > 0) {
+      const latest = drafts.reduce((m, d) => Math.max(m, d.updatedAt || 0), 0)
+      const when = latest ? new Date(latest).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }) : 'okänd tid'
+      const ok = window.confirm(
+        `Du har ${drafts.length} lokalt sparat${drafts.length === 1 ? '' : 'a'} utkast på den här enheten (senast ${when}).\n` +
+        `De finns bara här – inte på servern – och tas bort när du loggar ut.\n\n` +
+        `OK = Logga ut och radera lokala utkast.\nAvbryt = återgå utan att logga ut.`
+      )
+      if (!ok) return false   // avbryt och återgå – ingen utloggning, inga utkast raderade
+    }
+    await supabase.auth.signOut()   // kastar vid fel → utkast behålls (raderas ej nedan)
+    if (store && uid && drafts.length > 0) { try { await store.purgeUserDrafts(uid) } catch { /* ignore */ } }
     setUser(null); setCompanies([]); setCompany(null); setIsAdmin(false); setPlatformAccess(null)
+    return true
   }
 
   async function reloadCompany() {

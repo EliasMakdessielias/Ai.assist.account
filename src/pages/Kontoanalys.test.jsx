@@ -41,8 +41,15 @@ const renderAt = (path = '/kontoanalys', props = {}) =>
 // Hela transaktionsraden är klickbar (ingen pilikon) – hitta <tr> via verifikationsnumret.
 const rowByVer = name => screen.getAllByText(name)[0].closest('tr')
 
-beforeEach(() => { cleanup(); vi.restoreAllMocks(); nav.mockReset(); fromSpy.mockClear() })
-afterEach(() => cleanup())
+// Frys systemtiden till ett deterministiskt datum INOM testdatans räkenskapsår (2026), så att
+// komponentens default-period (new Date().getFullYear() → `${yr}-01-01`..`${yr}-12-31`) alltid täcker
+// testverifikationerna oavsett när testet körs. Endast Date fejkas → RTL:s async-timers förblir riktiga.
+beforeEach(() => {
+  cleanup(); vi.restoreAllMocks(); nav.mockReset(); fromSpy.mockClear()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-06-15T12:00:00'))
+})
+afterEach(() => { vi.useRealTimers(); cleanup() })
 
 describe('Kontoanalys – Öppna i eget fönster (popout)', () => {
   it('normal vy: knappen "Öppna i eget fönster" finns, ingen Stäng', () => {
@@ -85,7 +92,9 @@ describe('Kontoanalys – Öppna i eget fönster (popout)', () => {
   })
 
   it('Stäng anropar window.close (påverkar inte huvudappen)', () => {
-    const close = vi.spyOn(window, 'close').mockImplementation(() => {})
+    // Markera fönstret som stängt (som en riktig browser) så stangPopout:s 150ms-fallback-timer
+    // (navigate('/kontoanalys')) inte läcker in i efterföljande test. Speglar verkligt beteende.
+    const close = vi.spyOn(window, 'close').mockImplementation(() => { try { Object.defineProperty(window, 'closed', { configurable: true, value: true }) } catch { /* ignore */ } })
     renderAt('/kontoanalys/popout', { popout: true })
     fireEvent.click(screen.getByTestId('kontoanalys-popout-close'))
     expect(close).toHaveBeenCalledTimes(1)

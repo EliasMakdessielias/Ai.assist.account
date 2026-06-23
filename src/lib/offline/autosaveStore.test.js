@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { makeId, payloadHash, isExpired, identityComplete, identityMatches, byteLength, RETENTION_MS } from './autosaveStore'
+import { describe, it, expect, afterEach } from 'vitest'
+import {
+  makeId, payloadHash, isExpired, identityComplete, identityMatches, byteLength, RETENTION_MS,
+  saveDraft, getDraft, RevisionConflict, MAX_PAYLOAD_BYTES, __setOpsForTests,
+} from './autosaveStore'
 
 const full = {
   userId: 'u1', companyId: 'c1', fiscalYearId: 'fy1', engagementId: 'e1',
@@ -50,5 +53,63 @@ describe('autosaveStore – rena hjälpfunktioner (Etapp 2A)', () => {
 
   it('RETENTION_MS är 30 dagar', () => {
     expect(RETENTION_MS).toBe(30 * 24 * 60 * 60 * 1000)
+  })
+
+  it('byteLength: emoji/Unicode mäts i UTF-8 bytes (≠ tecken)', () => {
+    expect(byteLength('😀')).toBe(4)              // 4 bytes, 1 "tecken-par"
+    expect(byteLength('åäö')).toBe(6)             // 2 bytes vardera
+  })
+})
+
+// In-memory IndexedDB-adapter för deterministiska skriv-/konflikt-/felscenarier (ingen riktig IDB i jsdom).
+function memOps(initial = {}) {
+  const map = new Map(Object.entries(initial))
+  return {
+    idbAvailable: () => true,
+    idbGet: async (s, k) => map.get(k) ?? null,
+    idbGetAll: async () => [...map.values()],
+    idbDelete: async (s, k) => { map.delete(k); return true },
+    idbUpdate: async (s, k, updater) => { const prev = map.get(k) ?? null; const next = updater(prev); if (next == null) return null; map.set(k, next); return next },
+    _map: map,
+  }
+}
+
+describe('autosaveStore – lokal optimistic concurrency (Etapp 2B)', () => {
+  afterEach(() => __setOpsForTests(null))
+  const ident = { userId: 'u1', companyId: 'c1', fiscalYearId: 'fy1', engagementId: 'e1', entityType: 'bokslut_check_comment', fieldId: 'chk1' }
+
+  it('första skrivning ger revision 1; nästa (expected 1) ger revision 2', async () => {
+    __setOpsForTests(memOps())
+    const e1 = await saveDraft(ident, { payload: 'a', expectedRevision: 0 })
+    expect(e1.localRevision).toBe(1)
+    const e2 = await saveDraft(ident, { payload: 'ab', expectedRevision: 1 })
+    expect(e2.localRevision).toBe(2)
+  })
+
+  it('inaktuell expectedRevision → RevisionConflict, INGEN överskrivning', async () => {
+    const ops = memOps()
+    __setOpsForTests(ops)
+    await saveDraft(ident, { payload: 'från flik B', expectedRevision: 0 })   // rev 1 (annan flik)
+    // Denna flik tror fortfarande att basen är 0 → konflikt, posten rörs ej
+    await expect(saveDraft(ident, { payload: 'från flik A', expectedRevision: 0 })).rejects.toBeInstanceOf(RevisionConflict)
+    const stored = await getDraft(ident)
+    expect(stored.payload).toBe('från flik B')   // inte överskriven
+    expect(stored.localRevision).toBe(1)
+  })
+
+  it('payload över MAX_PAYLOAD_BYTES avvisas (bytes, ej tecken)', async () => {
+    __setOpsForTests(memOps())
+    await expect(saveDraft(ident, { payload: 'a'.repeat(MAX_PAYLOAD_BYTES + 1), expectedRevision: 0 })).rejects.toThrow('payload-too-large')
+  })
+
+  it('injicerat lagringsfel (QuotaExceeded) propageras (hooken visar fel, raderar inte text)', async () => {
+    const failing = { ...memOps(), idbUpdate: async () => { const e = new Error('Quota'); e.name = 'QuotaExceededError'; throw e } }
+    __setOpsForTests(failing)
+    await expect(saveDraft(ident, { payload: 'x', expectedRevision: 0 })).rejects.toThrow('Quota')
+  })
+
+  it('getDraft svälier läsfel och returnerar null (kraschar inte formuläret)', async () => {
+    __setOpsForTests({ ...memOps(), idbGet: async () => { throw new Error('open error') } })
+    expect(await getDraft(ident)).toBeNull()
   })
 })

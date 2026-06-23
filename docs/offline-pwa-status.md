@@ -305,6 +305,85 @@ Sätt flaggan av (default i prod) → exakt tidigare beteende, ingen radering. T
 för fullständig återgång. Lokal data kan rensas via `purgeUserDrafts`/retention eller genom att radera
 IndexedDB `bokpilot-offline`. Inget befintligt flöde påverkas.
 
+## Etapp 2B – säkerhetsstängning av piloten ✅ (klar)
+
+Härdning + full verifiering av 2A-piloten. Ingen ny entitet, ingen sync/revision/idempotency/migration.
+
+### Logout-flöde
+`useAuth.signOut` (explicit utloggning): listar användarens lokala pilotutkast → om >0 visas bekräftelse
+(`window.confirm`) med **antal + senaste spartid** och valen "OK = logga ut och radera" / "Avbryt = återgå".
+Avbryt → ingen utloggning, inga utkast raderade. Vid OK körs `supabase.auth.signOut()`; **endast vid lyckad
+utloggning** purgas utkasten. Misslyckad utloggning (kast) → utkast behålls. Tillfälligt sessionsfel går aldrig
+denna väg → rensar inget. Minimal påverkan på auth-UX (en confirm endast när utkast finns).
+
+### Revisionsalgoritm (multi-tab optimistic concurrency)
+Varje skrivning sker i EN readwrite-transaktion (`idbUpdate`): läs aktuell `localRevision`, jämför med hookens
+`expectedRevision`; skriv + öka revision atomärt ENDAST vid matchning, annars kasta `RevisionConflict(current)`
+(transaktionen avbryts → ingen överskrivning). Hooken: vid konflikt pausas autosave och visar "En nyare lokal
+version finns i en annan flik" med **"Läs in nyare version"** (adoptera andra flikens text) eller **"Behåll min
+text som separat lokalt utkast"** (sparar min text under en egen fork-identity, adopterar sedan nyare i fältet).
+Aldrig automatisk last-write-wins. BroadcastChannel-varningen finns kvar som snabb signal ovanpå detta.
+
+### Kontrollerade kontextbyten (anti-leak)
+- CheckDrawer monteras med `key={check.id}` → helt färskt state per check (ingen text läcker check→check).
+- AiBokslut stänger drawers vid bolags-/årsbyte (`setSelected(null)` på `[company?.id, fyId]`).
+- Hooken nollställer state + `lastHash`/`expectedRev` vid identitetsbyte och använder en `alive`-flagga så
+  sena async-resultat från en tidigare identity ignoreras (ingen stale update).
+
+### Felmatris (serverspar) – lokalt utkast behålls
+`bokslut_comment_check` rensar lokalt utkast ENBART i success-grenen (`clearLocal`). Alla fel
+(offline, timeout, 401, 403, 500, Supabase-fel, avbrutet, okänt svar) går till catch → utkast + formulärtext
+behålls, ingen falsk "Sparad på servern". Live-verifierat via fetch-stubbar (network-fail + 500/401-svar).
+Lyckad bekräftad respons raderar exakt rätt post (live-verifierat i 2A + 2B).
+
+### Lagringsfel
+IndexedDB-adaptern är injicerbar (`__setOpsForTests`). Enhetstestat: `QuotaExceededError` propageras →
+hooken sätter status "Lokal lagring misslyckades", formulärtexten finns kvar i React-state, manuell server-spar
+fungerar; läsfel (`idbGet` kastar) sväljs → `getDraft` returnerar null (ingen krasch).
+
+### Feature flag-modell (strikt)
+- **DEV** (vite dev): på; `localStorage='0'` kan stänga av lokalt.
+- **Byggd miljö (production/preview/staging/okänd):** `localStorage` kan ALDRIG aktivera. Aktivering kräver
+  allowlistat testbolag (`4f0d40a9-…`) eller testanvändare. En vanlig användare kan inte slå på
+  produktionspiloten via localStorage. Diagnostik: `autosaveFlagDiagnostics()` / `window.__bokpilotFlags`.
+
+### IndexedDB-schemaändring
+DB `bokpilot-offline` höjd till **v2**: oanvänd store `localMetadata` borttagen i `onupgradeneeded`
+(`deleteObjectStore`), `autosaveEntries` + befintliga utkast bevaras. Uppgradering v1→v2 är icke-destruktiv för utkast.
+
+### Byte-baserad storleksgräns
+Mäts i UTF-8 bytes via `TextEncoder` (`byteLength`). Max **50 KB per utkast** (`payload-too-large` annars),
+max **200 poster** totalt (äldst rensas), retention **30 dagar**. Enhetstestat med Unicode (`😀`=4 bytes, `åäö`=6).
+
+### Flaky-test: rotorsak & fix
+`Kontoanalys – hela raden expanderar` föll i isolering p.g.a. en **läckande 150 ms-timer** från
+`stangPopout` (`window.close()` + `setTimeout(navigate('/kontoanalys'),150)`): popout-Stäng-testets
+`window.close`-mock var no-op → `window.closed` förblev false → den fördröjda `navigate` avfyrades i ett
+EFTERFÖLJANDE test och anropade den nyss återställda `nav`-spionen. Fix (endast test): close-mocken sätter
+`window.closed=true` (speglar riktig browser) → fallback-guarden hoppar över navigeringen, ingen läcka.
+Dessutom frystes systemtiden i testet (`vi.useFakeTimers({toFake:['Date']})` → 2026) för att ta bort beroendet
+av `new Date().getFullYear()` i komponentens default-period (skulle annars fela i CI ett annat år).
+**Ingen produktionslogik ändrad.**
+
+### Tre testkörningar
+Kontoanalys-testet: 14/14 tre gånger i rad. Full svit: se commit-meddelandet (tre på varandra följande gröna körningar).
+
+### Ändrade/skapade filer (2B)
+`src/lib/offline/idb.js` (v2 + ta bort localMetadata), `src/lib/offline/autosaveStore.js` (RevisionConflict +
+expectedRevision + listUserDrafts + injicerbar ops), `src/lib/offline/flags.js` (strikt env-modell),
+`src/hooks/useAutosaveDraft.js` (konflikt + resolvers + paus), `src/hooks/useAuth.jsx` (logout-confirm),
+`src/pages/AiBokslut.jsx` (konfliktbanner + key + stäng-drawer-vid-kontextbyte),
+`src/pages/Kontoanalys.test.jsx` (flaky-fix), `src/lib/offline/autosaveStore.test.js` (nya tester).
+
+### Kända risker (2B)
+- `window.confirm` används för logout-bekräftelsen (blunt men minimalt, fungerar från alla signOut-anrop).
+- Konfliktlösning är LOKAL (mellan flikar), inte mot server (serverkonflikt = Etapp 3).
+- App-level isolation, ej krypto/XSS (oförändrat).
+
+### Rollback (2B)
+Flagga av (default i prod) → tidigare beteende. IDB v2 är additiv/icke-destruktiv; vid behov radera IndexedDB
+`bokpilot-offline`. Logout-confirm/konflikt-UI visas bara när flaggan är på.
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
 - **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
   Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.

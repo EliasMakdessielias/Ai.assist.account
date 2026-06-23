@@ -119,6 +119,8 @@ export default function AiBokslut() {
     setArDraft(dr || null); setArSections(sec); setArValidation(val); setArExports(exp)
   }, [company?.id, fyId, licensed])
   useEffect(() => { loadEngagement() }, [loadEngagement])
+  // Etapp 2B: stäng drawers vid kontextbyte (bolag/räkenskapsår) så ingen tidigare kontexts text/utkast visas.
+  useEffect(() => { setSelected(null); setEditAttachment(null) }, [company?.id, fyId])
 
   useEffect(() => {
     if (!engagement?.id) return
@@ -307,7 +309,7 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer check={selected} user={user} company={company} fy={fy} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
+      {selected && <CheckDrawer key={selected.id} check={selected} user={user} company={company} fy={fy} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
         onCreateAttachment={c => { setSelected(null); setEditAttachment({ _fromCheck: true, check_id: c.id, type: attachmentTypeForCategory(c.category), account_nr: c.account_nr || '', saldo_huvudbok: c.saldo ?? '', title: 'Bilaga – ' + categoryLabel(c.category) }) }}
         onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
       {editAttachment && <AttachmentModal initial={editAttachment} engagement={engagement} perms={perms} locked={locked} onClose={() => setEditAttachment(null)} onSaved={async () => { setEditAttachment(null); await loadEngagement() }} />}
@@ -392,8 +394,18 @@ function CheckDrawer({ check, user, company, fy, perms = {}, locked = false, has
                 onKeep={() => autosave.dismissBanner()}
               />
             )}
-            {pilotOn && autosave.otherTab && (
+            {pilotOn && autosave.otherTab && !autosave.conflict && (
               <div className="text-[11px] text-amber-700 mb-1"><i className="ti ti-windows mr-0.5" />Det här utkastet redigeras även i en annan flik.</div>
+            )}
+            {pilotOn && autosave.conflict && (
+              <div className="rounded-lg border px-3 py-2 mb-2 text-[12px]" style={{ borderColor: 'rgba(220,38,38,0.45)', background: '#fef2f2' }}>
+                <div className="font-medium text-red-700"><i className="ti ti-git-merge mr-1" />En nyare lokal version finns i en annan flik</div>
+                <div className="text-red-700/90 mt-0.5">Din text sparades inte – inget skrivs över. Välj hur du vill fortsätta.</div>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button className="btn text-xs" onClick={() => { const p = autosave.resolveLoadNewer(); if (p != null) setComment(p) }}><i className="ti ti-download" /> Läs in nyare version</button>
+                  <button className="btn text-xs" onClick={async () => { const p = await autosave.resolveKeepSeparate(); if (p != null) setComment(p) }}><i className="ti ti-copy" /> Behåll min text som separat lokalt utkast</button>
+                </div>
+              </div>
             )}
             <div className="flex gap-2">
               <textarea className="input text-sm flex-1" rows={2} placeholder="Skriv en kommentar…" value={comment} onChange={e => setComment(e.target.value)} />

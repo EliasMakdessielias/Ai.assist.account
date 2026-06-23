@@ -2,8 +2,10 @@
 // Inget nytt paket (Dexie utvärderat men ej nödvändigt för 2 stores). Endast lokala utkast lagras här –
 // ALDRIG tokens, sessioner eller bokföringsdata. Service Worker rör aldrig IndexedDB.
 const DB_NAME = 'bokpilot-offline'
-const DB_VERSION = 1
-const STORES = { autosaveEntries: { keyPath: 'id' }, localMetadata: { keyPath: 'key' } }
+// v2 (Etapp 2B): tog bort oanvänd store 'localMetadata'. autosaveEntries (med ev. befintliga utkast) bevaras.
+const DB_VERSION = 2
+const STORES = { autosaveEntries: { keyPath: 'id' } }
+const REMOVED_STORES = ['localMetadata']
 
 let dbPromise = null
 
@@ -19,7 +21,10 @@ function openDB() {
     req.onupgradeneeded = () => {
       const db = req.result
       for (const [name, opt] of Object.entries(STORES)) {
-        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, opt)
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, opt)   // bevarar befintlig data
+      }
+      for (const name of REMOVED_STORES) {
+        if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name)         // v1→v2: ta bort oanvänd store
       }
     }
     req.onsuccess = () => resolve(req.result)
