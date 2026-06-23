@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BokPilot – återställ app (kill switch)</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 2rem; max-width: 560px; margin: 0 auto; color: #1a1a18; }
+    h1 { font-size: 18px; } p { font-size: 14px; line-height: 1.55; color: #444; }
+    code { background: #f1f1ef; padding: 1px 5px; border-radius: 4px; }
+    #status { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Återställer BokPilot</h1>
+  <p id="status">Avregistrerar Service Worker och rensar BokPilots cache…</p>
+  <p>Den här sidan tar bort BokPilots Service Worker och endast BokPilots egna cacheversioner. Den rör inte din inloggning, dina cookies eller någon bokföringsdata på servern.</p>
+  <p>Efteråt: öppna <code>/</code> igen. Appen körs då helt mot nätverket (network-only) tills du aktiverar PWA på nytt.</p>
+  <script>
+    (async () => {
+      const set = (m) => { document.getElementById('status').textContent = m; };
+      let okSw = false, okCache = false;
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r => r.unregister()));
+          okSw = true;
+        }
+      } catch (e) { /* ignorera */ }
+      try {
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.filter(k => k.startsWith('bokpilot-')).map(k => caches.delete(k)));
+          okCache = true;
+        }
+      } catch (e) { /* ignorera */ }
+      try { localStorage.setItem('bokpilot.pwa.disabled', '1'); } catch (e) { /* ignorera */ }
+      set('Klart. Service Worker borttagen (' + (okSw ? 'ja' : 'nej') + '), BokPilot-cache rensad (' + (okCache ? 'ja' : 'nej') + '). PWA är nu avstängd på den här enheten. Öppna /, så körs appen mot nätverket.');
+    })();
+  </script>
+</body>
+</html>

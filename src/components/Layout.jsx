@@ -7,6 +7,7 @@ import { isCompanyLocked, lockAllowsPath, serviceStateMeta } from '../lib/servic
 import WhatsAppSupportButton from './WhatsAppSupportButton'
 import { SupportWidgetProvider } from '../hooks/useSupportWidget'
 import SupportWidget from './SupportWidget'
+import NetworkStatusBadge from './offline/NetworkStatusBadge'
 
 // Låsvy när företagets tjänst är pausad/blockerad (Fas 2). Data raderas aldrig; endast
 // supportflödet är nåbart. Kunden kan inte skapa/tolka/bokföra/ladda upp/ändra/radera.
@@ -80,6 +81,8 @@ export default function Layout() {
       </div>
       {/* Global supportwidget: flytande ikon + slide-over, nåbar från alla huvudvyer. */}
       <SupportWidget />
+      {/* Diskret nätverks-/versionsstatus (Etapp 1A). */}
+      <NetworkStatusBadge />
     </SupportWidgetProvider>
   )
 }

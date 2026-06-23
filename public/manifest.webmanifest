@@ -1,0 +1,26 @@
+{
+  "name": "BokPilot – Bokföring & ekonomi",
+  "short_name": "BokPilot",
+  "description": "BokPilot automatiserar svensk bokföring med AI, fakturatolkning och smart granskning.",
+  "lang": "sv-SE",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#1a1a18",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

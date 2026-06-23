@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './hooks/useAuth'
 import App from './App'
 import './index.css'
+import { registerPWA } from './lib/pwa'
+import { startNetworkHealth } from './lib/offline/networkHealth'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -14,3 +16,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </React.StrictMode>
 )
+
+// Etapp 1A: PWA (endast prod-bygge) + centralt nätverkshälsolager. Påverkar inte sparflöden.
+registerPWA()
+startNetworkHealth()
