@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
+import HelpButton from '../components/HelpButton'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
@@ -124,7 +125,7 @@ export default function AiBokslut() {
   if (licensed === false) {
     return (
       <div className="p-6 max-w-[1100px]">
-        <div className="text-[15px] font-bold tracking-tight mb-4 flex items-center gap-2"><i className="ti ti-report-analytics text-purple-600" /> AI BOKSLUT & ÅRSREDOVISNING</div>
+        <div className="text-[15px] font-bold tracking-tight mb-4 flex items-center gap-2"><i className="ti ti-report-analytics text-purple-600" /> AI BOKSLUT & ÅRSREDOVISNING <HelpButton slug="ai-bokslut-arsredovisning" variant="icon" /></div>
         <div className="bg-white rounded-xl p-8 text-center" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
           <i className="ti ti-lock text-4xl text-gray-300 block mb-2" />
           <div className="text-sm text-gray-700 mb-1">{NOT_LICENSED_MESSAGE}</div>
@@ -146,6 +147,7 @@ export default function AiBokslut() {
         <span className="text-[12px] text-gray-400">Regelverk: <b className="text-gray-600">K2</b></span>
         <div className="ml-auto flex items-center gap-2">
           <button className="btn btn-primary font-medium" onClick={runAnalysis} disabled={running || !engagement || locked}><i className={`ti ${running ? 'ti-loader-2 animate-spin' : 'ti-player-play'}`} /> {running ? 'Analyserar…' : 'Kör analys'}</button>
+          <HelpButton slug="ai-bokslut-arsredovisning" variant="icon" />
         </div>
       </div>
 

@@ -41,6 +41,10 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - ✅ **rollbaserad behörighet** (tillagt): `bokslut_can` / `bokslut_my_permissions` mot `user_companies.role`.
   admin = full; member = read/run_analysis/assign_check/comment_check (EJ resolve/ignore/approve/create_draft).
   Tvingas i `bokslut_set_check_status`/`assign`/`comment`; UI grindar Klar/Ignorera/Återöppna för medlemmar.
+- ✅ **handboksartikel + kontextuell hjälp** (tillagt): kategori + artikel `ai-bokslut-arsredovisning`
+  (syfte, licenskrav, statusar, risknivåer, checklista, "Kör analys", vad AI/automatiserat underlag är, vad
+  systemet aldrig gör, konsultens ansvar, audit/spårbarhet, låst engagemang, vanliga fel). Hjälp-knapp på
+  `/ai-bokslut` (även i licensgrind-vyn) öppnar artikeln direkt via `HelpButton slug="ai-bokslut-arsredovisning"`.
 - ✅ **statusövergångar för engagemang** (tillagt): `set_bokslut_engagement_status` (admin-only, behörighet
   `manage_status`) sätter klar_for_konsult/godkand/avvisad/last. Auto-status (pagar/kraver_granskning) härleds av
   `_bokslut_recount`; admin-milstolpar (klar_for_konsult/godkand/avvisad/last) bevaras. `last` låser allt
@@ -61,7 +65,6 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   i motorn men kan inte sättas från UI ännu.
 - **Rollbaserad behörighet** mot `user_companies.role` (de 5 nycklarna är definierade som typer men inte tvingade).
 - **K3-regelverk** (arkitekturen är förberedd via `regelverk`-kolumn).
-- **Handboksartikel** för modulen + hjälp-knapp på sidan.
 - **Djupare avstämning** i kontrollkonto-checkarna (idag `needs_review` med saldovisning, ingen reskontra-matchning).
 
 ## 5. Risker med regelmotorn / check-actions / badge / realtime
