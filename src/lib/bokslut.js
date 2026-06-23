@@ -107,6 +107,39 @@ export function groupByCategory(checks) {
   return CHECKLIST_CATEGORIES.filter(cat => map[cat.key]?.length).map(cat => ({ ...cat, items: sortChecks(map[cat.key]) }))
 }
 
+// Bokslutsbilagor (Steg 2A): typer, statusar och mappning kontrollområde → bilagetyp.
+export const ATTACHMENT_TYPES = [
+  { key: 'bank', label: 'Bank' },
+  { key: 'kundfordringar', label: 'Kundfordringar' },
+  { key: 'leverantorsskulder', label: 'Leverantörsskulder' },
+  { key: 'moms', label: 'Moms' },
+  { key: 'skattekonto', label: 'Skattekonto' },
+  { key: 'anlaggningstillgangar', label: 'Anläggningstillgångar' },
+  { key: 'avskrivningar', label: 'Avskrivningar' },
+  { key: 'periodiseringar', label: 'Periodiseringar' },
+  { key: 'skatt', label: 'Skatt' },
+  { key: 'eget_kapital', label: 'Eget kapital' },
+  { key: 'arets_resultat', label: 'Årets resultat' },
+  { key: 'ovrigt', label: 'Övrigt' },
+]
+export const ATTACHMENT_TYPE_LABEL = Object.fromEntries(ATTACHMENT_TYPES.map(t => [t.key, t.label]))
+export const ATTACHMENT_STATUS_META = {
+  draft: { label: 'Utkast', chip: 'bg-gray-100 text-gray-500' },
+  needs_review: { label: 'Kräver granskning', chip: 'bg-purple-100 text-purple-700' },
+  reviewed: { label: 'Granskad', chip: 'bg-blue-100 text-blue-700' },
+  approved: { label: 'Godkänd', chip: 'bg-green-100 text-green-700' },
+  ignored: { label: 'Ignorerad', chip: 'bg-gray-100 text-gray-500' },
+}
+// Kontrollkategori → bilagetyp (för "Skapa bilaga från kontroll").
+export const CATEGORY_TO_ATTACHMENT_TYPE = {
+  bankavstamning: 'bank', kundfordringar: 'kundfordringar', leverantorsskulder: 'leverantorsskulder',
+  moms: 'moms', skattekonto: 'skattekonto', anlaggningstillgangar: 'anlaggningstillgangar',
+  avskrivningar: 'avskrivningar', periodiseringar: 'periodiseringar', skatt: 'skatt',
+  eget_kapital: 'eget_kapital', arets_resultat: 'arets_resultat',
+}
+export const attachmentTypeForCategory = c => CATEGORY_TO_ATTACHMENT_TYPE[c] || 'ovrigt'
+export const hasDifferens = a => a && a.differens !== null && a.differens !== undefined && Math.abs(Number(a.differens)) > 0.5
+
 export const fiscalYearLabel = fy => fy ? `${fy.year} (${fy.start_date} – ${fy.end_date})` : ''
 export const fmtAmount = n => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 

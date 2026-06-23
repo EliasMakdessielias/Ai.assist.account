@@ -50,6 +50,15 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   `_bokslut_recount`; admin-milstolpar (klar_for_konsult/godkand/avvisad/last) bevaras. `last` låser allt
   (endast läsning, ingen återgång). Alla statusändringar loggas (`engagement_status`). UI: statusknappar +
   lås-bekräftelse + låst-banner; vid lås disablas kör analys och alla check-åtgärder.
+- ✅ **bokslutsbilagor (Steg 2A, tillagt):** tabell `bokslut_attachments` + RPC `bokslut_list_attachments`,
+  `bokslut_create_attachment`, `bokslut_update_attachment`, `bokslut_set_attachment_status`,
+  `bokslut_generate_attachment_suggestions` (REGELBASERAD, ingen AI, ingen bokföring). Behörighet:
+  read = licens+medlemskap; create/update/comment/status = admin (`attachment_write`); approve =
+  `attachment_approve`. Låst engagemang = read-only. Audit: attachment_created/updated/status_changed/
+  reviewed/approved/suggestion_generated. Nekade försök loggas i `bokslut_denied_log`. UI: panel på
+  /ai-bokslut (lista, "Skapa bilaga", "Föreslå bilagor", modal med saldo/avstämt/**live differens** +
+  tydlig differensmarkering, statusåtgärder), koppling check→bilaga ("Skapa bilaga från kontroll" +
+  "Bokslutsbilaga kopplad"-markering), varning att bilagan är underlag – inte automatisk bokföring.
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
@@ -58,7 +67,6 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - **AI-edge `bokslut-ai`** (strukturerad JSON) — finns inte.
 - **AI-förslag** (`bokslut_suggestions`, status "Förslag, ej bokförd", confidence, requires_manual_review).
 - **Draft adjustments** (utkast till bokslutsverifikationer — får aldrig bokföras automatiskt).
-- **Bokslutsbilagor** (`bokslut_attachments`: saldo huvudbok / avstämt / differens) — endast placeholder i UI.
 - **K2-årsredovisningsutkast** (`annual_report_drafts`: förvaltningsberättelse, RR, BR, noter,
   fastställelseintyg, underskriftssida) — endast placeholder.
 - **Godkännandeflöde** (approve/reject + statusövergångar godkänd/avvisad/låst) — `status='last'` respekteras
@@ -133,6 +141,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_denied_log` (user_id, company_id, engagement_id, role, action, reason, context, created_at) –
   **endast plattformsadmin läser** (RLS `is_platform_admin()`); skrivs via `log_bokslut_denied`. Ingen FK mot
   bokföring; rör ingen bokföringsdata.
+- `bokslut_attachments` (engagement_id, company_id, type, title, account_nr, saldo_huvudbok, avstamt_belopp,
+  differens, source, source_data, status, comment, check_id, rule_key, reviewed_by/at, created_by/at) –
+  bokslutsbilagor (dokumentations-/avstämningsstöd, ingen bokföring).
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -147,7 +158,10 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_assign_check(p_check, p_user)`
 - `bokslut_comment_check(p_check, p_comment)`
 - `bokslut_open_counts(p_company) -> jsonb {critical, high, open}`
-- interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`
+- `bokslut_list_attachments(p_engagement)`, `bokslut_create_attachment(...)`, `bokslut_update_attachment(...)`,
+  `bokslut_set_attachment_status(p_attachment, p_status, p_comment)`,
+  `bokslut_generate_attachment_suggestions(p_engagement) -> int` (regelbaserad, ingen AI)
+- interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`, `_bokslut_attachment_guard(p_attachment)`
 
 **Routes / frontend**
 - Route: `/ai-bokslut` → `src/pages/AiBokslut.jsx` (i `src/App.jsx`)
@@ -159,7 +173,7 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 
 **Migrationer:** `ai_bokslut_tables_and_license`, `ai_bokslut_engine_and_actions`, `ai_bokslut_audit_engagement_open`,
 `ai_bokslut_role_permissions`, `ai_bokslut_engagement_status_transitions`, `ai_bokslut_log_denied`,
-`ai_bokslut_denied_log_table`
+`ai_bokslut_denied_log_table`, `ai_bokslut_attachments_table`, `ai_bokslut_attachment_rpcs`
 
 **Behörighetsmodell:** licens + medlemskap = grund. Roll (`user_companies.role`): admin = alla 8 åtgärder;
 member = read/run_analysis/assign_check/comment_check. Speglas i `src/lib/bokslut.js` (`BOKSLUT_ROLE_ACTIONS`).

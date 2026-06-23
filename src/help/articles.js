@@ -541,6 +541,7 @@ export const HELP_ARTICLES = [
       'Arbeta uppifrån: åtgärda kritiska och höga risker först. Öppna en kontrollpunkt för beskrivning, saldo, källa och "Gå till" rätt vy i appen.',
       'Markera punkter: Påbörja, Klar, Kräver granskning eller Ignorera (admin). Medlemmar kan tilldela och kommentera.',
       'Sätt övergripande status (admin): Klar för konsult, Godkänn, Avvisa eller Lås.',
+      'Bokslutsbilagor: dokumentera avstämningar (bank, kund-/leverantörsreskontra, moms, skatt, anläggningar m.m.) med saldo enligt huvudbok, avstämt belopp och differens. "Föreslå bilagor" skapar utkast från kontrollerna. Bilagor är underlag – ingen automatisk bokföring.',
       'Granska alltid AI-genererat underlag innan det används – konsulten godkänner och ansvarar.',
     ],
     fields: [
@@ -556,6 +557,7 @@ export const HELP_ARTICLES = [
       ['Behörighet', 'Admin markerar klar/ignorerar och ändrar status. Medlem kan läsa, köra analys, tilldela och kommentera.'],
       ['Audit & spårbarhet', 'Varje analys och åtgärd loggas (vem, när, vad). Nekade försök loggas internt för säkerhet.'],
       ['AI-/automatiserat underlag', 'Förslag och utkast som ALLTID måste granskas och godkännas av redovisningskonsult.'],
+      ['Bokslutsbilagor', 'Avstämningsunderlag per område: saldo huvudbok, avstämt belopp och differens. Differens markeras rött. Endast admin skapar/ändrar/godkänner. Inget bokförs automatiskt.'],
     ],
     errors: [
       ['"…ingår inte i din nuvarande plan"', 'Funktionen är licensstyrd – kontakta BokPilot för att lägga till den i planen.'],

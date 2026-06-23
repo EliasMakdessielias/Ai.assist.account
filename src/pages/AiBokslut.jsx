@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import HelpButton from '../components/HelpButton'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
+  ATTACHMENT_TYPES, ATTACHMENT_TYPE_LABEL, ATTACHMENT_STATUS_META, attachmentTypeForCategory, hasDifferens,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -59,6 +60,8 @@ export default function AiBokslut() {
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState(null)
   const [perms, setPerms] = useState({})
+  const [attachments, setAttachments] = useState([])
+  const [editAttachment, setEditAttachment] = useState(null)
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -86,11 +89,12 @@ export default function AiBokslut() {
     const { data: eng, error } = await supabase.rpc('bokslut_get_or_create', { p_company: company.id, p_fiscal_year_id: fyId })
     if (error) { toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte öppna engagemang'); return }
     setEngagement(eng)
-    const [{ data: ch }, { data: au }] = await Promise.all([
+    const [{ data: ch }, { data: au }, { data: at }] = await Promise.all([
       supabase.from('bokslut_checks').select('*').eq('engagement_id', eng.id),
       supabase.from('bokslut_audit_log').select('*').eq('engagement_id', eng.id).order('created_at', { ascending: false }).limit(15),
+      supabase.rpc('bokslut_list_attachments', { p_engagement: eng.id }),
     ])
-    setChecks(ch || []); setAudit(au || [])
+    setChecks(ch || []); setAudit(au || []); setAttachments(at || [])
   }, [company?.id, fyId, licensed])
   useEffect(() => { loadEngagement() }, [loadEngagement])
 
@@ -121,6 +125,7 @@ export default function AiBokslut() {
   const locked = engagement?.status === 'last'
   const openChecks = useMemo(() => checks.filter(c => isOpenCheck(c.status)), [checks])
   const groups = useMemo(() => groupByCategory(checks), [checks])
+  const linkedCheckIds = useMemo(() => new Set(attachments.map(a => a.check_id).filter(Boolean)), [attachments])
 
   if (licensed === false) {
     return (
@@ -215,11 +220,13 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {/* Steg 2 – platshållare så hela arbetsflödet syns */}
-      <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-2">AI-stöd & utkast</div>
-      <div className="grid md:grid-cols-3 gap-3">
+      {/* Bokslutsbilagor (Steg 2A) */}
+      {engagement && <AttachmentsPanel engagement={engagement} attachments={attachments} perms={perms} locked={locked} onOpen={setEditAttachment} onCreate={() => setEditAttachment({})} onChanged={loadEngagement} />}
+
+      {/* Övriga Steg 2 – platshållare så hela arbetsflödet syns */}
+      <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-2 mt-5">AI-stöd & utkast</div>
+      <div className="grid md:grid-cols-2 gap-3">
         <ComingCard icon="ti-bulb" title="AI-förslag" text="Källbundna förslag och utkast till bokslutsverifikationer (status 'Förslag, ej bokförd'). Kräver granskning – bokförs aldrig automatiskt." />
-        <ComingCard icon="ti-paperclip" title="Bokslutsbilagor" text="Bank, kund-/leverantörsreskontra, moms, skatt, anläggningar m.m. med saldo enligt huvudbok, avstämt belopp och differens." />
         <ComingCard icon="ti-file-text" title="Årsredovisningsutkast (K2)" text="Förvaltningsberättelse, resultat- och balansräkning, noter, fastställelseintyg och underskriftssida. AI-utkast som måste granskas." />
       </div>
 
@@ -233,12 +240,15 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer check={selected} user={user} perms={perms} locked={locked} onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
+      {selected && <CheckDrawer check={selected} user={user} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
+        onCreateAttachment={c => { setSelected(null); setEditAttachment({ _fromCheck: true, check_id: c.id, type: attachmentTypeForCategory(c.category), account_nr: c.account_nr || '', saldo_huvudbok: c.saldo ?? '', title: 'Bilaga – ' + categoryLabel(c.category) }) }}
+        onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
+      {editAttachment && <AttachmentModal initial={editAttachment} engagement={engagement} perms={perms} locked={locked} onClose={() => setEditAttachment(null)} onSaved={async () => { setEditAttachment(null); await loadEngagement() }} />}
     </div>
   )
 }
 
-function CheckDrawer({ check, user, perms = {}, locked = false, onClose, onChanged, navigate }) {
+function CheckDrawer({ check, user, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
   const NO_RESOLVE = 'Endast admin kan markera kontroller som klara/ignorerade'
   const LOCKED = 'Engagemanget är låst – inga ändringar tillåts'
   const [busy, setBusy] = useState(false)
@@ -285,6 +295,14 @@ function CheckDrawer({ check, user, perms = {}, locked = false, onClose, onChang
             ? <div className="text-[11px] text-gray-400 -mt-2"><i className="ti ti-lock mr-0.5" />Engagemanget är låst – endast läsning.</div>
             : !perms.resolve_check && <div className="text-[11px] text-gray-400 -mt-2"><i className="ti ti-info-circle mr-0.5" />Din roll (medlem) kan granska och kommentera. Endast admin markerar klar/ignorerar.</div>}
 
+          {/* Koppling till bokslutsbilaga */}
+          {(hasAttachment || (!locked && perms.attachment_write)) && (
+            <div className="flex items-center gap-2 flex-wrap pt-1">
+              {hasAttachment && <span className="text-[11px] text-green-700 inline-flex items-center"><i className="ti ti-paperclip mr-0.5" />Bokslutsbilaga kopplad</span>}
+              {!locked && perms.attachment_write && <button className="btn text-sm" disabled={busy} onClick={() => onCreateAttachment(check)}><i className="ti ti-paperclip" /> Skapa bilaga från kontroll</button>}
+            </div>
+          )}
+
           <div>
             <div className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Kommentar</div>
             {check.comment && <div className="bg-gray-50 rounded-lg px-3 py-2 text-[13px] mb-2">{check.comment}</div>}
@@ -307,6 +325,133 @@ function CheckDrawer({ check, user, perms = {}, locked = false, onClose, onChang
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Bokslutsbilagor: lista + förslag + skapa (Steg 2A) ──
+function AttachmentsPanel({ engagement, attachments, perms, locked, onOpen, onCreate, onChanged }) {
+  const [suggesting, setSuggesting] = useState(false)
+  async function suggest() {
+    setSuggesting(true)
+    try { const { data, error } = await supabase.rpc('bokslut_generate_attachment_suggestions', { p_engagement: engagement.id }); if (error) throw error; toast.success(`${data || 0} bilageförslag skapade`); await onChanged() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'generate_attachment_suggestions', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte föreslå bilagor') }
+    setSuggesting(false)
+  }
+  return (
+    <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+      <div className="px-4 py-2.5 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+        <span className="text-[13px] font-semibold flex items-center gap-1.5"><i className="ti ti-paperclip text-purple-600" /> Bokslutsbilagor</span>
+        <span className="text-[11px] text-gray-400">{attachments.length} st</span>
+        {!locked && perms.attachment_write && (
+          <div className="ml-auto flex items-center gap-2">
+            <button className="btn text-sm" disabled={suggesting} onClick={suggest}><i className={`ti ${suggesting ? 'ti-loader-2 animate-spin' : 'ti-wand'}`} /> Föreslå bilagor</button>
+            <button className="btn btn-primary text-sm" onClick={onCreate}><i className="ti ti-plus" /> Skapa bilaga</button>
+          </div>
+        )}
+      </div>
+      <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}><i className="ti ti-info-circle mr-1" />Bilagor är underlag för granskning – inte automatisk bokföring.</div>
+      {attachments.length === 0 ? (
+        <div className="px-4 py-6 text-center text-sm text-gray-400">Inga bokslutsbilagor ännu.{!locked && perms.attachment_write ? ' Skapa en eller använd "Föreslå bilagor".' : ''}</div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead><tr>{['Typ', 'Konto', 'Saldo huvudbok', 'Avstämt', 'Differens', 'Status', 'Granskad'].map((h, i) => <th key={h} className={`${i >= 2 && i <= 4 ? 'text-right' : 'text-left'} px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b`} style={{ borderColor: 'rgba(0,0,0,0.08)' }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {attachments.map(a => (
+              <tr key={a.id} className="hover:bg-gray-50 cursor-pointer border-b last:border-0" style={{ borderColor: 'rgba(0,0,0,0.05)' }} onClick={() => onOpen(a)}>
+                <td className="px-3 py-2.5"><div className="font-medium">{ATTACHMENT_TYPE_LABEL[a.type] || a.type}</div><div className="text-[11px] text-gray-400">{a.title}</div></td>
+                <td className="px-3 py-2.5 text-gray-600">{a.account_nr || '—'}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{a.saldo_huvudbok != null ? fmtAmount(a.saldo_huvudbok) : '—'}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{a.avstamt_belopp != null ? fmtAmount(a.avstamt_belopp) : '—'}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{a.differens != null ? <span className={hasDifferens(a) ? 'text-red-600 font-semibold' : 'text-green-600'}>{fmtAmount(a.differens)}</span> : '—'}</td>
+                <td className="px-3 py-2.5"><Chip meta={ATTACHMENT_STATUS_META[a.status]} /></td>
+                <td className="px-3 py-2.5 text-[11px] text-gray-400">{a.reviewed_at ? fmt(a.reviewed_at) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+// ── Skapa/redigera bokslutsbilaga (modal) ──
+function AttachmentModal({ initial, engagement, perms, locked, onClose, onSaved }) {
+  const isNew = !initial.id
+  const [form, setForm] = useState({
+    type: initial.type || 'ovrigt', title: initial.title || '', account_nr: initial.account_nr || '',
+    saldo_huvudbok: initial.saldo_huvudbok ?? '', avstamt_belopp: initial.avstamt_belopp ?? '',
+    source: initial.source || '', comment: initial.comment || '',
+  })
+  const [busy, setBusy] = useState(false)
+  const num = v => { if (v === '' || v === null || v === undefined) return null; const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n }
+  const saldo = num(form.saldo_huvudbok), avst = num(form.avstamt_belopp)
+  const diff = (saldo != null && avst != null) ? Math.round((saldo - avst) * 100) / 100 : null
+  const canWrite = !!perms.attachment_write && !locked
+
+  async function save() {
+    if (!form.title.trim()) return toast.error('Titel krävs')
+    setBusy(true)
+    try {
+      if (isNew) {
+        const { error } = await supabase.rpc('bokslut_create_attachment', { p_engagement: engagement.id, p_type: form.type, p_title: form.title, p_account_nr: form.account_nr || null, p_saldo: saldo, p_avstamt: avst, p_source: form.source || null, p_source_data: {}, p_check_id: initial.check_id || null })
+        if (error) throw error
+      } else {
+        const { error } = await supabase.rpc('bokslut_update_attachment', { p_attachment: initial.id, p_title: form.title, p_account_nr: form.account_nr || null, p_saldo: saldo, p_avstamt: avst, p_source: form.source || null, p_source_data: null, p_comment: form.comment || null })
+        if (error) throw error
+      }
+      toast.success('Bilaga sparad'); await onSaved()
+    } catch (e) { await logDenied({ engagement: engagement.id }, isNew ? 'create_attachment' : 'update_attachment', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte spara') }
+    setBusy(false)
+  }
+  async function setStatus(s) {
+    setBusy(true)
+    try { const { error } = await supabase.rpc('bokslut_set_attachment_status', { p_attachment: initial.id, p_status: s, p_comment: null }); if (error) throw error; toast.success('Status uppdaterad'); await onSaved() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'attachment_status:' + s, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+    setBusy(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-lg shadow-xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b flex items-center justify-between sticky top-0 bg-white" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          <div className="text-base font-semibold">{isNew ? 'Ny bokslutsbilaga' : 'Bokslutsbilaga'}</div>
+          <button className="text-gray-400 hover:text-gray-700" onClick={onClose}><i className="ti ti-x" /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="text-[11px] text-amber-700 bg-amber-50 rounded px-3 py-2"><i className="ti ti-info-circle mr-1" />Underlag för granskning – inte automatisk bokföring.</div>
+          {!isNew && <div className="flex items-center gap-2"><Chip meta={ATTACHMENT_STATUS_META[initial.status]} />{initial.reviewed_at && <span className="text-[11px] text-gray-400">Granskad {fmt(initial.reviewed_at)}</span>}</div>}
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="block text-[11px] text-gray-500 mb-1">Typ</label>
+              <select className="input text-sm w-full" value={form.type} disabled={!canWrite || !isNew} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                {ATTACHMENT_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select></div>
+            <div><label className="block text-[11px] text-gray-500 mb-1">Konto</label><input className="input text-sm w-full" value={form.account_nr} disabled={!canWrite} onChange={e => setForm(f => ({ ...f, account_nr: e.target.value }))} /></div>
+          </div>
+          <div><label className="block text-[11px] text-gray-500 mb-1">Titel</label><input className="input text-sm w-full" value={form.title} disabled={!canWrite} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} /></div>
+          <div className="grid grid-cols-3 gap-3 items-end">
+            <div><label className="block text-[11px] text-gray-500 mb-1">Saldo huvudbok</label><input className="input text-sm w-full text-right" value={form.saldo_huvudbok} disabled={!canWrite} onChange={e => setForm(f => ({ ...f, saldo_huvudbok: e.target.value }))} /></div>
+            <div><label className="block text-[11px] text-gray-500 mb-1">Avstämt belopp</label><input className="input text-sm w-full text-right" value={form.avstamt_belopp} disabled={!canWrite} onChange={e => setForm(f => ({ ...f, avstamt_belopp: e.target.value }))} /></div>
+            <div><label className="block text-[11px] text-gray-500 mb-1">Differens</label><div className={`input text-sm text-right tabular-nums ${diff != null && Math.abs(diff) > 0.5 ? 'text-red-600 font-semibold' : 'text-green-600'}`} style={{ background: '#f8f8f8' }}>{diff != null ? fmtAmount(diff) : '—'}</div></div>
+          </div>
+          {diff != null && Math.abs(diff) > 0.5 && <div className="text-[12px] text-red-600"><i className="ti ti-alert-triangle mr-1" />Differens {fmtAmount(diff)} kr – stäm av innan bokslut.</div>}
+          <div><label className="block text-[11px] text-gray-500 mb-1">Källa</label><input className="input text-sm w-full" value={form.source} disabled={!canWrite} placeholder="t.ex. kontoutdrag, reskontra" onChange={e => setForm(f => ({ ...f, source: e.target.value }))} /></div>
+          {!isNew && <div><label className="block text-[11px] text-gray-500 mb-1">Kommentar</label><textarea className="input text-sm w-full" rows={2} value={form.comment} disabled={!canWrite} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} /></div>}
+        </div>
+        <div className="px-5 py-3 border-t flex flex-wrap items-center gap-2" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          {!isNew && canWrite && <>
+            <button className="btn text-sm" disabled={busy} onClick={() => setStatus('needs_review')}>Kräver granskning</button>
+            <button className="btn text-sm" disabled={busy} onClick={() => setStatus('reviewed')}>Granskad</button>
+            {perms.attachment_approve && <button className="btn text-sm" disabled={busy} onClick={() => setStatus('approved')}><i className="ti ti-circle-check" /> Godkänn</button>}
+            <button className="btn text-sm" disabled={busy} onClick={() => setStatus('ignored')}>Ignorera</button>
+          </>}
+          <div className="ml-auto flex items-center gap-2">
+            <button className="btn" onClick={onClose} disabled={busy}>Stäng</button>
+            {canWrite && <button className="btn btn-primary" onClick={save} disabled={busy}>{busy ? 'Sparar…' : 'Spara'}</button>}
+          </div>
+        </div>
+        {locked && <div className="px-5 pb-3 text-[11px] text-gray-400"><i className="ti ti-lock mr-0.5" />Engagemanget är låst – endast läsning.</div>}
       </div>
     </div>
   )
