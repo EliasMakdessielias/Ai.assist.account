@@ -543,6 +543,8 @@ export const HELP_ARTICLES = [
       'Sätt övergripande status (admin): Klar för konsult, Godkänn, Avvisa eller Lås.',
       'Bokslutsbilagor: dokumentera avstämningar (bank, kund-/leverantörsreskontra, moms, skatt, anläggningar m.m.) med saldo enligt huvudbok, avstämt belopp och differens. "Föreslå bilagor" skapar utkast från kontrollerna. Bilagor är underlag – ingen automatisk bokföring.',
       'AI-förslag: klicka "Generera AI-förslag" för strukturerade granskningsförslag (risk, säkerhet, kopplad check/bilaga, nästa kontroll). Acceptera/avvisa/ignorera/markera som åtgärdad. AI bokför inte och skapar inga verifikationer – allt kräver din bedömning.',
+      'Årsredovisningsutkast (K2): klicka "Skapa K2-utkast" för en strukturerad årsredovisning med sektionerna förvaltningsberättelse, resultaträkning, balansräkning, noter, fastställelseintyg och underskriftssida. Resultat- och balansräkning beräknas från bokföringen (huvudboken) – AI ändrar aldrig siffrorna. Öppna en sektion för att läsa/redigera text, se källreferenser och markera den som granskad, godkänd eller avvisad. "Uppdatera utkast" räknar om från senaste bokföringen.',
+      'K2-utkastet: BokPilot skapar ingen PDF, lämnar INTE in årsredovisningen till Bolagsverket och godkänner ingenting automatiskt. Saknas jämförelsetal eller uppgift skrivs det ut tydligt ("Jämförelsetal saknas…" / "Uppgift saknas. Kräver manuell granskning."). Allt måste granskas och godkännas av behörig redovisningskonsult.',
       'Granska alltid AI-genererat underlag innan det används – konsulten godkänner och ansvarar.',
     ],
     fields: [
@@ -560,6 +562,7 @@ export const HELP_ARTICLES = [
       ['AI-/automatiserat underlag', 'Förslag och utkast som ALLTID måste granskas och godkännas av redovisningskonsult.'],
       ['Bokslutsbilagor', 'Avstämningsunderlag per område: saldo huvudbok, avstämt belopp och differens. Differens markeras rött. Endast admin skapar/ändrar/godkänner. Inget bokförs automatiskt.'],
       ['AI-förslag', 'Strukturerat granskningsstöd (risknivå, säkerhet, kopplad check/bilaga, föreslagen nästa kontroll). Endast admin genererar/granskar. Inget bokförs och inga verifikationer skapas – kräver mänsklig bedömning.'],
+      ['Årsredovisningsutkast (K2)', 'Strukturerat utkast: förvaltningsberättelse, resultaträkning, balansräkning, noter, fastställelseintyg, underskriftssida. RR/BR beräknas från huvudboken (AI ändrar inte siffror); status per sektion (kräver granskning/granskad/godkänd/avvisad). Ingår INTE: PDF, e-inlämning till Bolagsverket, automatisk signering, K3. Allt kräver granskning och godkännande – BokPilot lämnar inte in något.'],
     ],
     errors: [
       ['"…ingår inte i din nuvarande plan"', 'Funktionen är licensstyrd – kontakta BokPilot för att lägga till den i planen.'],

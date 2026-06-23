@@ -8,6 +8,7 @@ import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
   ATTACHMENT_TYPES, ATTACHMENT_TYPE_LABEL, ATTACHMENT_STATUS_META, attachmentTypeForCategory, hasDifferens,
   SUGGESTION_TYPE_LABEL, AI_SUGGESTION_STATUS_META, AI_SUGGESTION_WARNING, confidencePct,
+  ANNUAL_REPORT_WARNING, NO_COMPARATIVE_MESSAGE, DRAFT_STATUS_META, SECTION_STATUS_META, SECTION_LABEL, STRUCTURED_FIELD_LABEL,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -39,16 +40,6 @@ function Stat({ label, value, tone = 'gray' }) {
   )
 }
 
-// Platshållarkort för Steg 2 (layouten är komplett; funktionerna byggs additivt).
-function ComingCard({ icon, title, text }) {
-  return (
-    <div className="bg-white rounded-xl p-4 opacity-80" style={{ border: '0.5px dashed rgba(0,0,0,0.18)' }}>
-      <div className="flex items-center gap-2 mb-1"><i className={`ti ${icon} text-purple-600`} /><span className="text-sm font-medium">{title}</span><span className="ml-auto text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">Kommer i nästa steg</span></div>
-      <div className="text-[12px] text-gray-500 leading-snug">{text}</div>
-    </div>
-  )
-}
-
 export default function AiBokslut() {
   const { company, user } = useAuth()
   const navigate = useNavigate()
@@ -65,6 +56,9 @@ export default function AiBokslut() {
   const [editAttachment, setEditAttachment] = useState(null)
   const [aiSuggestions, setAiSuggestions] = useState([])
   const [generatingAi, setGeneratingAi] = useState(false)
+  const [arDraft, setArDraft] = useState(null)
+  const [arSections, setArSections] = useState([])
+  const [generatingDraft, setGeneratingDraft] = useState(false)
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -99,6 +93,11 @@ export default function AiBokslut() {
       supabase.rpc('bokslut_list_ai_suggestions', { p_engagement: eng.id }),
     ])
     setChecks(ch || []); setAudit(au || []); setAttachments(at || []); setAiSuggestions(sg || [])
+    // K2-årsredovisningsutkast (Steg 2C-1): läs befintligt utkast (skapas ej automatiskt vid besök).
+    const { data: dr } = await supabase.from('annual_report_drafts').select('*').eq('engagement_id', eng.id).maybeSingle()
+    let sec = []
+    if (dr) { const { data: s } = await supabase.rpc('annual_report_list_sections', { p_draft: dr.id }); sec = s || [] }
+    setArDraft(dr || null); setArSections(sec)
   }, [company?.id, fyId, licensed])
   useEffect(() => { loadEngagement() }, [loadEngagement])
 
@@ -136,6 +135,14 @@ export default function AiBokslut() {
       toast.success(`${data?.created ?? 0} AI-förslag genererade`); await loadEngagement()
     } catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'generate_ai_suggestions', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte generera AI-förslag') }
     setGeneratingAi(false)
+  }
+
+  async function generateDraft() {
+    if (!engagement) return
+    setGeneratingDraft(true)
+    try { const { error } = await supabase.rpc('annual_report_generate_k2_draft', { p_engagement: engagement.id }); if (error) throw error; toast.success(arDraft ? 'K2-utkast uppdaterat' : 'K2-utkast skapat'); await loadEngagement() }
+    catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'generate_k2_draft', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skapa K2-utkast') }
+    setGeneratingDraft(false)
   }
 
   const fy = years.find(y => y.id === fyId)
@@ -245,10 +252,9 @@ export default function AiBokslut() {
         {engagement && <AiSuggestionsPanel engagement={engagement} suggestions={aiSuggestions} perms={perms} locked={locked} generating={generatingAi} onGenerate={generateAi} onChanged={loadEngagement} checks={checks} attachments={attachments} />}
       </div>
 
-      {/* Återstående Steg 2 – platshållare */}
-      <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-2 mt-5">Årsredovisning</div>
-      <div className="grid md:grid-cols-2 gap-3">
-        <ComingCard icon="ti-file-text" title="Årsredovisningsutkast (K2)" text="Förvaltningsberättelse, resultat- och balansräkning, noter, fastställelseintyg och underskriftssida. AI-utkast som måste granskas. (Steg 2C)" />
+      {/* Årsredovisningsutkast K2 (Steg 2C-1) */}
+      <div className="mt-5">
+        {engagement && <AnnualReportPanel engagement={engagement} draft={arDraft} sections={arSections} perms={perms} locked={locked} generating={generatingDraft} onGenerate={generateDraft} onChanged={loadEngagement} />}
       </div>
 
       {/* Spårbarhet (audit) */}
@@ -532,6 +538,174 @@ function AiSuggestionsPanel({ engagement, suggestions, perms, locked, generating
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── K2-årsredovisningsutkast (Steg 2C-1). Struktur + spårbarhet. Bokför aldrig, lämnar inte in, godkänner inte automatiskt. ──
+function AnnualReportPanel({ engagement, draft, sections, perms, locked, generating, onGenerate, onChanged }) {
+  const [openSection, setOpenSection] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const draftLocked = draft?.status === 'locked'
+  const readOnly = locked || draftLocked
+  const canWrite = perms.annual_report_write && !readOnly
+
+  async function setDraftStatus(s) {
+    if (!draft) return
+    if (s === 'locked' && !window.confirm('Lås utkastet? Efter låsning kan utkastet och dess sektioner inte ändras.')) return
+    setBusy(true)
+    try { const { error } = await supabase.rpc('annual_report_set_draft_status', { p_draft: draft.id, p_status: s, p_comment: null }); if (error) throw error; toast.success('Status uppdaterad'); await onChanged() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'annual_report_draft_status:' + s, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+    setBusy(false)
+  }
+
+  return (
+    <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+      <div className="px-4 py-2.5 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+        <span className="text-[13px] font-semibold flex items-center gap-1.5"><i className="ti ti-file-text text-purple-600" /> Årsredovisningsutkast (K2)</span>
+        {draft && <Chip meta={DRAFT_STATUS_META[draft.status]} />}
+        {draftLocked && <span className="text-[11px] text-gray-500"><i className="ti ti-lock mr-0.5" />Låst utkast</span>}
+        {perms.annual_report_write && !locked && (
+          <button className="btn btn-primary text-sm ml-auto" disabled={generating || draftLocked} onClick={onGenerate}>
+            <i className={`ti ${generating ? 'ti-loader-2 animate-spin' : (draft ? 'ti-refresh' : 'ti-file-plus')}`} /> {generating ? 'Arbetar…' : (draft ? 'Uppdatera utkast' : 'Skapa K2-utkast')}
+          </button>
+        )}
+      </div>
+      <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}><i className="ti ti-alert-triangle mr-1" />{ANNUAL_REPORT_WARNING}</div>
+
+      {!draft ? (
+        <div className="px-4 py-6 text-center text-sm text-gray-400">
+          Inget årsredovisningsutkast ännu.{perms.annual_report_write && !locked ? ' Klicka "Skapa K2-utkast".' : ' Endast behörig användare kan skapa utkast.'}
+        </div>
+      ) : (
+        <>
+          <div className="px-4 py-2.5 grid sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-1 text-[12px] border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+            <div><span className="text-gray-400">Regelverk:</span> {draft.regelverk || 'K2'}</div>
+            <div><span className="text-gray-400">Period:</span> {draft.period_start || '–'} – {draft.period_end || '–'}</div>
+            <div><span className="text-gray-400">Skapat:</span> {draft.generated_at ? fmt(draft.generated_at) : '–'}</div>
+            <div><span className="text-gray-400">Granskat/godkänt:</span> {draft.approved_at ? `Godkänt ${fmt(draft.approved_at)}` : (draft.reviewed_at ? `Granskat ${fmt(draft.reviewed_at)}` : '–')}</div>
+          </div>
+
+          <div className="divide-y" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+            {sections.map(s => (
+              <button key={s.id} className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-2" onClick={() => setOpenSection(s)}>
+                <i className="ti ti-chevron-right text-gray-300" />
+                <span className="text-[13px] font-medium">{SECTION_LABEL[s.section_key] || s.title}</span>
+                {s.ai_generated && <span className="text-[10px] bg-purple-100 text-purple-700 rounded-full px-2 py-0.5">AI-text</span>}
+                {s.requires_review && <span className="text-[10px] text-amber-600"><i className="ti ti-eye" /> kräver granskning</span>}
+                <span className="ml-auto"><Chip meta={SECTION_STATUS_META[s.review_status]} /></span>
+              </button>
+            ))}
+            {sections.length === 0 && <div className="px-4 py-4 text-center text-sm text-gray-400">Inga sektioner. Klicka "Uppdatera utkast".</div>}
+          </div>
+
+          {canWrite && (
+            <div className="px-4 py-2.5 border-t flex flex-wrap gap-2" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+              <span className="text-[11px] text-gray-400 self-center mr-1">Utkaststatus:</span>
+              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('reviewed')}><i className="ti ti-eye-check" /> Markera granskad</button>
+              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('approved')}><i className="ti ti-circle-check" /> Godkänn</button>
+              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('rejected')}><i className="ti ti-circle-x" /> Avvisa</button>
+              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('locked')}><i className="ti ti-lock" /> Lås</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {openSection && <AnnualReportSectionDrawer section={openSection} engagement={engagement} canWrite={canWrite} onClose={() => setOpenSection(null)} onChanged={async () => { await onChanged() }} />}
+    </div>
+  )
+}
+
+// Sektion-editor/drawer: innehåll + strukturerad RR/BR-tabell + källreferenser + granskningsstatus.
+function AnnualReportSectionDrawer({ section, engagement, canWrite, onClose, onChanged, reopen }) {
+  const [content, setContent] = useState(section.content || '')
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(false)
+  const sd = section.structured_data || {}
+  const refs = section.source_references || {}
+  const structuredKeys = Object.keys(STRUCTURED_FIELD_LABEL).filter(k => sd[k] !== undefined && sd[k] !== null)
+  const dirty = content !== (section.content || '')
+
+  async function save() {
+    setBusy(true)
+    try { const { error } = await supabase.rpc('annual_report_update_section', { p_section: section.id, p_content: content, p_review_comment: comment || null }); if (error) throw error; toast.success('Sektion sparad'); await onChanged(); onClose() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'annual_report_update_section', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte spara') }
+    setBusy(false)
+  }
+  async function setStatus(s) {
+    setBusy(true)
+    try { const { error } = await supabase.rpc('annual_report_set_section_status', { p_section: section.id, p_status: s, p_comment: comment || null }); if (error) throw error; toast.success('Status uppdaterad'); await onChanged(); onClose() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'annual_report_section_status:' + s, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+    setBusy(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/20" />
+      <div className="relative bg-white w-full max-w-lg h-full overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+          <span className="text-sm font-semibold">{SECTION_LABEL[section.section_key] || section.title}</span>
+          <Chip meta={SECTION_STATUS_META[section.review_status]} />
+          {section.ai_generated && <span className="text-[10px] bg-purple-100 text-purple-700 rounded-full px-2 py-0.5">AI-text</span>}
+          <button className="ml-auto text-gray-400 hover:text-gray-700" onClick={onClose}><i className="ti ti-x" /></button>
+        </div>
+
+        <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50"><i className="ti ti-alert-triangle mr-1" />{ANNUAL_REPORT_WARNING}</div>
+
+        <div className="p-4 space-y-4">
+          {structuredKeys.length > 0 && (
+            <div>
+              <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Strukturerad data (från huvudboken – ändras ej av AI)</div>
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {structuredKeys.map(k => (
+                    <tr key={k} className="border-b last:border-0" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+                      <td className="py-1 text-gray-600">{STRUCTURED_FIELD_LABEL[k]}</td>
+                      <td className="py-1 text-right font-medium tabular-nums">{fmtAmount(sd[k])}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {'balanserar' in sd && (
+                <div className={`text-[12px] mt-1 ${sd.balanserar ? 'text-green-700' : 'text-red-700'}`}>
+                  <i className={`ti ${sd.balanserar ? 'ti-circle-check' : 'ti-alert-triangle'} mr-1`} />
+                  {sd.balanserar ? 'Balansräkningen balanserar.' : 'Balansräkningen balanserar inte – kräver manuell granskning.'}
+                </div>
+              )}
+              <div className="text-[11px] text-gray-400 mt-1">{NO_COMPARATIVE_MESSAGE}</div>
+            </div>
+          )}
+
+          <div>
+            <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Text</div>
+            {canWrite ? (
+              <textarea className="input w-full text-[13px] leading-relaxed" rows={10} value={content} onChange={e => setContent(e.target.value)} />
+            ) : (
+              <div className="text-[13px] text-gray-700 whitespace-pre-wrap leading-relaxed bg-gray-50 rounded p-3">{section.content || '—'}</div>
+            )}
+          </div>
+
+          {Object.keys(refs).length > 0 && (
+            <div className="text-[11px] text-gray-400">
+              <i className="ti ti-database mr-1" />Källa: {Object.entries(refs).map(([k, v]) => `${k}=${v}`).join(' · ')}
+            </div>
+          )}
+          {section.review_comment && <div className="text-[12px] text-gray-500"><span className="font-medium">Kommentar:</span> {section.review_comment}</div>}
+
+          {canWrite && (
+            <>
+              <input className="input w-full text-[13px]" placeholder="Granskningskommentar (valfri)" value={comment} onChange={e => setComment(e.target.value)} />
+              <div className="flex flex-wrap gap-2">
+                <button className="btn btn-primary text-sm" disabled={busy || !dirty} onClick={save}><i className="ti ti-device-floppy" /> Spara text</button>
+                <button className="btn text-sm" disabled={busy} onClick={() => setStatus('reviewed')}><i className="ti ti-eye-check" /> Granskad</button>
+                <button className="btn text-sm" disabled={busy} onClick={() => setStatus('approved')}><i className="ti ti-circle-check" /> Godkänn</button>
+                <button className="btn text-sm" disabled={busy} onClick={() => setStatus('rejected')}><i className="ti ti-circle-x" /> Avvisa</button>
+              </div>
+              <p className="text-[11px] text-gray-400">Att spara text återställer sektionen till "Kräver granskning". Inga verifikationer skapas och ingen bokföring ändras.</p>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

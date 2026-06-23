@@ -67,15 +67,30 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   `ai_suggestion_write` (admin); locked = read-only; nekat → `bokslut_denied_log`; status-ändringar audit-loggas.
   UI: AI-förslag-panel (risk/confidence/kopplad check+bilaga/nästa åtgärd/reasoning/källdata +
   acceptera/avvisa/ignorera/åtgärdad) + varning "granskningsstöd – bokför inte".
+- ✅ **K2-årsredovisningsutkast – grundstruktur (Steg 2C-1, tillagt):** tabeller `annual_report_drafts` +
+  `annual_report_draft_sections` (sektioner: förvaltningsberättelse, resultaträkning, balansräkning, noter,
+  fastställelseintyg, underskriftssida). RPC: `annual_report_get_or_create_draft`,
+  `annual_report_generate_k2_draft` (**REGELBASERAD/deterministisk** – RR/BR beräknas från huvudboken,
+  `verifikation_rows ⋈ verifikationer` + `accounts`; **ingen AI ändrar siffror**, jämförelsetal markeras
+  "saknas", balanskontroll), `annual_report_list_sections`, `annual_report_update_section`,
+  `annual_report_set_section_status`, `annual_report_set_draft_status`. Behörighet `annual_report_write`
+  (admin) för generera/redigera/granska/godkänna/lås; read = licens+medlemskap; **låst engagemang ELLER låst
+  utkast = read-only**; nekat → `bokslut_denied_log`; alla ändringar audit-loggas. Scaffold-texter markerar
+  okänt med "Uppgift saknas. Kräver manuell granskning." UI: panel "Årsredovisningsutkast (K2)" (status,
+  regelverk, period, datum, granskad/godkänd-av, sektionslista m. status, "Skapa/Uppdatera utkast",
+  utkaststatus-knappar) + sektion-drawer (RR/BR som strukturerad tabell, källreferenser, redigerbar text,
+  granska/godkänn/avvisa) + beständig varning "AI-genererat utkast … BokPilot lämnar inte in automatiskt".
+  **Ingår INTE i detta steg:** PDF-generering, e-inlämning, full juridisk/formell kontroll, K3, automatisk signering.
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
 
 ## 4. Vad som fortfarande saknas (kommande steg)
 - **Draft adjustments / bokslutsverifikationer** (utkast till verifikationer — får ALDRIG bokföras automatiskt).
-  Medvetet UTANFÖR Steg 2B (AI-förslag är endast granskningsstöd, skapar inga verifikationer).
-- **K2-årsredovisningsutkast** (Steg 2C) (`annual_report_drafts`: förvaltningsberättelse, RR, BR, noter,
-  fastställelseintyg, underskriftssida) — endast placeholder. Byggs INTE i Steg 2B.
+  Medvetet UTANFÖR AI-förslag och K2-utkastet (dessa är endast granskningsstöd, skapar inga verifikationer).
+- **K2-årsredovisningsutkast – nästa steg (2C-2+):** AI-utkasttexter för förvaltningsberättelse/noter (med
+  ai_generated=true + krav på granskning), PDF-generering, e-inlämning till Bolagsverket, formell/juridisk
+  fullständighetskontroll och automatisk signering. INGET av detta ingår i 2C-1 (endast struktur + deterministisk RR/BR).
 - **K3-regelverk** (arkitekturen är förberedd via `regelverk`-kolumn).
 - **Djupare avstämning** i kontrollkonto-checkarna (idag `needs_review` med saldovisning, ingen reskontra-matchning).
 
@@ -151,6 +166,12 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_ai_suggestions` (engagement_id, company_id, suggestion_type, title, summary, reasoning, risk_level,
   confidence, related_check_id, related_attachment_id, source_data, suggested_next_action, status, model,
   reviewed_by/at, review_comment, created/updated) – AI-granskningsförslag (ingen bokföring).
+- `annual_report_drafts` (engagement_id [unik], company_id, fiscal_year_id, regelverk default 'K2', status,
+  title, period_start/end, generated_by/at, reviewed_by/at, approved_by/at, source_data, created/updated) –
+  K2-årsredovisningsutkast (ingen bokföring, ingen inlämning).
+- `annual_report_draft_sections` (draft_id, company_id, section_key [unik per draft], title, content,
+  structured_data, source_references, ai_generated, requires_review, review_status, reviewed_by/at,
+  review_comment, sort_order, created/updated) – sektioner; RR/BR strukturerad data från huvudboken.
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -171,6 +192,12 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - AI-förslag: `bokslut_ai_context(p_engagement)`, `bokslut_save_ai_suggestions(p_engagement, p_items, p_model)`,
   `bokslut_generate_ai_suggestions(p_engagement) -> int` (regelbaserad mock/fallback),
   `bokslut_list_ai_suggestions(p_engagement)`, `bokslut_set_ai_suggestion_status(p_suggestion, p_status, p_comment)`
+- K2-utkast: `annual_report_get_or_create_draft(p_engagement)`, `annual_report_generate_k2_draft(p_engagement)`
+  (REGELBASERAD/deterministisk RR/BR från huvudbok – ingen AI ändrar siffror), `annual_report_list_sections(p_draft)`,
+  `annual_report_update_section(p_section, p_content, p_review_comment)`,
+  `annual_report_set_section_status(p_section, p_status, p_comment)`,
+  `annual_report_set_draft_status(p_draft, p_status, p_comment)`. Behörighet `annual_report_write` (admin);
+  låst engagemang/utkast = read-only. Migrationer: `ai_bokslut_annual_report_tables`, `ai_bokslut_annual_report_rpcs`.
 - interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`, `_bokslut_attachment_guard(p_attachment)`
 
 **Edge-funktioner:** `bokslut-ai` (Gemini-granskningsförslag, strikt JSON, quota; läser via `bokslut_ai_context`,

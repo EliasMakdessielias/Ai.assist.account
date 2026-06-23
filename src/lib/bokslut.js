@@ -157,6 +157,45 @@ export const AI_SUGGESTION_STATUS_META = {
 export const AI_SUGGESTION_WARNING = 'AI-förslag är granskningsstöd. De bokför inte och måste bedömas av behörig användare.'
 export const confidencePct = c => (c === null || c === undefined) ? '–' : `${Math.round(Number(c) * 100)} %`
 
+// K2-årsredovisningsutkast (Steg 2C-1): struktur. Bokför aldrig, lämnar inte in, godkänner inte automatiskt.
+export const ANNUAL_REPORT_WARNING = 'AI-genererat årsredovisningsutkast. Måste granskas och godkännas av behörig redovisningskonsult innan användning. BokPilot lämnar inte in årsredovisningen automatiskt.'
+export const NO_COMPARATIVE_MESSAGE = 'Jämförelsetal saknas eller kunde inte beräknas.'
+export const DRAFT_STATUS_META = {
+  draft: { label: 'Utkast', chip: 'bg-gray-100 text-gray-500' },
+  needs_review: { label: 'Kräver granskning', chip: 'bg-purple-100 text-purple-700' },
+  reviewed: { label: 'Granskad', chip: 'bg-blue-100 text-blue-700' },
+  approved: { label: 'Godkänd', chip: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Avvisad', chip: 'bg-red-100 text-red-700' },
+  locked: { label: 'Låst', chip: 'bg-gray-200 text-gray-600' },
+}
+export const SECTION_STATUS_META = {
+  needs_review: { label: 'Kräver granskning', chip: 'bg-purple-100 text-purple-700' },
+  reviewed: { label: 'Granskad', chip: 'bg-blue-100 text-blue-700' },
+  approved: { label: 'Godkänd', chip: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Avvisad', chip: 'bg-red-100 text-red-700' },
+}
+// Sektionsordning + etiketter för K2-utkastet.
+export const ANNUAL_REPORT_SECTIONS = [
+  { key: 'forvaltningsberattelse', label: 'Förvaltningsberättelse' },
+  { key: 'resultatrakning', label: 'Resultaträkning' },
+  { key: 'balansrakning', label: 'Balansräkning' },
+  { key: 'noter', label: 'Noter' },
+  { key: 'faststallelseintyg', label: 'Fastställelseintyg' },
+  { key: 'underskriftssida', label: 'Underskriftssida' },
+]
+export const SECTION_LABEL = Object.fromEntries(ANNUAL_REPORT_SECTIONS.map(s => [s.key, s.label]))
+// RR/BR är strukturerad data från huvudboken – fält → svensk etikett (visas som tabell, ej fri AI-text).
+export const STRUCTURED_FIELD_LABEL = {
+  rorelsens_intakter: 'Rörelsens intäkter',
+  rorelsens_kostnader: 'Rörelsens kostnader',
+  finansiella_poster_och_skatt: 'Finansiella poster och skatt',
+  arets_resultat: 'Årets resultat',
+  summa_tillgangar: 'Summa tillgångar',
+  eget_kapital_och_skulder: 'Eget kapital och skulder',
+  balanskontroll_differens: 'Balanskontroll (differens)',
+}
+export const isDraftLocked = d => !!d && (d.status === 'locked')
+
 export const fiscalYearLabel = fy => fy ? `${fy.year} (${fy.start_date} – ${fy.end_date})` : ''
 export const fmtAmount = n => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
