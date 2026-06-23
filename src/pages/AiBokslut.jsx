@@ -9,6 +9,8 @@ import {
   ATTACHMENT_TYPES, ATTACHMENT_TYPE_LABEL, ATTACHMENT_STATUS_META, attachmentTypeForCategory, hasDifferens,
   SUGGESTION_TYPE_LABEL, AI_SUGGESTION_STATUS_META, AI_SUGGESTION_WARNING, confidencePct,
   ANNUAL_REPORT_WARNING, NO_COMPARATIVE_MESSAGE, DRAFT_STATUS_META, SECTION_STATUS_META, SECTION_LABEL, STRUCTURED_FIELD_LABEL,
+  VALIDATION_WARNING, VALIDATION_SEVERITY_META, VALIDATION_STATUS_META, VALIDATION_SOURCE_LABEL,
+  validationSummary, approveBlockReason, lockBlockReason,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -58,7 +60,9 @@ export default function AiBokslut() {
   const [generatingAi, setGeneratingAi] = useState(false)
   const [arDraft, setArDraft] = useState(null)
   const [arSections, setArSections] = useState([])
+  const [arValidation, setArValidation] = useState([])
   const [generatingDraft, setGeneratingDraft] = useState(false)
+  const [validating, setValidating] = useState(false)
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -95,9 +99,15 @@ export default function AiBokslut() {
     setChecks(ch || []); setAudit(au || []); setAttachments(at || []); setAiSuggestions(sg || [])
     // K2-årsredovisningsutkast (Steg 2C-1): läs befintligt utkast (skapas ej automatiskt vid besök).
     const { data: dr } = await supabase.from('annual_report_drafts').select('*').eq('engagement_id', eng.id).maybeSingle()
-    let sec = []
-    if (dr) { const { data: s } = await supabase.rpc('annual_report_list_sections', { p_draft: dr.id }); sec = s || [] }
-    setArDraft(dr || null); setArSections(sec)
+    let sec = [], val = []
+    if (dr) {
+      const [{ data: s }, { data: v }] = await Promise.all([
+        supabase.rpc('annual_report_list_sections', { p_draft: dr.id }),
+        supabase.rpc('annual_report_list_validation_items', { p_draft: dr.id }),
+      ])
+      sec = s || []; val = v || []
+    }
+    setArDraft(dr || null); setArSections(sec); setArValidation(val)
   }, [company?.id, fyId, licensed])
   useEffect(() => { loadEngagement() }, [loadEngagement])
 
@@ -143,6 +153,14 @@ export default function AiBokslut() {
     try { const { error } = await supabase.rpc('annual_report_generate_k2_draft', { p_engagement: engagement.id }); if (error) throw error; toast.success(arDraft ? 'K2-utkast uppdaterat' : 'K2-utkast skapat'); await loadEngagement() }
     catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'generate_k2_draft', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skapa K2-utkast') }
     setGeneratingDraft(false)
+  }
+
+  async function runValidation() {
+    if (!arDraft) return
+    setValidating(true)
+    try { const { data, error } = await supabase.rpc('annual_report_run_validation', { p_draft: arDraft.id }); if (error) throw error; toast.success(`Validering klar: ${data?.open ?? 0} öppna punkter`); await loadEngagement() }
+    catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'run_validation', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte validera utkast') }
+    setValidating(false)
   }
 
   const fy = years.find(y => y.id === fyId)
@@ -254,7 +272,7 @@ export default function AiBokslut() {
 
       {/* Årsredovisningsutkast K2 (Steg 2C-1) */}
       <div className="mt-5">
-        {engagement && <AnnualReportPanel engagement={engagement} draft={arDraft} sections={arSections} perms={perms} locked={locked} generating={generatingDraft} onGenerate={generateDraft} onChanged={loadEngagement} />}
+        {engagement && <AnnualReportPanel engagement={engagement} draft={arDraft} sections={arSections} validation={arValidation} perms={perms} locked={locked} generating={generatingDraft} validating={validating} onGenerate={generateDraft} onValidate={runValidation} onChanged={loadEngagement} />}
       </div>
 
       {/* Spårbarhet (audit) */}
@@ -543,12 +561,15 @@ function AiSuggestionsPanel({ engagement, suggestions, perms, locked, generating
 }
 
 // ── K2-årsredovisningsutkast (Steg 2C-1). Struktur + spårbarhet. Bokför aldrig, lämnar inte in, godkänner inte automatiskt. ──
-function AnnualReportPanel({ engagement, draft, sections, perms, locked, generating, onGenerate, onChanged }) {
+function AnnualReportPanel({ engagement, draft, sections, validation, perms, locked, generating, validating, onGenerate, onValidate, onChanged }) {
   const [openSection, setOpenSection] = useState(null)
   const [busy, setBusy] = useState(false)
   const draftLocked = draft?.status === 'locked'
   const readOnly = locked || draftLocked
   const canWrite = perms.annual_report_write && !readOnly
+  const vsum = useMemo(() => validationSummary(validation), [validation])
+  const approveBlock = approveBlockReason(validation)
+  const lockBlock = lockBlockReason(validation)
 
   async function setDraftStatus(s) {
     if (!draft) return
@@ -565,11 +586,18 @@ function AnnualReportPanel({ engagement, draft, sections, perms, locked, generat
         <span className="text-[13px] font-semibold flex items-center gap-1.5"><i className="ti ti-file-text text-purple-600" /> Årsredovisningsutkast (K2)</span>
         {draft && <Chip meta={DRAFT_STATUS_META[draft.status]} />}
         {draftLocked && <span className="text-[11px] text-gray-500"><i className="ti ti-lock mr-0.5" />Låst utkast</span>}
-        {perms.annual_report_write && !locked && (
-          <button className="btn btn-primary text-sm ml-auto" disabled={generating || draftLocked} onClick={onGenerate}>
-            <i className={`ti ${generating ? 'ti-loader-2 animate-spin' : (draft ? 'ti-refresh' : 'ti-file-plus')}`} /> {generating ? 'Arbetar…' : (draft ? 'Uppdatera utkast' : 'Skapa K2-utkast')}
-          </button>
-        )}
+        <div className="ml-auto flex flex-wrap gap-2">
+          {draft && perms.annual_report_write && (
+            <button className="btn text-sm" disabled={validating} onClick={onValidate}>
+              <i className={`ti ${validating ? 'ti-loader-2 animate-spin' : 'ti-checklist'}`} /> {validating ? 'Validerar…' : 'Validera utkast'}
+            </button>
+          )}
+          {perms.annual_report_write && !locked && (
+            <button className="btn btn-primary text-sm" disabled={generating || draftLocked} onClick={onGenerate}>
+              <i className={`ti ${generating ? 'ti-loader-2 animate-spin' : (draft ? 'ti-refresh' : 'ti-file-plus')}`} /> {generating ? 'Arbetar…' : (draft ? 'Uppdatera utkast' : 'Skapa K2-utkast')}
+            </button>
+          )}
+        </div>
       </div>
       <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}><i className="ti ti-alert-triangle mr-1" />{ANNUAL_REPORT_WARNING}</div>
 
@@ -599,19 +627,89 @@ function AnnualReportPanel({ engagement, draft, sections, perms, locked, generat
             {sections.length === 0 && <div className="px-4 py-4 text-center text-sm text-gray-400">Inga sektioner. Klicka "Uppdatera utkast".</div>}
           </div>
 
+          {/* Validering (Steg 2C-2) */}
+          <AnnualReportValidation engagement={engagement} draft={draft} items={validation} summary={vsum} canWrite={canWrite} onChanged={onChanged} />
+
           {canWrite && (
-            <div className="px-4 py-2.5 border-t flex flex-wrap gap-2" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
-              <span className="text-[11px] text-gray-400 self-center mr-1">Utkaststatus:</span>
-              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('reviewed')}><i className="ti ti-eye-check" /> Markera granskad</button>
-              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('approved')}><i className="ti ti-circle-check" /> Godkänn</button>
-              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('rejected')}><i className="ti ti-circle-x" /> Avvisa</button>
-              <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('locked')}><i className="ti ti-lock" /> Lås</button>
+            <div className="px-4 py-2.5 border-t flex flex-col gap-1.5" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-[11px] text-gray-400 mr-1">Utkaststatus:</span>
+                <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('reviewed')}><i className="ti ti-eye-check" /> Markera granskad</button>
+                <button className="btn text-xs" disabled={busy || !!approveBlock} title={approveBlock || ''} onClick={() => setDraftStatus('approved')}><i className="ti ti-circle-check" /> Godkänn</button>
+                <button className="btn text-xs" disabled={busy} onClick={() => setDraftStatus('rejected')}><i className="ti ti-circle-x" /> Avvisa</button>
+                <button className="btn text-xs" disabled={busy || !!lockBlock} title={lockBlock || ''} onClick={() => setDraftStatus('locked')}><i className="ti ti-lock" /> Lås</button>
+              </div>
+              {approveBlock && <div className="text-[11px] text-red-600"><i className="ti ti-lock-x mr-1" />Godkännande blockerat: {approveBlock}</div>}
+              {!approveBlock && lockBlock && <div className="text-[11px] text-red-600"><i className="ti ti-lock-x mr-1" />Låsning blockerad: {lockBlock}</div>}
             </div>
           )}
         </>
       )}
 
       {openSection && <AnnualReportSectionDrawer section={openSection} engagement={engagement} canWrite={canWrite} onClose={() => setOpenSection(null)} onChanged={async () => { await onChanged() }} />}
+    </div>
+  )
+}
+
+// ── K2-validering (Steg 2C-2): kontrollstöd + granskningsspärrar. Ändrar aldrig bokföring. ──
+function AnnualReportValidation({ engagement, draft, items, summary, canWrite, onChanged }) {
+  const [busyId, setBusyId] = useState(null)
+  async function setStatus(item, status) {
+    let reason = null
+    if (status === 'ignored') {
+      reason = window.prompt('Ange en motivering för att ignorera punkten:')
+      if (reason === null || reason.trim() === '') { if (reason !== null) toast.error('Motivering krävs.'); return }
+    }
+    setBusyId(item.id)
+    try { const { error } = await supabase.rpc('annual_report_set_validation_item_status', { p_item: item.id, p_status: status, p_comment: reason }); if (error) throw error; toast.success('Uppdaterad'); await onChanged() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'validation_status:' + status, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte uppdatera') }
+    setBusyId(null)
+  }
+  const SummaryChip = ({ n, label, cls }) => <span className={`text-[11px] rounded-full px-2 py-0.5 ${cls}`}>{n} {label}</span>
+  const hasRun = items.length > 0
+  return (
+    <div className="border-t" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+      <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap">
+        <span className="text-[12px] font-semibold flex items-center gap-1.5"><i className="ti ti-shield-check text-purple-600" /> Validering</span>
+        {hasRun ? (
+          <div className="flex flex-wrap gap-1.5">
+            <SummaryChip n={summary.critical} label="kritiska" cls="bg-red-100 text-red-700" />
+            <SummaryChip n={summary.high} label="höga" cls="bg-orange-100 text-orange-700" />
+            <SummaryChip n={summary.warning} label="varningar" cls="bg-blue-100 text-blue-700" />
+            <SummaryChip n={summary.open} label="öppna totalt" cls="bg-gray-100 text-gray-600" />
+          </div>
+        ) : <span className="text-[11px] text-gray-400">Ej validerad ännu. Klicka "Validera utkast".</span>}
+      </div>
+      <div className="px-4 pb-2 text-[11px] text-amber-700"><i className="ti ti-info-circle mr-1" />{VALIDATION_WARNING}</div>
+      {hasRun && (
+        <div className="divide-y" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+          {items.map(it => {
+            const sev = VALIDATION_SEVERITY_META[it.severity]
+            return (
+              <div key={it.id} className={`px-4 py-2.5 ${it.status !== 'open' ? 'opacity-60' : ''}`}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1 text-[12px] font-medium"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: sev?.dot }} />{sev?.label}</span>
+                  <Chip meta={VALIDATION_STATUS_META[it.status]} />
+                  {it.source && it.source !== 'rule' && <span className="text-[10px] bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">{VALIDATION_SOURCE_LABEL[it.source] || it.source}</span>}
+                </div>
+                <div className="text-[13px] font-medium mt-1">{it.title}</div>
+                {it.description && <div className="text-[12px] text-gray-600 mt-0.5">{it.description}</div>}
+                {it.suggested_action && <div className="text-[12px] text-blue-900 bg-blue-50 rounded px-2 py-1 mt-1"><i className="ti ti-arrow-right mr-1" />{it.suggested_action}</div>}
+                {it.status === 'ignored' && it.ignored_reason && <div className="text-[11px] text-gray-500 mt-1"><span className="font-medium">Ignorerad:</span> {it.ignored_reason}</div>}
+                {canWrite && it.status === 'open' && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <button className="btn text-xs" disabled={busyId === it.id} onClick={() => setStatus(it, 'resolved')}><i className="ti ti-check" /> Markera löst</button>
+                    <button className="btn text-xs" disabled={busyId === it.id} onClick={() => setStatus(it, 'ignored')}><i className="ti ti-eye-off" /> Ignorera</button>
+                  </div>
+                )}
+                {canWrite && it.status !== 'open' && (
+                  <div className="mt-2"><button className="btn text-xs" disabled={busyId === it.id} onClick={() => setStatus(it, 'open')}><i className="ti ti-rotate" /> Återöppna</button></div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

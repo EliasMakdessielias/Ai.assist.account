@@ -81,6 +81,20 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   utkaststatus-knappar) + sektion-drawer (RR/BR som strukturerad tabell, källreferenser, redigerbar text,
   granska/godkänn/avvisa) + beständig varning "AI-genererat utkast … BokPilot lämnar inte in automatiskt".
   **Ingår INTE i detta steg:** PDF-generering, e-inlämning, full juridisk/formell kontroll, K3, automatisk signering.
+- ✅ **K2-validering + granskningsspärrar (Steg 2C-2, tillagt):** tabell `annual_report_validation_items`
+  (severity info/warning/high/critical, status open/resolved/ignored) + RPC `annual_report_run_validation`
+  (**deterministisk**, idempotent – auto-resolverar öppna poster vars problem försvunnit, behåller `ignored`
+  med motivering), `annual_report_list_validation_items`, `annual_report_set_validation_item_status`
+  (ignore kräver motivering). Regler: obligatoriska sektioner finns, sektioner granskade/godkända, BR
+  balanserar, RR/BR har strukturerad data, jämförelsetal saknas, öppna kritiska/höga bokslut_checks,
+  bilagor med differens, AI-förslag i needs_review, ofullständiga noter ("Uppgift saknas"), låst engagemang.
+  **Granskningsspärr i `annual_report_set_draft_status`:** `approved` blockeras vid öppna high/critical,
+  `locked` blockeras vid öppna critical. Behörighet `annual_report_write` (admin) för run/resolve/ignore;
+  read = licens+medlemskap; **låst engagemang/utkast = read-only** för statusändringar (validering kan köras
+  i läsläge); nekat → `bokslut_denied_log`; körningar + statusändringar audit-loggas. UI: "Validera utkast",
+  sammanfattning (kritiska/höga/varningar/öppna), lista (severity/status/källa, åtgärdstext, lös/ignorera),
+  blockmeddelande vid spärrat godkännande/låsning + varning "kontrollstöd – ersätter inte konsultens ansvar".
+  **Ingår fortfarande INTE:** PDF, e-inlämning, automatisk signering, K3.
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
@@ -172,6 +186,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `annual_report_draft_sections` (draft_id, company_id, section_key [unik per draft], title, content,
   structured_data, source_references, ai_generated, requires_review, review_status, reviewed_by/at,
   review_comment, sort_order, created/updated) – sektioner; RR/BR strukturerad data från huvudboken.
+- `annual_report_validation_items` (draft_id, engagement_id, company_id, section_id, validation_key [unik per
+  draft], title, description, severity, status, source, source_data, suggested_action, resolved_by/at,
+  ignored_by/at, ignored_reason, created/updated) – deterministiska valideringspunkter (kontrollstöd, ingen bokföring).
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -196,8 +213,13 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   (REGELBASERAD/deterministisk RR/BR från huvudbok – ingen AI ändrar siffror), `annual_report_list_sections(p_draft)`,
   `annual_report_update_section(p_section, p_content, p_review_comment)`,
   `annual_report_set_section_status(p_section, p_status, p_comment)`,
-  `annual_report_set_draft_status(p_draft, p_status, p_comment)`. Behörighet `annual_report_write` (admin);
-  låst engagemang/utkast = read-only. Migrationer: `ai_bokslut_annual_report_tables`, `ai_bokslut_annual_report_rpcs`.
+  `annual_report_set_draft_status(p_draft, p_status, p_comment)` (med granskningsspärr: approved kräver inga
+  öppna high/critical valideringspunkter, locked kräver inga öppna critical). Behörighet `annual_report_write`
+  (admin); låst engagemang/utkast = read-only.
+- K2-validering: `annual_report_run_validation(p_draft)` (deterministisk, idempotent, auto-resolve),
+  `annual_report_list_validation_items(p_draft)`, `annual_report_set_validation_item_status(p_item, p_status, p_comment)`,
+  hjälpfn `ar_section_label(p_key)`. Migrationer: `ai_bokslut_annual_report_tables`, `ai_bokslut_annual_report_rpcs`,
+  `ai_bokslut_annual_report_validation_table`, `ai_bokslut_annual_report_validation_rpcs`, `ai_bokslut_ar_section_label_helper`.
 - interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`, `_bokslut_attachment_guard(p_attachment)`
 
 **Edge-funktioner:** `bokslut-ai` (Gemini-granskningsförslag, strikt JSON, quota; läser via `bokslut_ai_context`,

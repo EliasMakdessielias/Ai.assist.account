@@ -196,6 +196,48 @@ export const STRUCTURED_FIELD_LABEL = {
 }
 export const isDraftLocked = d => !!d && (d.status === 'locked')
 
+// K2-validering (Steg 2C-2): granskningsstöd som spärrar godkännande/låsning. Ändrar aldrig bokföring.
+export const VALIDATION_WARNING = 'Valideringen är ett kontrollstöd. Den ersätter inte redovisningskonsultens ansvar.'
+export const VALIDATION_SEVERITY_META = {
+  critical: { label: 'Kritisk', dot: '#dc2626', chip: 'bg-red-100 text-red-700' },
+  high: { label: 'Hög', dot: '#f97316', chip: 'bg-orange-100 text-orange-700' },
+  warning: { label: 'Varning', dot: '#3b82f6', chip: 'bg-blue-100 text-blue-700' },
+  info: { label: 'Info', dot: '#9ca3af', chip: 'bg-gray-100 text-gray-500' },
+}
+export const VALIDATION_STATUS_META = {
+  open: { label: 'Öppen', chip: 'bg-purple-100 text-purple-700' },
+  resolved: { label: 'Löst', chip: 'bg-green-100 text-green-700' },
+  ignored: { label: 'Ignorerad', chip: 'bg-gray-100 text-gray-500' },
+}
+export const VALIDATION_SEVERITY_ORDER = { critical: 0, high: 1, warning: 2, info: 3 }
+// Källtyp → svensk etikett (för "Gå till"-länk i valideringslistan).
+export const VALIDATION_SOURCE_LABEL = {
+  section: 'Sektion', bokslut_check: 'Kontroll', bokslut_attachment: 'Bilaga',
+  ai_suggestion: 'AI-förslag', engagement: 'Engagemang', rule: 'Regel',
+}
+// Sammanräkning av öppna valideringspunkter per allvarlighetsgrad.
+export function validationSummary(items) {
+  const open = (items || []).filter(i => i.status === 'open')
+  return {
+    open: open.length,
+    critical: open.filter(i => i.severity === 'critical').length,
+    high: open.filter(i => i.severity === 'high').length,
+    warning: open.filter(i => i.severity === 'warning').length,
+    info: open.filter(i => i.severity === 'info').length,
+  }
+}
+// Spärr-logik (speglar DB; auktoritativt i RPC). Returnerar orsakstext eller null.
+export function approveBlockReason(items) {
+  const s = validationSummary(items)
+  if (s.critical + s.high > 0) return `${s.critical + s.high} öppna valideringspunkter (hög/kritisk) måste åtgärdas eller ignoreras före godkännande.`
+  return null
+}
+export function lockBlockReason(items) {
+  const s = validationSummary(items)
+  if (s.critical > 0) return `${s.critical} öppna kritiska valideringspunkter måste åtgärdas eller ignoreras före låsning.`
+  return null
+}
+
 export const fiscalYearLabel = fy => fy ? `${fy.year} (${fy.start_date} – ${fy.end_date})` : ''
 export const fmtAmount = n => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
