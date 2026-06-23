@@ -7,13 +7,15 @@ import { onPwaUpdate, applyUpdate } from '../../lib/pwa'
 // Endast statusar vars funktioner finns nu: Online / Instabil / Offline / Servern kan inte nås /
 // Sessionen behöver förnyas / Ny version tillgänglig. (Inga "Synkroniserar/Konflikt/Väntar".)
 
+// Tooltip-texterna är medvetet precisa: hälsokollen verifierar att BokPilots servrar (Supabase) är
+// NÅBARA — inte att varje enskild deltjänst är felfri. Överdriv inte vad som faktiskt verifierats.
 const META = {
-  online: { label: 'Online', dot: '#16a34a', tone: 'muted' },
-  unstable: { label: 'Instabil anslutning', dot: '#f59e0b', tone: 'show' },
-  offline: { label: 'Offline', dot: '#9ca3af', tone: 'show', retry: true },
-  server_unreachable: { label: 'Servern kan inte nås', dot: '#dc2626', tone: 'show', retry: true },
-  server_error: { label: 'Servern svarar med fel', dot: '#dc2626', tone: 'show', retry: true },
-  session: { label: 'Sessionen behöver förnyas', dot: '#f59e0b', tone: 'show' },
+  online: { label: 'Online', dot: '#16a34a', tone: 'muted', tip: 'BokPilots servrar svarar' },
+  unstable: { label: 'Instabil anslutning', dot: '#f59e0b', tone: 'show', tip: 'Anslutningen är ostabil – vissa serveranrop misslyckas' },
+  offline: { label: 'Offline', dot: '#9ca3af', tone: 'show', retry: true, tip: 'Enheten saknar internetanslutning' },
+  server_unreachable: { label: 'Servern kan inte nås', dot: '#dc2626', tone: 'show', retry: true, tip: 'Internet finns men BokPilots servrar svarar inte' },
+  server_error: { label: 'Servern svarar med fel', dot: '#dc2626', tone: 'show', retry: true, tip: 'Servern nåddes men svarade med fel (5xx)' },
+  session: { label: 'Sessionen behöver förnyas', dot: '#f59e0b', tone: 'show', tip: 'Din inloggning behöver förnyas – servern är nåbar' },
 }
 
 function fmtTime(ts) { try { return new Date(ts).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
@@ -42,7 +44,7 @@ export default function NetworkStatusBadge() {
 
       {/* Nätverksstatus: diskret prick när allt är bra, full pill annars. */}
       {meta.tone === 'show' ? (
-        <div style={pill} title={lastSuccessAt ? `Senaste serverkontakt ${fmtTime(lastSuccessAt)}` : 'Ingen verifierad serverkontakt ännu'}>
+        <div style={pill} title={`${meta.tip}${lastSuccessAt ? ` · senaste serverkontakt ${fmtTime(lastSuccessAt)}` : ''}`}>
           <span style={dot(meta.dot)} />
           <span>{meta.label}</span>
           {meta.retry && <button style={btn} onClick={retry}>Försök igen</button>}
@@ -50,7 +52,7 @@ export default function NetworkStatusBadge() {
       ) : (
         <div
           style={{ ...pill, padding: 6, background: 'transparent', border: 'none', boxShadow: 'none' }}
-          title={`${meta.label}${lastSuccessAt ? ` · senaste serverkontakt ${fmtTime(lastSuccessAt)}` : ''}`}
+          title={`${meta.tip}${lastSuccessAt ? ` · senaste serverkontakt ${fmtTime(lastSuccessAt)}` : ''}`}
         >
           <span style={dot(meta.dot)} />
         </div>

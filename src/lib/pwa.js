@@ -39,6 +39,18 @@ export async function killSwitch() {
 export function disablePwaPersistently() { try { localStorage.setItem(DISABLE_KEY, '1') } catch { /* ignore */ } }
 export function isPwaDisabled() { try { return localStorage.getItem(DISABLE_KEY) === '1' } catch { return false } }
 
+/** Diagnostik: hämta aktiv Service Workers buildId (injicerat vid build). null om ingen aktiv SW. */
+export function getBuildId(timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const sw = (typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.controller) || null
+    if (!sw) return resolve(null)
+    const ch = new MessageChannel()
+    const t = setTimeout(() => resolve(null), timeoutMs)
+    ch.port1.onmessage = (e) => { clearTimeout(t); resolve(e.data && e.data.buildId || null) }
+    try { sw.postMessage({ type: 'GET_BUILD_ID' }, [ch.port2]) } catch { clearTimeout(t); resolve(null) }
+  })
+}
+
 export async function registerPWA() {
   if (typeof window === 'undefined') return
   // Emergency kill switch nåbar från konsolen även om UI är trasigt.
@@ -75,5 +87,10 @@ export async function registerPWA() {
     const checkUpdate = () => { reg.update().catch(() => {}) }
     window.addEventListener('focus', checkUpdate)
     setInterval(checkUpdate, 60 * 60 * 1000)
+
+    // Diagnostik: exponera aktiv buildId (syns i konsolen / window.__bokpilotBuildId).
+    navigator.serviceWorker.ready.then(() => getBuildId()).then(id => {
+      if (id) { window.__bokpilotBuildId = id; /* eslint-disable-next-line no-console */ console.info('[BokPilot] PWA buildId', id) }
+    }).catch(() => {})
   } catch { /* registrering misslyckades → appen funkar ändå (network-only) */ }
 }

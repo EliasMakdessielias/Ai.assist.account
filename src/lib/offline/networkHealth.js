@@ -1,6 +1,9 @@
-// Centralt nätverkshälsolager — Etapp 1A.
-// navigator.onLine används ENDAST som signal. Auktoritativt är ett verifierat, tidsbegränsat
-// anrop till en publik health-endpoint. 401/403 (auth) och 500 (serverfel) klassas ALDRIG som offline.
+// Centralt nätverkshälsolager — Etapp 1A/1B.
+// navigator.onLine används ENDAST som signal. Auktoritativt är ett verifierat, tidsbegränsat anrop till
+// Supabase publika /auth/v1/health. OBS: detta verifierar att BokPilots servrar (Supabase-origin) är
+// NÅBARA — det är en reachability-proxy, INTE en full hälsokontroll av varje deltjänst (REST/Storage/Edge).
+// UI-texterna är formulerade därefter och överdriver inte vad som verifierats.
+// 401/403 (auth) och 5xx (serverfel) klassas ALDRIG som offline (servern nåddes ju).
 //
 // Statusar: 'online' | 'unstable' | 'offline' | 'server_unreachable' | 'server_error' | 'session'
 // Sessionssignalen ('session') sätts separat av appen via setSessionValid() (lättviktig heuristik,

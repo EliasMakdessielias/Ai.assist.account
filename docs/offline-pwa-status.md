@@ -106,6 +106,109 @@ prestandaetapp.
 ### Avvikelser från planen
 - Inga funktionella avvikelser. Valde handskriven SW framför `vite-plugin-pwa` (motiverat ovan).
 
+## Etapp 1B – produktionshärdning ✅ (klar)
+
+### Automatisk buildId (ersätter manuell versionering)
+- `vite.config.js`-plugin `bokpilot-sw-build-id` ersätter `__BUILD_ID__` i `dist/sw.js` efter bygget.
+  Prioritet: `VERCEL_GIT_COMMIT_SHA`/`COMMIT_REF`/`VITE_BUILD_ID` → `git rev-parse --short=12 HEAD` →
+  content-hash av `dist/assets`. Deterministiskt per build, ändras när releasen ändras. Cache-namn =
+  `bokpilot-shell-<buildId>` / `bokpilot-assets-<buildId>`. Diagnostik via SW-message `GET_BUILD_ID`
+  → `getBuildId()` i `src/lib/pwa.js`, exponeras som `window.__bokpilotBuildId` + loggas i konsolen.
+  **Ingen manuell v1→v2 längre.**
+
+### Exakt cachematchningslogik (härdad fetch-handler)
+1. Endast `GET`. Allt annat passerar (network-only).
+2. Endast `url.origin === self.location.origin`. Cross-origin (Supabase/CDN/health) returneras aldrig av SW.
+3. `navigate`: `/offline.html` & `/kill-sw.html` → direkt nät m. cache-fallback. Övriga rutter → network-first;
+   vid lyckat svar cachas `/index.html` som skal; vid nätfel → cachat skal → `/offline.html` → `Response.error()`.
+4. `/assets/*` eller filändelse i `{js,mjs,css,woff(2),ttf,otf,eot,svg,png,jpg,jpeg,webp,gif,ico}` → cache-first.
+5. Cache sker ENDAST om `res.ok && status===200 && type==='basic' && redirected===false`
+   (utesluter redirects, opaque/cross-origin och felsvar). Asset-cache trimmas till max 80 poster (äldst först).
+6. Alla cacheoperationer är try/catch:ade → cachefel blockerar aldrig network-only-användning.
+7. Rensning vid `activate` tar bort endast `bokpilot-*` som inte är aktuell build.
+
+### Verkliga offline-tester (browser: Chromium via preview/CDP, dist-build)
+Origin-servern (localhost:4173) **stoppades på riktigt** under testerna:
+- ✅ Omladdning av startsidan offline → app-skalet bootade (titel rätt, `#root` fyllt, ingen webbläsar-felsida).
+- ✅ Direktladdning av djup SPA-route `/bokforing/ny` offline → SW serverade skal, routern bootade rätt route.
+- ✅ Samma-origin assets (manifest/logo/js/css) serverades från SW-cache medan origin var nere.
+- ✅ Supabase aldrig från cache (verifierat: 0 supabase-poster i Cache Storage; cross-origin rörs ej av SW).
+- ✅ Recovery: när origin kom tillbaka lyckades live-fetch igen.
+- ✅ buildId-rotation (1A-verifierat mönster, nu auto): ny build → waiting utan auto-aktivering →
+  SKIP_WAITING → aktiv + gammal cache rensad + kontrollerad reload.
+- **Begränsning:** äkta OS-flygplansläge på fysisk enhet bör fortfarande slutverifieras i produktion (Vercel).
+
+### Prestanda (localhost, dist) – före/efter
+| Mått | COLD (ingen SW styr) | WARM (SW styr) |
+|---|---|---|
+| TTFB | ~7 ms | ~7 ms |
+| FCP | ~64 ms | ~56 ms |
+| DOMContentLoaded | ~51 ms | ~38 ms |
+| load | ~52 ms | ~38 ms |
+| requests | 28 | 29 |
+| nätverksbytes (app-assets) | ~0 (HTTP-cache redan varm) | **0 – allt 29 från cache/SW** |
+
+- **Separering:** På localhost är nätverkskostnaden försumbar och webbläsarens **HTTP-cache** var redan varm,
+  så absoluta siffror underskattar en äkta nätverks-kallstart. Den mätbara SW-vinsten: **alla app-assets
+  serveras utan nätverk i varmt läge** (0 bytes) och fungerar även när origin är nere/instabil. Vite content-hash
+  gör assets cache-bara säkert (cache-first utan stale-risk). LCP gick ej att fånga tillförlitligt på den
+  sparsamma login-vyn i headless-läge → **bör mätas i produktion med Lighthouse** (rekommendation).
+- Ingen bundle-refaktor gjord (utanför scope).
+
+### Health-modell (precisering)
+- Probe = Supabase `/auth/v1/health` (publik, kort timeout, ej cachad). Detta är en **reachability-proxy**
+  för "BokPilots servrar nåbara", **inte** full hälsa per deltjänst (REST/Storage/Edge). UI-texterna är
+  preciserade: tooltip "BokPilots servrar svarar", "Internet finns men BokPilots servrar svarar inte" (5xx /
+  unreachable), "Din inloggning behöver förnyas – servern är nåbar" (session). 401/403 & 5xx ⇒ aldrig offline.
+- **Beslut:** byggde INTE ett nytt app-ägt health-endpoint denna etapp (undviker edge-cold-start och extra
+  attackyta). Reachability-proxy + preciserade texter räcker; ett dediketat `health` kan övervägas senare.
+
+### Externa ikonresurser
+- PWA-/statuskomponenterna (`NetworkStatusBadge`, `offline.html`, `kill-sw.html`) använder **inga** Tabler-/CDN-ikoner
+  (CSS-prickar + text) → fungerar fullt ut utan CDN. Verifierat (grep: 0 träffar på `ti `/jsdelivr i offline-komponenter).
+- Resten av appens Tabler-ikoner laddas fortfarande från jsdelivr (medvetet kvar; full ikon-lokalisering = senare UI-etapp).
+
+### CSP (Report-Only)
+- Lagt i `vercel.json` (rewrites bevarade) som **Content-Security-Policy-Report-Only** (blockerar inget):
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+  img-src 'self' data: blob: https://*.supabase.co; font-src 'self' data: https://cdn.jsdelivr.net;
+  connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; manifest-src 'self';
+  frame-ancestors 'self'; base-uri 'self'; object-src 'none'`.
+- Dessutom: `Cache-Control: no-cache` + `Service-Worker-Allowed: /` för `/sw.js`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Inventering:** inga `eval`/`new Function`/`dangerouslySetInnerHTML`/inline app-scripts (Vite injicerar extern modul).
+  `style-src 'unsafe-inline'` krävs p.g.a. React `style={{…}}` (inline style-attribut) – kvarstående undantag.
+  `style-src`/`font-src` tillåter jsdelivr (Tabler). **Kända Report-Only-överträdelser att lösa före enforce:**
+  de inline-`<script>` i `offline.html`/`kill-sv.html` (statiska recovery-sidor) – hash:as eller flyttas till fil;
+  ev. `style 'unsafe-inline'` kan ersättas med nonce/hashes i en senare etapp.
+- **Ej enforce ännu** (per krav): rapportläge ska verifieras i produktion först. Inget report-uri konfigurerat
+  (överträdelser syns i webbläsarkonsolen); ett rapport-endpoint kan läggas till senare.
+
+### Kill switch / recovery (verifierad)
+- Verifierat live: kill switch tog bort **endast** BokPilots SW-registrering + `bokpilot-*`-caches.
+  **Främmande cache (`other-system-v1`), `localStorage` (inkl. `activeCompanyId`) överlevde.** 0 SW-reg kvar.
+- Fungerar utan React-bundeln (`/kill-sw.html` är fristående HTML+inline-JS) och täcker flera buildId-caches
+  (raderar alla `bokpilot-*`) samt flera flikar (avregistrerar delad registrering). Rör aldrig Supabase-session/cookies/IndexedDB.
+
+### Ändrade filer (1B)
+`vite.config.js` (buildId-plugin), `public/sw.js` (auto buildId + härdad cache), `src/lib/pwa.js` (getBuildId/diagnostik),
+`src/lib/offline/networkHealth.js` (precisering), `src/components/offline/NetworkStatusBadge.jsx` (precisa texter),
+`vercel.json` (CSP-RO + headers + sw.js no-cache), `docs/offline-pwa-status.md`.
+
+### Installerade paket (1B)
+- **Inga.**
+
+### Kända risker/begränsningar (1B)
+- CSP är Report-Only; enforce kräver att inline-scripten i de två statiska HTML-sidorna hash:as/flyttas + ev. style-nonce.
+- Perf-siffror är från localhost (HTTP-cache varm); produktionsmätning (Lighthouse, throttling) rekommenderas för
+  representativ kall-vs-varm jämförelse och LCP.
+- Health = reachability-proxy (auth-gateway), ej per-tjänst.
+- `connect-src`/`img-src` använder wildcard `*.supabase.co` (kan snävas till exakt projekt-subdomän senare).
+
+### Rollback (1B)
+- Funktionellt: kill switch (`/kill-sw.html` / `window.__bokpilotKillSwitch()` / `bokpilot.pwa.disabled=1`) +
+  deploy-stub av `sw.js`. CSP-RO kan tas bort genom att radera `headers`-blocket i `vercel.json` (rewrites kvar).
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
 - **Etapp 2:** lokal autosave-pilot (IndexedDB/Dexie) för EN godkänd utkasttyp, ingen synk.
   Rekommenderad pilot: kundfakturautkast (eller AI-Bokslut-anteckning som lägsta risk). Se Etapp 0-rapport.
