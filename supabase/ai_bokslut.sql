@@ -22,6 +22,9 @@
 
 -- ── RPC:er ──────────────────────────────────────────────────────────────────
 --   bokslut_get_or_create(company, fiscal_year_id) -> engagement (kräver licens + medlemskap).
+--     Loggar audit: 'engagement_created' vid skapande, 'engagement_opened' vid öppning
+--     (strypt till max 1/timme/användare för att undvika spam vid sidladdningar). [migration
+--     ai_bokslut_audit_engagement_open]
 --   run_bokslut_analysis(engagement) -> engagement. Deterministisk regelmotor (läser verifikation_rows ⋈
 --     verifikationer för räkenskapsåret, accounts, bank_transactions, documents). Idempotent upsert,
 --     auto-resolve borttagna risk-checkar, recount, audit ('run_analysis', model='rule-engine', v1).
