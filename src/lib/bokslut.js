@@ -11,13 +11,22 @@ export const AI_WARNING = 'AI-genererat utkast. Måste granskas och godkännas a
 export const REGELVERK = ['K2']
 export const REGELVERK_PLANNED = ['K3']
 
-// Behörighetsnycklar (definierade som typer i MVP; roll-mappning skärps i Steg 2).
+// Behörighetsnycklar (de ursprungliga typerna; rollmappning enforced i DB, se nedan).
 export const PERMISSIONS = {
   READ: 'ai_bokslut_read',
   RUN: 'ai_bokslut_run_analysis',
   REVIEW: 'ai_bokslut_review',
   APPROVE: 'ai_bokslut_approve',
   CREATE_DRAFT: 'ai_bokslut_create_draft_adjustment',
+}
+
+// Rollbaserad behörighet – AUKTORITATIVT i databasen via RPC bokslut_can / bokslut_my_permissions
+// (mot user_companies.role). Detta är endast en spegling för UI/dokumentation.
+// admin = full; member = läsa/köra analys/tilldela/kommentera, men EJ markera klar/ignorera/godkänna.
+export const BOKSLUT_ACTIONS = ['read', 'run_analysis', 'assign_check', 'comment_check', 'resolve_check', 'ignore_check', 'approve_later', 'create_draft_later']
+export const BOKSLUT_ROLE_ACTIONS = {
+  admin: ['read', 'run_analysis', 'assign_check', 'comment_check', 'resolve_check', 'ignore_check', 'approve_later', 'create_draft_later'],
+  member: ['read', 'run_analysis', 'assign_check', 'comment_check'],
 }
 
 // Engagemangsstatus (översikt).

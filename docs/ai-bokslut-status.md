@@ -38,8 +38,11 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - ✅ check-actions
 - ✅ sidomeny-badge (+ realtime)
 
-**Återstår i Steg 1B:** rollbaserad behörighet för åtgärder (idag licens + medlemskap, ingen
-arbetsfördelning), samt att UI visar de fasta kategorierna som tom checklista redan innan analys körts
+- ✅ **rollbaserad behörighet** (tillagt): `bokslut_can` / `bokslut_my_permissions` mot `user_companies.role`.
+  admin = full; member = read/run_analysis/assign_check/comment_check (EJ resolve/ignore/approve/create_draft).
+  Tvingas i `bokslut_set_check_status`/`assign`/`comment`; UI grindar Klar/Ignorera/Återöppna för medlemmar.
+
+**Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
 
 ## 4. Vad som fortfarande saknas innan/ inför Steg 2
@@ -67,8 +70,14 @@ arbetsfördelning), samt att UI visar de fasta kategorierna som tom checklista r
 - Motorn **muterar aldrig** bokföring och kräver inloggad medlem (ingen system/cron-väg, till skillnad från Månadskontroll).
 
 **Check-actions**
-- **Ingen arbetsfördelning (SoD):** alla företagsmedlemmar kan markera klar/ignorera/tilldela. Approve-behörighet
-  är ännu inte tvingad → otillräcklig segregation of duties tills rollmappning byggs (Steg 1B/2).
+- **Arbetsfördelning (SoD) – nu rollstyrd:** endast `admin` får markera klar/ignorera/återöppna; `member` får
+  läsa, köra analys, tilldela och kommentera. Enforced server-side i RPC (raise med tydligt svenskt fel) och
+  grindat i UI. Approve/create_draft är definierade och admin-only (enforce när de byggs i Steg 2).
+- **Roll-vokabulär:** endast `admin` och `member` finns i appen (default `admin`); fler nivåer
+  (t.ex. redovisningskonsult/granskare) saknas och kan läggas till i `bokslut_can` när rollen införs.
+- **Nekande-audit:** nekade åtgärder ger tydligt fel men skrivs INTE till `bokslut_audit_log` (en RAISE rullar
+  tillbaka transaktionen inkl. en ev. auditrad; kräver out-of-band-loggning – noterat för senare). Beviljade
+  åtgärder loggas alltid.
 - `status='last'` blockerar mutationer, men kan inte sättas från UI ännu (ofarligt men oanvänt).
 
 **Auto-resolve**
@@ -105,6 +114,8 @@ arbetsfördelning), samt att UI visar de fasta kategorierna som tom checklista r
 
 **RPC:er** (SECURITY DEFINER)
 - `has_ai_feature(p_company, p_key) -> boolean`
+- `bokslut_can(p_company, p_action) -> boolean` (rollmappning mot user_companies.role)
+- `bokslut_my_permissions(p_company) -> jsonb` (alla 8 åtgärder → bool, för UI-grindning)
 - `bokslut_get_or_create(p_company, p_fiscal_year_id) -> jsonb` (loggar created/opened)
 - `run_bokslut_analysis(p_engagement) -> jsonb`
 - `bokslut_set_check_status(p_check, p_status, p_comment)`
@@ -119,6 +130,10 @@ arbetsfördelning), samt att UI visar de fasta kategorierna som tom checklista r
 - Lib/typer: `src/lib/bokslut.js` (+ `src/lib/bokslut.test.js`)
 - SQL-referens: `supabase/ai_bokslut.sql`
 
-**Migrationer:** `ai_bokslut_tables_and_license`, `ai_bokslut_engine_and_actions`, `ai_bokslut_audit_engagement_open`
+**Migrationer:** `ai_bokslut_tables_and_license`, `ai_bokslut_engine_and_actions`, `ai_bokslut_audit_engagement_open`,
+`ai_bokslut_role_permissions`
+
+**Behörighetsmodell:** licens + medlemskap = grund. Roll (`user_companies.role`): admin = alla 8 åtgärder;
+member = read/run_analysis/assign_check/comment_check. Speglas i `src/lib/bokslut.js` (`BOKSLUT_ROLE_ACTIONS`).
 
 **Licens-status:** `ai_bokslut_arsredovisning` aktiverad för testbolaget (`company_ai_features`).

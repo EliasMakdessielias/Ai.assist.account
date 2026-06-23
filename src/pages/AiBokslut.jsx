@@ -43,11 +43,13 @@ export default function AiBokslut() {
   const [audit, setAudit] = useState([])
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState(null)
+  const [perms, setPerms] = useState({})
 
   useEffect(() => {
     if (!company?.id) return
     setLicensed(null)
     supabase.rpc('has_ai_feature', { p_company: company.id, p_key: FEATURE_KEY }).then(({ data }) => setLicensed(!!data))
+    supabase.rpc('bokslut_my_permissions', { p_company: company.id }).then(({ data }) => setPerms(data || {}))
     supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('year', { ascending: false }).then(({ data }) => {
       setYears(data || [])
       const active = (data || []).find(y => y.status === 'active') || (data || [])[0]
@@ -183,12 +185,13 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer check={selected} user={user} onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
+      {selected && <CheckDrawer check={selected} user={user} perms={perms} onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
     </div>
   )
 }
 
-function CheckDrawer({ check, user, onClose, onChanged, navigate }) {
+function CheckDrawer({ check, user, perms = {}, onClose, onChanged, navigate }) {
+  const NO_RESOLVE = 'Endast admin kan markera kontroller som klara/ignorerade'
   const [busy, setBusy] = useState(false)
   const [comment, setComment] = useState('')
 
@@ -220,22 +223,23 @@ function CheckDrawer({ check, user, onClose, onChanged, navigate }) {
           {check.action_url && <button className="btn btn-primary w-full" onClick={() => navigate(check.action_url)}><i className="ti ti-arrow-right" /> Gå till åtgärd</button>}
 
           <div className="flex flex-wrap gap-2">
-            {check.status !== 'in_progress' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy} onClick={() => setStatus('in_progress', 'Markerad som påbörjad')}><i className="ti ti-player-play" /> Påbörja</button>}
-            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy} onClick={() => setStatus('resolved', 'Markerad som klar')}><i className="ti ti-check" /> Klar</button>}
-            {check.status !== 'needs_review' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy} onClick={() => setStatus('needs_review', 'Markerad för granskning')}><i className="ti ti-eye" /> Kräver granskning</button>}
-            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy} onClick={() => setStatus('ignored', 'Ignorerad')}><i className="ti ti-eye-off" /> Ignorera</button>}
-            {!isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy} onClick={() => setStatus('open', 'Återöppnad')}><i className="ti ti-rotate" /> Återöppna</button>}
+            {check.status !== 'in_progress' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.comment_check} onClick={() => setStatus('in_progress', 'Markerad som påbörjad')}><i className="ti ti-player-play" /> Påbörja</button>}
+            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.resolve_check} title={!perms.resolve_check ? NO_RESOLVE : undefined} onClick={() => setStatus('resolved', 'Markerad som klar')}><i className="ti ti-check" /> Klar</button>}
+            {check.status !== 'needs_review' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.comment_check} onClick={() => setStatus('needs_review', 'Markerad för granskning')}><i className="ti ti-eye" /> Kräver granskning</button>}
+            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.ignore_check} title={!perms.ignore_check ? NO_RESOLVE : undefined} onClick={() => setStatus('ignored', 'Ignorerad')}><i className="ti ti-eye-off" /> Ignorera</button>}
+            {!isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.resolve_check} title={!perms.resolve_check ? NO_RESOLVE : undefined} onClick={() => setStatus('open', 'Återöppnad')}><i className="ti ti-rotate" /> Återöppna</button>}
             {check.assigned_to === user?.id
-              ? <button className="btn text-sm" disabled={busy} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: null }, 'Tilldelning borttagen')}><i className="ti ti-user-off" /> Ta bort mig</button>
-              : <button className="btn text-sm" disabled={busy} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: user.id }, 'Tilldelad dig')}><i className="ti ti-user-check" /> Tilldela mig</button>}
+              ? <button className="btn text-sm" disabled={busy || !perms.assign_check} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: null }, 'Tilldelning borttagen')}><i className="ti ti-user-off" /> Ta bort mig</button>
+              : <button className="btn text-sm" disabled={busy || !perms.assign_check} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: user.id }, 'Tilldelad dig')}><i className="ti ti-user-check" /> Tilldela mig</button>}
           </div>
+          {!perms.resolve_check && <div className="text-[11px] text-gray-400 -mt-2"><i className="ti ti-info-circle mr-0.5" />Din roll (medlem) kan granska och kommentera. Endast admin markerar klar/ignorerar.</div>}
 
           <div>
             <div className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Kommentar</div>
             {check.comment && <div className="bg-gray-50 rounded-lg px-3 py-2 text-[13px] mb-2">{check.comment}</div>}
             <div className="flex gap-2">
               <textarea className="input text-sm flex-1" rows={2} placeholder="Skriv en kommentar…" value={comment} onChange={e => setComment(e.target.value)} />
-              <button className="btn btn-primary self-end" disabled={busy || !comment.trim()} onClick={async () => { await act('bokslut_comment_check', { p_check: check.id, p_comment: comment }, 'Kommentar sparad'); setComment('') }}><i className="ti ti-send" /></button>
+              <button className="btn btn-primary self-end" disabled={busy || !comment.trim() || !perms.comment_check} onClick={async () => { await act('bokslut_comment_check', { p_check: check.id, p_comment: comment }, 'Kommentar sparad'); setComment('') }}><i className="ti ti-send" /></button>
             </div>
           </div>
 
