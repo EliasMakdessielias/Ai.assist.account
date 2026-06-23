@@ -29,6 +29,15 @@ export const BOKSLUT_ROLE_ACTIONS = {
   member: ['read', 'run_analysis', 'assign_check', 'comment_check'],
 }
 
+// Manuella statusövergångar som admin får sätta (enforced i RPC set_bokslut_engagement_status).
+// 'last' låser engagemanget – inga ändringar därefter (endast läsning).
+export const ADMIN_SETTABLE_STATUSES = [
+  { key: 'klar_for_konsult', label: 'Klar för konsult', icon: 'ti-user-check' },
+  { key: 'godkand', label: 'Godkänn', icon: 'ti-circle-check' },
+  { key: 'avvisad', label: 'Avvisa', icon: 'ti-circle-x' },
+  { key: 'last', label: 'Lås', icon: 'ti-lock' },
+]
+
 // Engagemangsstatus (översikt).
 export const ENGAGEMENT_STATUS_META = {
   ej_paborjad: { label: 'Ej påbörjad', chip: 'bg-gray-100 text-gray-500' },

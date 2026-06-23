@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import {
-  FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, RISK_META, CHECK_STATUS_META,
+  FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -86,7 +86,15 @@ export default function AiBokslut() {
     setRunning(false)
   }
 
+  async function setEngStatus(s) {
+    if (!engagement) return
+    if (s === 'last' && !window.confirm('Lås engagemanget? Efter låsning kan inga ändringar göras – endast läsning. Det går inte att låsa upp.')) return
+    try { const { error } = await supabase.rpc('set_bokslut_engagement_status', { p_engagement: engagement.id, p_status: s }); if (error) throw error; toast.success('Status uppdaterad'); await loadEngagement() }
+    catch (e) { toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+  }
+
   const fy = years.find(y => y.id === fyId)
+  const locked = engagement?.status === 'last'
   const openChecks = useMemo(() => checks.filter(c => isOpenCheck(c.status)), [checks])
   const groups = useMemo(() => groupByCategory(checks), [checks])
 
@@ -114,9 +122,24 @@ export default function AiBokslut() {
         </select>
         <span className="text-[12px] text-gray-400">Regelverk: <b className="text-gray-600">K2</b></span>
         <div className="ml-auto flex items-center gap-2">
-          <button className="btn btn-primary font-medium" onClick={runAnalysis} disabled={running || !engagement}><i className={`ti ${running ? 'ti-loader-2 animate-spin' : 'ti-player-play'}`} /> {running ? 'Analyserar…' : 'Kör analys'}</button>
+          <button className="btn btn-primary font-medium" onClick={runAnalysis} disabled={running || !engagement || locked}><i className={`ti ${running ? 'ti-loader-2 animate-spin' : 'ti-player-play'}`} /> {running ? 'Analyserar…' : 'Kör analys'}</button>
         </div>
       </div>
+
+      {/* Statusövergångar (admin) */}
+      {engagement && perms.manage_status && !locked && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap text-sm">
+          <span className="text-[12px] text-gray-400">Ändra status:</span>
+          {ADMIN_SETTABLE_STATUSES.filter(s => s.key !== engagement.status).map(s => (
+            <button key={s.key} className={`btn text-sm ${s.key === 'last' ? 'text-red-600' : ''}`} onClick={() => setEngStatus(s.key)}><i className={`ti ${s.icon}`} /> {s.label}</button>
+          ))}
+        </div>
+      )}
+      {locked && (
+        <div className="flex items-center gap-2 bg-gray-100 border rounded-lg px-4 py-2 mb-3 text-[13px] text-gray-600" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
+          <i className="ti ti-lock text-gray-500" /> Engagemanget är <b className="mx-1">låst</b> – endast läsning. Inga ändringar eller ny analys kan göras.
+        </div>
+      )}
       <div className="text-[12px] text-gray-500 mb-3">{company?.name} · {company?.org_nr || '—'} · Räkenskapsår {fy?.year || '—'}{engagement?.last_analysis_at ? ` · Senaste analys ${fmt(engagement.last_analysis_at)}` : ''} · Ansvarig: {engagement?.ansvarig_user_id === user?.id ? (user?.email || 'Du') : '—'}</div>
 
       {/* Beständig AI-varning */}
@@ -185,13 +208,14 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer check={selected} user={user} perms={perms} onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
+      {selected && <CheckDrawer check={selected} user={user} perms={perms} locked={locked} onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
     </div>
   )
 }
 
-function CheckDrawer({ check, user, perms = {}, onClose, onChanged, navigate }) {
+function CheckDrawer({ check, user, perms = {}, locked = false, onClose, onChanged, navigate }) {
   const NO_RESOLVE = 'Endast admin kan markera kontroller som klara/ignorerade'
+  const LOCKED = 'Engagemanget är låst – inga ändringar tillåts'
   const [busy, setBusy] = useState(false)
   const [comment, setComment] = useState('')
 
@@ -223,23 +247,25 @@ function CheckDrawer({ check, user, perms = {}, onClose, onChanged, navigate }) 
           {check.action_url && <button className="btn btn-primary w-full" onClick={() => navigate(check.action_url)}><i className="ti ti-arrow-right" /> Gå till åtgärd</button>}
 
           <div className="flex flex-wrap gap-2">
-            {check.status !== 'in_progress' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.comment_check} onClick={() => setStatus('in_progress', 'Markerad som påbörjad')}><i className="ti ti-player-play" /> Påbörja</button>}
-            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.resolve_check} title={!perms.resolve_check ? NO_RESOLVE : undefined} onClick={() => setStatus('resolved', 'Markerad som klar')}><i className="ti ti-check" /> Klar</button>}
-            {check.status !== 'needs_review' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.comment_check} onClick={() => setStatus('needs_review', 'Markerad för granskning')}><i className="ti ti-eye" /> Kräver granskning</button>}
-            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.ignore_check} title={!perms.ignore_check ? NO_RESOLVE : undefined} onClick={() => setStatus('ignored', 'Ignorerad')}><i className="ti ti-eye-off" /> Ignorera</button>}
-            {!isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || !perms.resolve_check} title={!perms.resolve_check ? NO_RESOLVE : undefined} onClick={() => setStatus('open', 'Återöppnad')}><i className="ti ti-rotate" /> Återöppna</button>}
+            {check.status !== 'in_progress' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || locked || !perms.comment_check} title={locked ? LOCKED : undefined} onClick={() => setStatus('in_progress', 'Markerad som påbörjad')}><i className="ti ti-player-play" /> Påbörja</button>}
+            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || locked || !perms.resolve_check} title={locked ? LOCKED : (!perms.resolve_check ? NO_RESOLVE : undefined)} onClick={() => setStatus('resolved', 'Markerad som klar')}><i className="ti ti-check" /> Klar</button>}
+            {check.status !== 'needs_review' && isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || locked || !perms.comment_check} title={locked ? LOCKED : undefined} onClick={() => setStatus('needs_review', 'Markerad för granskning')}><i className="ti ti-eye" /> Kräver granskning</button>}
+            {isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || locked || !perms.ignore_check} title={locked ? LOCKED : (!perms.ignore_check ? NO_RESOLVE : undefined)} onClick={() => setStatus('ignored', 'Ignorerad')}><i className="ti ti-eye-off" /> Ignorera</button>}
+            {!isOpenCheck(check.status) && <button className="btn text-sm" disabled={busy || locked || !perms.resolve_check} title={locked ? LOCKED : (!perms.resolve_check ? NO_RESOLVE : undefined)} onClick={() => setStatus('open', 'Återöppnad')}><i className="ti ti-rotate" /> Återöppna</button>}
             {check.assigned_to === user?.id
-              ? <button className="btn text-sm" disabled={busy || !perms.assign_check} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: null }, 'Tilldelning borttagen')}><i className="ti ti-user-off" /> Ta bort mig</button>
-              : <button className="btn text-sm" disabled={busy || !perms.assign_check} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: user.id }, 'Tilldelad dig')}><i className="ti ti-user-check" /> Tilldela mig</button>}
+              ? <button className="btn text-sm" disabled={busy || locked || !perms.assign_check} title={locked ? LOCKED : undefined} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: null }, 'Tilldelning borttagen')}><i className="ti ti-user-off" /> Ta bort mig</button>
+              : <button className="btn text-sm" disabled={busy || locked || !perms.assign_check} title={locked ? LOCKED : undefined} onClick={() => act('bokslut_assign_check', { p_check: check.id, p_user: user.id }, 'Tilldelad dig')}><i className="ti ti-user-check" /> Tilldela mig</button>}
           </div>
-          {!perms.resolve_check && <div className="text-[11px] text-gray-400 -mt-2"><i className="ti ti-info-circle mr-0.5" />Din roll (medlem) kan granska och kommentera. Endast admin markerar klar/ignorerar.</div>}
+          {locked
+            ? <div className="text-[11px] text-gray-400 -mt-2"><i className="ti ti-lock mr-0.5" />Engagemanget är låst – endast läsning.</div>
+            : !perms.resolve_check && <div className="text-[11px] text-gray-400 -mt-2"><i className="ti ti-info-circle mr-0.5" />Din roll (medlem) kan granska och kommentera. Endast admin markerar klar/ignorerar.</div>}
 
           <div>
             <div className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Kommentar</div>
             {check.comment && <div className="bg-gray-50 rounded-lg px-3 py-2 text-[13px] mb-2">{check.comment}</div>}
             <div className="flex gap-2">
               <textarea className="input text-sm flex-1" rows={2} placeholder="Skriv en kommentar…" value={comment} onChange={e => setComment(e.target.value)} />
-              <button className="btn btn-primary self-end" disabled={busy || !comment.trim() || !perms.comment_check} onClick={async () => { await act('bokslut_comment_check', { p_check: check.id, p_comment: comment }, 'Kommentar sparad'); setComment('') }}><i className="ti ti-send" /></button>
+              <button className="btn btn-primary self-end" disabled={busy || locked || !comment.trim() || !perms.comment_check} onClick={async () => { await act('bokslut_comment_check', { p_check: check.id, p_comment: comment }, 'Kommentar sparad'); setComment('') }}><i className="ti ti-send" /></button>
             </div>
           </div>
 

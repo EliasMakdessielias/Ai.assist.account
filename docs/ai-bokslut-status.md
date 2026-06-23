@@ -41,6 +41,11 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - ✅ **rollbaserad behörighet** (tillagt): `bokslut_can` / `bokslut_my_permissions` mot `user_companies.role`.
   admin = full; member = read/run_analysis/assign_check/comment_check (EJ resolve/ignore/approve/create_draft).
   Tvingas i `bokslut_set_check_status`/`assign`/`comment`; UI grindar Klar/Ignorera/Återöppna för medlemmar.
+- ✅ **statusövergångar för engagemang** (tillagt): `set_bokslut_engagement_status` (admin-only, behörighet
+  `manage_status`) sätter klar_for_konsult/godkand/avvisad/last. Auto-status (pagar/kraver_granskning) härleds av
+  `_bokslut_recount`; admin-milstolpar (klar_for_konsult/godkand/avvisad/last) bevaras. `last` låser allt
+  (endast läsning, ingen återgång). Alla statusändringar loggas (`engagement_status`). UI: statusknappar +
+  lås-bekräftelse + låst-banner; vid lås disablas kör analys och alla check-åtgärder.
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
@@ -78,7 +83,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - **Nekande-audit:** nekade åtgärder ger tydligt fel men skrivs INTE till `bokslut_audit_log` (en RAISE rullar
   tillbaka transaktionen inkl. en ev. auditrad; kräver out-of-band-loggning – noterat för senare). Beviljade
   åtgärder loggas alltid.
-- `status='last'` blockerar mutationer, men kan inte sättas från UI ännu (ofarligt men oanvänt).
+- `status='last'` kan nu sättas av admin från UI (med bekräftelse) och blockerar därefter alla mutationer
+  (check-åtgärder, statusändring, ny analys). **Ingen upplåsning** finns (avsiktligt i detta steg) – noterat
+  som möjlig framtida funktion (t.ex. superadmin-unlock).
 
 **Auto-resolve**
 - Auto-löser endast `status='open'` som inte längre matchar (rör inte `needs_review`/`in_progress`/
@@ -115,7 +122,8 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 **RPC:er** (SECURITY DEFINER)
 - `has_ai_feature(p_company, p_key) -> boolean`
 - `bokslut_can(p_company, p_action) -> boolean` (rollmappning mot user_companies.role)
-- `bokslut_my_permissions(p_company) -> jsonb` (alla 8 åtgärder → bool, för UI-grindning)
+- `bokslut_my_permissions(p_company) -> jsonb` (alla åtgärder inkl. manage_status → bool, för UI-grindning)
+- `set_bokslut_engagement_status(p_engagement, p_status)` (admin-only; klar_for_konsult/godkand/avvisad/last; loggar)
 - `bokslut_get_or_create(p_company, p_fiscal_year_id) -> jsonb` (loggar created/opened)
 - `run_bokslut_analysis(p_engagement) -> jsonb`
 - `bokslut_set_check_status(p_check, p_status, p_comment)`
@@ -131,7 +139,7 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - SQL-referens: `supabase/ai_bokslut.sql`
 
 **Migrationer:** `ai_bokslut_tables_and_license`, `ai_bokslut_engine_and_actions`, `ai_bokslut_audit_engagement_open`,
-`ai_bokslut_role_permissions`
+`ai_bokslut_role_permissions`, `ai_bokslut_engagement_status_transitions`
 
 **Behörighetsmodell:** licens + medlemskap = grund. Roll (`user_companies.role`): admin = alla 8 åtgärder;
 member = read/run_analysis/assign_check/comment_check. Speglas i `src/lib/bokslut.js` (`BOKSLUT_ROLE_ACTIONS`).
