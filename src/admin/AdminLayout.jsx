@@ -13,12 +13,14 @@ const NAV = [
   { to: '/support', label: 'Support', icon: 'ti-lifebuoy', need: 'support' },
   { to: '/system', label: 'Systemövervakning', icon: 'ti-activity', need: 'ops' },
   { to: '/ocr', label: 'OCR-test', icon: 'ti-scan', need: 'ops' },
+  { to: '/bokslut-denied', label: 'Bokslut – nekade', icon: 'ti-shield-x', need: 'superadmin' },
 ]
 
 export default function AdminLayout({ access }) {
   const { user, signOut } = useAuth()
   const allow = need => need === 'any' || (need === 'ops' && access.canViewOperations) ||
-    (need === 'support' && access.canViewSupport) || (need === 'billing' && access.canViewBilling)
+    (need === 'support' && access.canViewSupport) || (need === 'billing' && access.canViewBilling) ||
+    (need === 'superadmin' && access.isSuperadmin)
   const roleLabel = access.isSuperadmin ? 'Superadmin' : access.isReadOnly ? 'Read-only' : (access.roles || []).join(', ') || 'Admin'
 
   // Support-kö: antal ärenden som väntar på agent (nya + kundsvar). Uppdateras i realtid.

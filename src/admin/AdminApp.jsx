@@ -11,6 +11,7 @@ import Systemovervakning from '../pages/Systemovervakning'
 import SupportAdmin from '../pages/SupportAdmin'
 import BillingAdmin from '../pages/BillingAdmin'
 import OcrTest from '../pages/OcrTest'
+import BokslutDeniedLog from '../pages/BokslutDeniedLog'
 
 // Härled ett robust access-objekt ur platformAccess (my_platform_access).
 // Tål både gamla formen (före read_only-migrationen) och nya (canViewBilling/isReadOnly).
@@ -66,6 +67,7 @@ export default function AdminApp() {
           {access.canViewSupport && <Route path="support" element={<SupportAdmin />} />}
           {access.canViewOperations && <Route path="system" element={<Systemovervakning />} />}
           {access.canViewOperations && <Route path="ocr" element={<OcrTest />} />}
+          {access.isSuperadmin && <Route path="bokslut-denied" element={<BokslutDeniedLog />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

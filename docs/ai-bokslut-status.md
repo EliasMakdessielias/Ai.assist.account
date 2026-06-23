@@ -92,6 +92,10 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   visas på sidan). Avvägning: loggningen är klientdriven (anropas vid SQLSTATE 42501 / licens-/medlemsavslag);
   helt server-garanterad logg även för direkta API-anrop skulle kräva autonom transaktion (dblink) med lagrade
   DB-uppgifter – medvetet bortvalt p.g.a. credential-/säkerhetsrisk.
+- ✅ **Plattformsadmin-vy (tillagt):** read-only vy i Control Center (`/bokslut-denied`, endast superadmin)
+  med tabell (tid/företag/engagemang/användare/roll/åtgärd/orsak/route) och filter (datumintervall, company_id,
+  user_id, åtgärd, roll + fritextsök). Gatad i AdminApp (`access.isSuperadmin`) och av RLS. Ingen radering/
+  ändring/export. Icke-superadmin ser varken menyval, route eller data.
 - `status='last'` kan nu sättas av admin från UI (med bekräftelse) och blockerar därefter alla mutationer
   (check-åtgärder, statusändring, ny analys). **Ingen upplåsning** finns (avsiktligt i detta steg) – noterat
   som möjlig framtida funktion (t.ex. superadmin-unlock).
@@ -147,6 +151,8 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 
 **Routes / frontend**
 - Route: `/ai-bokslut` → `src/pages/AiBokslut.jsx` (i `src/App.jsx`)
+- Adminroute (Control Center): `/bokslut-denied` → `src/pages/BokslutDeniedLog.jsx` (endast superadmin; i
+  `src/admin/AdminApp.jsx` + nav i `src/admin/AdminLayout.jsx`)
 - Sidomeny: "AI Bokslut & Årsredovisning" i Översikt/AI-paketet, licensgrindat + badge (`src/components/Sidebar.jsx`)
 - Lib/typer: `src/lib/bokslut.js` (+ `src/lib/bokslut.test.js`)
 - SQL-referens: `supabase/ai_bokslut.sql`
