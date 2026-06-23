@@ -119,6 +119,21 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   UI: "Förhandsgranska export"/"Skapa gransknings-PDF", exporthistorik + status, valideringsvarningar före
   export. Audit: export_prepared/ready/failed; nekat → `bokslut_denied_log`.
   **Ingår INTE (medvetet):** e-inlämning till Bolagsverket, automatisk signering, externt utskick, K3.
+- ✅ **Serverrenderad arkiv-PDF + kvalitetskontroller (Steg 2C-5, tillagt):** edge `annual-report-pdf`
+  (**pdf-lib**, ren JS – ingen headless-browser) renderar hela K2-dokumentet (rubrik, alla sex sektioner,
+  RR/BR som tabeller, sidnummer, sidfot med export-id + datum, diagonal UTKAST-vattenstämpel), laddar upp
+  till **privat bucket `annual-report-exports`** (path `{company_id}/{draft_id}/{export_id}.pdf`, service role),
+  beräknar SHA-256-checksum, kör kvalitetskontroller och finaliserar. Nya kolumner på `annual_report_exports`:
+  storage_bucket, storage_path, checksum, render_engine, quality_status (not_checked/passed/failed/warning),
+  quality_report. RPC: `annual_report_request_server_pdf` (admin, skapar rad + render-kontext),
+  `annual_report_finalize_server_pdf`, `annual_report_get_export_download_url` (read – returnerar bucket/path
+  för **tidsbegränsad signerad URL** i klienten; loggar export_opened), `annual_report_run_pdf_quality_check`
+  (oberoende DB-kontroll: fil i storage + storlek > 0; nedgraderar alltid till failed). Kvalitetskontroller:
+  filstorlek > 0, minst en sida, bolagsnamn, org.nr, alla sex sektioner, samt att UTKAST-/validerings-/AI-varning
+  finns när de ska. Nedladdning via **storage-RLS** (SELECT per bolag på path). Locked = read-only export tillåts;
+  nekat → `bokslut_denied_log`; export_prepared/ready/failed/opened/quality_checked audit-loggas. UI: "Skapa
+  arkiv-PDF", renderstatus, quality-chip, expanderbar quality_report (per kontroll + sidor/storlek/checksum),
+  "Ladda ner PDF". **Ingår INTE:** e-inlämning, signering, externt utskick, K3.
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
@@ -126,9 +141,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 ## 4. Vad som fortfarande saknas (kommande steg)
 - **Draft adjustments / bokslutsverifikationer** (utkast till verifikationer — får ALDRIG bokföras automatiskt).
   Medvetet UTANFÖR AI-förslag och K2-utkastet (dessa är endast granskningsstöd, skapar inga verifikationer).
-- **K2-årsredovisningsutkast – nästa steg (2C-5+):** e-inlämning till Bolagsverket, automatisk/digital
-  signering, formell/juridisk fullständighetskontroll och serverrenderad PDF/arkivfil. (Struktur+RR/BR = 2C-1,
-  validering+spärrar = 2C-2, AI-texter = 2C-3, export/gransknings-PDF via utskrift = 2C-4 är klara.)
+- **K2-årsredovisningsutkast – nästa steg (2C-6+):** e-inlämning till Bolagsverket, automatisk/digital
+  signering och formell/juridisk fullständighetskontroll. (Struktur+RR/BR = 2C-1, validering+spärrar = 2C-2,
+  AI-texter = 2C-3, export/gransknings-PDF via utskrift = 2C-4, serverrenderad arkiv-PDF + kvalitetskontroller = 2C-5 är klara.)
 - **K3-regelverk** (arkitekturen är förberedd via `regelverk`-kolumn).
 - **Djupare avstämning** i kontrollkonto-checkarna (idag `needs_review` med saldovisning, ingen reskontra-matchning).
 
@@ -214,8 +229,11 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `annual_report_validation_items` (draft_id, engagement_id, company_id, section_id, validation_key [unik per
   draft], title, description, severity, status, source, source_data, suggested_action, resolved_by/at,
   ignored_by/at, ignored_reason, created/updated) – deterministiska valideringspunkter (kontrollstöd, ingen bokföring).
-- `annual_report_exports` (draft_id, engagement_id, company_id, export_type, status, file_path, file_name,
-  file_size, validation_summary, error, generated_by/at, created_at) – gransknings-exporter (ingen inlämning).
+- `annual_report_exports` (draft_id, engagement_id, company_id, export_type [review_pdf/html_preview/archive_pdf],
+  status, file_path, file_name, file_size, validation_summary, error, storage_bucket, storage_path, checksum,
+  render_engine, quality_status, quality_report, generated_by/at, created_at) – gransknings-/arkivexporter (ingen inlämning).
+- Storage: privat bucket `annual-report-exports` (SELECT-policy per bolag på path `{company_id}/…`); arkiv-PDF
+  laddas upp av edge (service role), laddas ner via tidsbegränsad signerad URL.
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -252,16 +270,23 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - K2-export: `annual_report_prepare_export(p_draft, p_export_type)` (kräver draft+sektioner, fångar valideringssammanfattning),
   `annual_report_list_exports(p_draft)`, `annual_report_mark_export_ready(p_export, p_file_path, p_file_name, p_file_size)`,
   `annual_report_mark_export_failed(p_export, p_error)`. Behörighet `annual_report_write` (admin); locked = read-only export tillåts.
+- K2 server-/arkiv-PDF: `annual_report_request_server_pdf(p_draft)` (skapar rad + render-kontext),
+  `annual_report_finalize_server_pdf(p_export, p_storage_path, p_file_name, p_file_size, p_checksum, p_render_engine, p_quality_status, p_quality_report)`,
+  `annual_report_get_export_download_url(p_export)` (read; bucket/path för signerad URL),
+  `annual_report_run_pdf_quality_check(p_export)` (oberoende DB-kontroll av storage/storlek).
 - Migrationer: `ai_bokslut_annual_report_tables`, `ai_bokslut_annual_report_rpcs`, `ai_bokslut_annual_report_validation_table`,
   `ai_bokslut_annual_report_validation_rpcs`, `ai_bokslut_ar_section_label_helper`,
   `ai_bokslut_annual_report_ai_text_columns`, `ai_bokslut_annual_report_ai_text_rpcs`,
-  `ai_bokslut_annual_report_exports_table`, `ai_bokslut_annual_report_export_rpcs`.
+  `ai_bokslut_annual_report_exports_table`, `ai_bokslut_annual_report_export_rpcs`,
+  `ai_bokslut_annual_report_pdf_columns_storage`, `ai_bokslut_annual_report_server_pdf_rpcs`, `ai_bokslut_pdf_quality_recheck_downgrade`.
 - interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`, `_bokslut_attachment_guard(p_attachment)`
 
 **Edge-funktioner:** `bokslut-ai` (Gemini-granskningsförslag, strikt JSON, quota; läser via `bokslut_ai_context`,
 sparar via `bokslut_save_ai_suggestions`). `annual-report-ai` (Gemini-textutkast för förvaltningsberättelse/noter,
 strikt JSON, quota; läser via `annual_report_ai_context`, sparar via `annual_report_save_ai_texts` – ändrar aldrig
-siffror/RR/BR/status). `supabase/functions/{bokslut-ai,annual-report-ai}/index.ts`.
+siffror/RR/BR/status). `annual-report-pdf` (serverrenderad arkiv-PDF med pdf-lib; läser via
+`annual_report_request_server_pdf`, laddar upp till privat bucket, finaliserar via `annual_report_finalize_server_pdf`).
+`supabase/functions/{bokslut-ai,annual-report-ai,annual-report-pdf}/index.ts`.
 
 **Routes / frontend**
 - Route: `/ai-bokslut` → `src/pages/AiBokslut.jsx` (i `src/App.jsx`)

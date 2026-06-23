@@ -244,11 +244,23 @@ export const AI_TEXT_SECTIONS = ['forvaltningsberattelse', 'noter']
 export const AI_TEXT_SECTIONS_NOTE = 'Endast Förvaltningsberättelse och Noter påverkas. AI ändrar aldrig siffror, resultat- eller balansräkning.'
 
 // Export/PDF (Steg 2C-4): gransknings-export. Ingen e-inlämning, ingen signering, inget skickas externt.
-export const EXPORT_TYPE_LABEL = { review_pdf: 'Gransknings-PDF', html_preview: 'HTML-förhandsvisning' }
+export const EXPORT_TYPE_LABEL = { review_pdf: 'Gransknings-PDF', html_preview: 'HTML-förhandsvisning', archive_pdf: 'Arkiv-PDF (server)' }
 export const EXPORT_STATUS_META = {
   generating: { label: 'Skapas', chip: 'bg-amber-100 text-amber-700' },
   ready: { label: 'Klar', chip: 'bg-green-100 text-green-700' },
   failed: { label: 'Misslyckades', chip: 'bg-red-100 text-red-700' },
+}
+export const QUALITY_STATUS_META = {
+  not_checked: { label: 'Ej kontrollerad', chip: 'bg-gray-100 text-gray-500' },
+  passed: { label: 'Kvalitet OK', chip: 'bg-green-100 text-green-700' },
+  warning: { label: 'Kvalitet: varning', chip: 'bg-amber-100 text-amber-700' },
+  failed: { label: 'Kvalitet: underkänd', chip: 'bg-red-100 text-red-700' },
+}
+export const QUALITY_CHECK_LABEL = {
+  file_size_positive: 'Filstorlek > 0', has_pages: 'Minst en sida', has_company_name: 'Innehåller bolagsnamn',
+  has_org_nr: 'Innehåller organisationsnummer', has_all_sections: 'Alla sex sektioner med',
+  utkast_warning_present: 'UTKAST-varning när ej godkänd', ai_warning_present: 'AI-varning när AI-text finns',
+  validation_warning_present: 'Valideringsvarning vid öppna high/critical',
 }
 export const NO_DRAFT_MESSAGE = 'Skapa årsredovisningsutkast först.'
 // Varningar/vattenstämplar som ska visas i exporten.

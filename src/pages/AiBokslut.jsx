@@ -12,7 +12,7 @@ import {
   VALIDATION_WARNING, VALIDATION_SEVERITY_META, VALIDATION_STATUS_META, VALIDATION_SOURCE_LABEL,
   validationSummary, approveBlockReason, lockBlockReason,
   AI_TEXT_WARNING, AI_TEXT_SECTIONS_NOTE,
-  EXPORT_TYPE_LABEL, EXPORT_STATUS_META, exportWarnings,
+  EXPORT_TYPE_LABEL, EXPORT_STATUS_META, QUALITY_STATUS_META, QUALITY_CHECK_LABEL, exportWarnings,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -745,6 +745,7 @@ function AnnualReportValidation({ engagement, draft, items, summary, canWrite, o
 function AnnualReportExport({ engagement, company, fy, draft, sections, validation, exports, canExport, onChanged }) {
   const [busy, setBusy] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [expanded, setExpanded] = useState(null)
   const warnings = useMemo(() => exportWarnings({ draft, sections, validation }), [draft, sections, validation])
 
   async function runExport(type) {
@@ -765,6 +766,29 @@ function AnnualReportExport({ engagement, company, fy, draft, sections, validati
     setBusy(null)
   }
 
+  // Serverrenderad arkiv-PDF via edge (pdf-lib → storage). Ingen inlämning, ingen signering.
+  async function generateArchivePdf() {
+    if (!sections || sections.length === 0) { toast.error('Skapa årsredovisningsutkast först.'); return }
+    setBusy('archive_pdf')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('annual-report-pdf', { body: { draft_id: draft.id }, headers: { Authorization: `Bearer ${session?.access_token}` } })
+      if (error) { let m = error.message, code; try { const b = await error.context.json(); if (b?.error) m = b.error; code = b?.code } catch { /* ignore */ } const e2 = new Error(m); e2.code = code; throw e2 }
+      if (data?.error) { const e2 = new Error(data.error); e2.code = data.code; throw e2 }
+      toast.success(`Arkiv-PDF skapad (${data?.page_count ?? '?'} sidor, kvalitet: ${data?.quality_status ?? '?'})`); await onChanged()
+    } catch (e) { await logDenied({ engagement: engagement.id }, 'export:archive_pdf', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte skapa arkiv-PDF') }
+    setBusy(null)
+  }
+
+  async function downloadPdf(ex) {
+    try {
+      const { data, error } = await supabase.rpc('annual_report_get_export_download_url', { p_export: ex.id }); if (error) throw error
+      const { data: signed, error: sErr } = await supabase.storage.from(data.bucket).createSignedUrl(data.path, 120)
+      if (sErr || !signed?.signedUrl) throw new Error('Kunde inte skapa nedladdningslänk')
+      window.open(signed.signedUrl, '_blank', 'noopener')
+    } catch (e) { await logDenied({ engagement: engagement.id }, 'export_download', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ladda ner') }
+  }
+
   return (
     <div className="border-t" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
       <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap">
@@ -774,6 +798,7 @@ function AnnualReportExport({ engagement, company, fy, draft, sections, validati
           <div className="ml-auto flex flex-wrap gap-2">
             <button className="btn text-sm" disabled={busy} onClick={() => runExport('html_preview')}><i className={`ti ${busy === 'html_preview' ? 'ti-loader-2 animate-spin' : 'ti-eye'}`} /> Förhandsgranska export</button>
             <button className="btn text-sm" disabled={busy} onClick={() => runExport('review_pdf')}><i className={`ti ${busy === 'review_pdf' ? 'ti-loader-2 animate-spin' : 'ti-printer'}`} /> Skapa gransknings-PDF</button>
+            <button className="btn btn-primary text-sm" disabled={busy} onClick={generateArchivePdf}><i className={`ti ${busy === 'archive_pdf' ? 'ti-loader-2 animate-spin' : 'ti-file-download'}`} /> {busy === 'archive_pdf' ? 'Renderar…' : 'Skapa arkiv-PDF'}</button>
           </div>
         )}
       </div>
@@ -789,16 +814,36 @@ function AnnualReportExport({ engagement, company, fy, draft, sections, validati
       {exports && exports.length > 0 && (
         <div className="px-4 pb-2.5">
           <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Exporthistorik</div>
-          <div className="space-y-0.5">
-            {exports.slice(0, 8).map(ex => (
-              <div key={ex.id} className="text-[12px] text-gray-600 flex items-center gap-2 flex-wrap">
-                <Chip meta={EXPORT_STATUS_META[ex.status]} />
-                <span>{EXPORT_TYPE_LABEL[ex.export_type] || ex.export_type}</span>
-                <span className="text-gray-400">{ex.generated_at ? fmt(ex.generated_at) : '–'}</span>
-                {ex.file_name && <span className="text-gray-400">· {ex.file_name}</span>}
-                {ex.status === 'ready' && <button className="text-purple-600 hover:underline" onClick={() => setPreview({ autoPrint: false })}>Öppna förhandsvisning</button>}
-              </div>
-            ))}
+          <div className="space-y-1">
+            {exports.slice(0, 8).map(ex => {
+              const isPdf = ex.export_type === 'archive_pdf'
+              const qr = ex.quality_report || {}
+              const checks = qr.checks || qr.edge_checks || null
+              return (
+                <div key={ex.id} className="text-[12px] text-gray-600">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Chip meta={EXPORT_STATUS_META[ex.status]} />
+                    <span>{EXPORT_TYPE_LABEL[ex.export_type] || ex.export_type}</span>
+                    {isPdf && ex.quality_status && <Chip meta={QUALITY_STATUS_META[ex.quality_status]} />}
+                    <span className="text-gray-400">{ex.generated_at ? fmt(ex.generated_at) : '–'}</span>
+                    {ex.file_name && <span className="text-gray-400">· {ex.file_name}</span>}
+                    {isPdf && ex.status === 'ready' && <button className="text-purple-600 hover:underline" onClick={() => downloadPdf(ex)}><i className="ti ti-download mr-0.5" />Ladda ner PDF</button>}
+                    {!isPdf && ex.status === 'ready' && <button className="text-purple-600 hover:underline" onClick={() => setPreview({ autoPrint: false })}>Öppna förhandsvisning</button>}
+                    {ex.status === 'failed' && ex.error && <span className="text-red-600">· {ex.error}</span>}
+                    {isPdf && (checks || qr.db_recheck) && <button className="text-gray-400 hover:text-gray-700" onClick={() => setExpanded(expanded === ex.id ? null : ex.id)}>{expanded === ex.id ? 'Dölj kvalitet' : 'Visa kvalitet'}</button>}
+                  </div>
+                  {isPdf && expanded === ex.id && (
+                    <div className="ml-6 mt-1 mb-1 p-2 bg-gray-50 rounded text-[11px] space-y-0.5" style={{ border: '0.5px solid rgba(0,0,0,0.06)' }}>
+                      {qr.page_count !== undefined && <div className="text-gray-500">Sidor: {qr.page_count} · Storlek: {ex.file_size ?? '–'} byte{ex.checksum ? ` · SHA-256: ${String(ex.checksum).slice(0, 12)}…` : ''}</div>}
+                      {checks && Object.entries(checks).map(([k, v]) => (
+                        <div key={k} className={v ? 'text-green-700' : 'text-red-600'}><i className={`ti ${v ? 'ti-check' : 'ti-x'} mr-1`} />{QUALITY_CHECK_LABEL[k] || k}</div>
+                      ))}
+                      {qr.db_recheck && <div className="text-gray-500 pt-1 border-t mt-1" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>Senaste DB-kontroll: fil i storage: {String(qr.db_recheck.file_in_storage)} · storlek &gt; 0: {String(qr.db_recheck.file_size_positive)}</div>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
