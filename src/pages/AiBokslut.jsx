@@ -11,6 +11,7 @@ import {
   ANNUAL_REPORT_WARNING, NO_COMPARATIVE_MESSAGE, DRAFT_STATUS_META, SECTION_STATUS_META, SECTION_LABEL, STRUCTURED_FIELD_LABEL,
   VALIDATION_WARNING, VALIDATION_SEVERITY_META, VALIDATION_STATUS_META, VALIDATION_SOURCE_LABEL,
   validationSummary, approveBlockReason, lockBlockReason,
+  AI_TEXT_WARNING, AI_TEXT_SECTIONS_NOTE,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -63,6 +64,7 @@ export default function AiBokslut() {
   const [arValidation, setArValidation] = useState([])
   const [generatingDraft, setGeneratingDraft] = useState(false)
   const [validating, setValidating] = useState(false)
+  const [generatingTexts, setGeneratingTexts] = useState(false)
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -161,6 +163,19 @@ export default function AiBokslut() {
     try { const { data, error } = await supabase.rpc('annual_report_run_validation', { p_draft: arDraft.id }); if (error) throw error; toast.success(`Validering klar: ${data?.open ?? 0} öppna punkter`); await loadEngagement() }
     catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'run_validation', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte validera utkast') }
     setValidating(false)
+  }
+
+  async function generateTexts() {
+    if (!arDraft) return
+    setGeneratingTexts(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('annual-report-ai', { body: { draft_id: arDraft.id }, headers: { Authorization: `Bearer ${session?.access_token}` } })
+      if (error) { let m = error.message, code; try { const b = await error.context.json(); if (b?.error) m = b.error; code = b?.code } catch { /* ignore */ } const e2 = new Error(m); e2.code = code; throw e2 }
+      if (data?.error) { const e2 = new Error(data.error); e2.code = data.code; throw e2 }
+      toast.success(`${data?.updated ?? 0} AI-texter genererade (kräver granskning)`); await loadEngagement()
+    } catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'generate_ai_texts', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte generera AI-texter') }
+    setGeneratingTexts(false)
   }
 
   const fy = years.find(y => y.id === fyId)
@@ -272,7 +287,7 @@ export default function AiBokslut() {
 
       {/* Årsredovisningsutkast K2 (Steg 2C-1) */}
       <div className="mt-5">
-        {engagement && <AnnualReportPanel engagement={engagement} draft={arDraft} sections={arSections} validation={arValidation} perms={perms} locked={locked} generating={generatingDraft} validating={validating} onGenerate={generateDraft} onValidate={runValidation} onChanged={loadEngagement} />}
+        {engagement && <AnnualReportPanel engagement={engagement} draft={arDraft} sections={arSections} validation={arValidation} perms={perms} locked={locked} generating={generatingDraft} validating={validating} generatingTexts={generatingTexts} onGenerate={generateDraft} onValidate={runValidation} onGenerateTexts={generateTexts} onChanged={loadEngagement} />}
       </div>
 
       {/* Spårbarhet (audit) */}
@@ -561,7 +576,7 @@ function AiSuggestionsPanel({ engagement, suggestions, perms, locked, generating
 }
 
 // ── K2-årsredovisningsutkast (Steg 2C-1). Struktur + spårbarhet. Bokför aldrig, lämnar inte in, godkänner inte automatiskt. ──
-function AnnualReportPanel({ engagement, draft, sections, validation, perms, locked, generating, validating, onGenerate, onValidate, onChanged }) {
+function AnnualReportPanel({ engagement, draft, sections, validation, perms, locked, generating, validating, generatingTexts, onGenerate, onValidate, onGenerateTexts, onChanged }) {
   const [openSection, setOpenSection] = useState(null)
   const [busy, setBusy] = useState(false)
   const draftLocked = draft?.status === 'locked'
@@ -587,6 +602,11 @@ function AnnualReportPanel({ engagement, draft, sections, validation, perms, loc
         {draft && <Chip meta={DRAFT_STATUS_META[draft.status]} />}
         {draftLocked && <span className="text-[11px] text-gray-500"><i className="ti ti-lock mr-0.5" />Låst utkast</span>}
         <div className="ml-auto flex flex-wrap gap-2">
+          {draft && perms.annual_report_write && !readOnly && (
+            <button className="btn text-sm" disabled={generatingTexts} onClick={onGenerateTexts} title={AI_TEXT_SECTIONS_NOTE}>
+              <i className={`ti ${generatingTexts ? 'ti-loader-2 animate-spin' : 'ti-sparkles'}`} /> {generatingTexts ? 'Skriver…' : 'Generera AI-texter'}
+            </button>
+          )}
           {draft && perms.annual_report_write && (
             <button className="btn text-sm" disabled={validating} onClick={onValidate}>
               <i className={`ti ${validating ? 'ti-loader-2 animate-spin' : 'ti-checklist'}`} /> {validating ? 'Validerar…' : 'Validera utkast'}
@@ -600,6 +620,7 @@ function AnnualReportPanel({ engagement, draft, sections, validation, perms, loc
         </div>
       </div>
       <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}><i className="ti ti-alert-triangle mr-1" />{ANNUAL_REPORT_WARNING}</div>
+      {draft && <div className="px-4 py-2 text-[11px] text-purple-700 bg-purple-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}><i className="ti ti-sparkles mr-1" />{AI_TEXT_WARNING} {AI_TEXT_SECTIONS_NOTE}</div>}
 
       {!draft ? (
         <div className="px-4 py-6 text-center text-sm text-gray-400">
@@ -749,6 +770,17 @@ function AnnualReportSectionDrawer({ section, engagement, canWrite, onClose, onC
         </div>
 
         <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50"><i className="ti ti-alert-triangle mr-1" />{ANNUAL_REPORT_WARNING}</div>
+        {section.ai_generated && (
+          <div className="px-4 py-2 text-[11px] text-purple-700 bg-purple-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+            <div><i className="ti ti-sparkles mr-1" />{AI_TEXT_WARNING}</div>
+            <div className="text-purple-500 mt-0.5 flex flex-wrap gap-x-3">
+              {section.ai_model && <span>Modell: {section.ai_model}</span>}
+              {section.ai_prompt_version && <span>Prompt: {section.ai_prompt_version}</span>}
+              {section.ai_generated_at && <span>Genererad: {fmt(section.ai_generated_at)}</span>}
+              {section.requires_review && <span><i className="ti ti-eye mr-0.5" />Kräver granskning</span>}
+            </div>
+          </div>
+        )}
 
         <div className="p-4 space-y-4">
           {structuredKeys.length > 0 && (

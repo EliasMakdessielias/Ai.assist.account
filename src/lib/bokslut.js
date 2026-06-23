@@ -238,6 +238,11 @@ export function lockBlockReason(items) {
   return null
 }
 
+// AI-texter (Steg 2C-3): AI får endast formulera text för förvaltningsberättelse och noter (aldrig siffror/RR/BR).
+export const AI_TEXT_WARNING = 'AI-texter är utkast. De måste granskas och får inte användas utan mänsklig kontroll.'
+export const AI_TEXT_SECTIONS = ['forvaltningsberattelse', 'noter']
+export const AI_TEXT_SECTIONS_NOTE = 'Endast Förvaltningsberättelse och Noter påverkas. AI ändrar aldrig siffror, resultat- eller balansräkning.'
+
 export const fiscalYearLabel = fy => fy ? `${fy.year} (${fy.start_date} – ${fy.end_date})` : ''
 export const fmtAmount = n => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
