@@ -59,19 +59,23 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   /ai-bokslut (lista, "Skapa bilaga", "Föreslå bilagor", modal med saldo/avstämt/**live differens** +
   tydlig differensmarkering, statusåtgärder), koppling check→bilaga ("Skapa bilaga från kontroll" +
   "Bokslutsbilaga kopplad"-markering), varning att bilagan är underlag – inte automatisk bokföring.
+- ✅ **AI-förslag (Steg 2B, tillagt):** tabell `bokslut_ai_suggestions` + edge `bokslut-ai` (Gemini, strikt
+  JSON-schema, modell-fallback/quota, **validering före lagring** – ogiltig JSON/poster sparas ej) + RPC:er
+  `bokslut_ai_context`/`bokslut_save_ai_suggestions`/`bokslut_list_ai_suggestions`/`bokslut_set_ai_suggestion_status`
+  samt regelbaserad `bokslut_generate_ai_suggestions` (mock/fallback, INGEN AI – för test/quota). Endast
+  GRANSKNINGSSTÖD: INGA verifikationer, INGA draft-justeringar, ingen bokföring, inget K2. Behörighet
+  `ai_suggestion_write` (admin); locked = read-only; nekat → `bokslut_denied_log`; status-ändringar audit-loggas.
+  UI: AI-förslag-panel (risk/confidence/kopplad check+bilaga/nästa åtgärd/reasoning/källdata +
+  acceptera/avvisa/ignorera/åtgärdad) + varning "granskningsstöd – bokför inte".
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
 
-## 4. Vad som fortfarande saknas innan/ inför Steg 2
-- **AI-edge `bokslut-ai`** (strukturerad JSON) — finns inte.
-- **AI-förslag** (`bokslut_suggestions`, status "Förslag, ej bokförd", confidence, requires_manual_review).
-- **Draft adjustments** (utkast till bokslutsverifikationer — får aldrig bokföras automatiskt).
-- **K2-årsredovisningsutkast** (`annual_report_drafts`: förvaltningsberättelse, RR, BR, noter,
-  fastställelseintyg, underskriftssida) — endast placeholder.
-- **Godkännandeflöde** (approve/reject + statusövergångar godkänd/avvisad/låst) — `status='last'` respekteras
-  i motorn men kan inte sättas från UI ännu.
-- **Rollbaserad behörighet** mot `user_companies.role` (de 5 nycklarna är definierade som typer men inte tvingade).
+## 4. Vad som fortfarande saknas (kommande steg)
+- **Draft adjustments / bokslutsverifikationer** (utkast till verifikationer — får ALDRIG bokföras automatiskt).
+  Medvetet UTANFÖR Steg 2B (AI-förslag är endast granskningsstöd, skapar inga verifikationer).
+- **K2-årsredovisningsutkast** (Steg 2C) (`annual_report_drafts`: förvaltningsberättelse, RR, BR, noter,
+  fastställelseintyg, underskriftssida) — endast placeholder. Byggs INTE i Steg 2B.
 - **K3-regelverk** (arkitekturen är förberedd via `regelverk`-kolumn).
 - **Djupare avstämning** i kontrollkonto-checkarna (idag `needs_review` med saldovisning, ingen reskontra-matchning).
 
@@ -144,6 +148,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_attachments` (engagement_id, company_id, type, title, account_nr, saldo_huvudbok, avstamt_belopp,
   differens, source, source_data, status, comment, check_id, rule_key, reviewed_by/at, created_by/at) –
   bokslutsbilagor (dokumentations-/avstämningsstöd, ingen bokföring).
+- `bokslut_ai_suggestions` (engagement_id, company_id, suggestion_type, title, summary, reasoning, risk_level,
+  confidence, related_check_id, related_attachment_id, source_data, suggested_next_action, status, model,
+  reviewed_by/at, review_comment, created/updated) – AI-granskningsförslag (ingen bokföring).
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -161,7 +168,13 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `bokslut_list_attachments(p_engagement)`, `bokslut_create_attachment(...)`, `bokslut_update_attachment(...)`,
   `bokslut_set_attachment_status(p_attachment, p_status, p_comment)`,
   `bokslut_generate_attachment_suggestions(p_engagement) -> int` (regelbaserad, ingen AI)
+- AI-förslag: `bokslut_ai_context(p_engagement)`, `bokslut_save_ai_suggestions(p_engagement, p_items, p_model)`,
+  `bokslut_generate_ai_suggestions(p_engagement) -> int` (regelbaserad mock/fallback),
+  `bokslut_list_ai_suggestions(p_engagement)`, `bokslut_set_ai_suggestion_status(p_suggestion, p_status, p_comment)`
 - interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`, `_bokslut_attachment_guard(p_attachment)`
+
+**Edge-funktioner:** `bokslut-ai` (Gemini-granskningsförslag, strikt JSON, quota; läser via `bokslut_ai_context`,
+sparar via `bokslut_save_ai_suggestions`). `src/supabase/functions/bokslut-ai/index.ts`.
 
 **Routes / frontend**
 - Route: `/ai-bokslut` → `src/pages/AiBokslut.jsx` (i `src/App.jsx`)

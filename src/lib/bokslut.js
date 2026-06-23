@@ -140,6 +140,23 @@ export const CATEGORY_TO_ATTACHMENT_TYPE = {
 export const attachmentTypeForCategory = c => CATEGORY_TO_ATTACHMENT_TYPE[c] || 'ovrigt'
 export const hasDifferens = a => a && a.differens !== null && a.differens !== undefined && Math.abs(Number(a.differens)) > 0.5
 
+// AI-förslag (Steg 2B): granskningsstöd. Bokför aldrig, kräver mänsklig bedömning.
+export const SUGGESTION_TYPE_LABEL = {
+  risk_explanation: 'Riskförklaring', next_action: 'Nästa åtgärd', missing_documentation: 'Saknat underlag',
+  attachment_review: 'Bilagegranskning', balance_issue: 'Balansavvikelse', vat_issue: 'Moms', tax_issue: 'Skatt',
+  equity_issue: 'Eget kapital', payroll_issue: 'Lön', manual_review_required: 'Kräver manuell granskning',
+}
+export const AI_SUGGESTION_STATUS_META = {
+  draft: { label: 'Utkast', chip: 'bg-gray-100 text-gray-500' },
+  needs_review: { label: 'Kräver granskning', chip: 'bg-purple-100 text-purple-700' },
+  accepted: { label: 'Accepterad', chip: 'bg-green-100 text-green-700' },
+  rejected: { label: 'Avvisad', chip: 'bg-red-100 text-red-700' },
+  resolved: { label: 'Åtgärdad', chip: 'bg-green-100 text-green-700' },
+  ignored: { label: 'Ignorerad', chip: 'bg-gray-100 text-gray-500' },
+}
+export const AI_SUGGESTION_WARNING = 'AI-förslag är granskningsstöd. De bokför inte och måste bedömas av behörig användare.'
+export const confidencePct = c => (c === null || c === undefined) ? '–' : `${Math.round(Number(c) * 100)} %`
+
 export const fiscalYearLabel = fy => fy ? `${fy.year} (${fy.start_date} – ${fy.end_date})` : ''
 export const fmtAmount = n => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 

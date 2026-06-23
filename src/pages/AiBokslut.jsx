@@ -7,6 +7,7 @@ import HelpButton from '../components/HelpButton'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
   ATTACHMENT_TYPES, ATTACHMENT_TYPE_LABEL, ATTACHMENT_STATUS_META, attachmentTypeForCategory, hasDifferens,
+  SUGGESTION_TYPE_LABEL, AI_SUGGESTION_STATUS_META, AI_SUGGESTION_WARNING, confidencePct,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -62,6 +63,8 @@ export default function AiBokslut() {
   const [perms, setPerms] = useState({})
   const [attachments, setAttachments] = useState([])
   const [editAttachment, setEditAttachment] = useState(null)
+  const [aiSuggestions, setAiSuggestions] = useState([])
+  const [generatingAi, setGeneratingAi] = useState(false)
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -89,12 +92,13 @@ export default function AiBokslut() {
     const { data: eng, error } = await supabase.rpc('bokslut_get_or_create', { p_company: company.id, p_fiscal_year_id: fyId })
     if (error) { toast.error(error.message?.replace(/^.*?:\s*/, '') || 'Kunde inte öppna engagemang'); return }
     setEngagement(eng)
-    const [{ data: ch }, { data: au }, { data: at }] = await Promise.all([
+    const [{ data: ch }, { data: au }, { data: at }, { data: sg }] = await Promise.all([
       supabase.from('bokslut_checks').select('*').eq('engagement_id', eng.id),
       supabase.from('bokslut_audit_log').select('*').eq('engagement_id', eng.id).order('created_at', { ascending: false }).limit(15),
       supabase.rpc('bokslut_list_attachments', { p_engagement: eng.id }),
+      supabase.rpc('bokslut_list_ai_suggestions', { p_engagement: eng.id }),
     ])
-    setChecks(ch || []); setAudit(au || []); setAttachments(at || [])
+    setChecks(ch || []); setAudit(au || []); setAttachments(at || []); setAiSuggestions(sg || [])
   }, [company?.id, fyId, licensed])
   useEffect(() => { loadEngagement() }, [loadEngagement])
 
@@ -119,6 +123,19 @@ export default function AiBokslut() {
     if (s === 'last' && !window.confirm('Lås engagemanget? Efter låsning kan inga ändringar göras – endast läsning. Det går inte att låsa upp.')) return
     try { const { error } = await supabase.rpc('set_bokslut_engagement_status', { p_engagement: engagement.id, p_status: s }); if (error) throw error; toast.success('Status uppdaterad'); await loadEngagement() }
     catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'set_status:' + s, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+  }
+
+  async function generateAi() {
+    if (!engagement) return
+    setGeneratingAi(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const { data, error } = await supabase.functions.invoke('bokslut-ai', { body: { engagement_id: engagement.id }, headers: { Authorization: `Bearer ${session?.access_token}` } })
+      if (error) { let m = error.message, code; try { const b = await error.context.json(); if (b?.error) m = b.error; code = b?.code } catch { /* ignore */ } const e2 = new Error(m); e2.code = code; throw e2 }
+      if (data?.error) { const e2 = new Error(data.error); e2.code = data.code; throw e2 }
+      toast.success(`${data?.created ?? 0} AI-förslag genererade`); await loadEngagement()
+    } catch (e) { await logDenied({ company: company?.id, engagement: engagement.id }, 'generate_ai_suggestions', e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte generera AI-förslag') }
+    setGeneratingAi(false)
   }
 
   const fy = years.find(y => y.id === fyId)
@@ -223,11 +240,15 @@ export default function AiBokslut() {
       {/* Bokslutsbilagor (Steg 2A) */}
       {engagement && <AttachmentsPanel engagement={engagement} attachments={attachments} perms={perms} locked={locked} onOpen={setEditAttachment} onCreate={() => setEditAttachment({})} onChanged={loadEngagement} />}
 
-      {/* Övriga Steg 2 – platshållare så hela arbetsflödet syns */}
-      <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-2 mt-5">AI-stöd & utkast</div>
+      {/* AI-förslag (Steg 2B) */}
+      <div className="mt-5">
+        {engagement && <AiSuggestionsPanel engagement={engagement} suggestions={aiSuggestions} perms={perms} locked={locked} generating={generatingAi} onGenerate={generateAi} onChanged={loadEngagement} checks={checks} attachments={attachments} />}
+      </div>
+
+      {/* Återstående Steg 2 – platshållare */}
+      <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-2 mt-5">Årsredovisning</div>
       <div className="grid md:grid-cols-2 gap-3">
-        <ComingCard icon="ti-bulb" title="AI-förslag" text="Källbundna förslag och utkast till bokslutsverifikationer (status 'Förslag, ej bokförd'). Kräver granskning – bokförs aldrig automatiskt." />
-        <ComingCard icon="ti-file-text" title="Årsredovisningsutkast (K2)" text="Förvaltningsberättelse, resultat- och balansräkning, noter, fastställelseintyg och underskriftssida. AI-utkast som måste granskas." />
+        <ComingCard icon="ti-file-text" title="Årsredovisningsutkast (K2)" text="Förvaltningsberättelse, resultat- och balansräkning, noter, fastställelseintyg och underskriftssida. AI-utkast som måste granskas. (Steg 2C)" />
       </div>
 
       {/* Spårbarhet (audit) */}
@@ -453,6 +474,64 @@ function AttachmentModal({ initial, engagement, perms, locked, onClose, onSaved 
         </div>
         {locked && <div className="px-5 pb-3 text-[11px] text-gray-400"><i className="ti ti-lock mr-0.5" />Engagemanget är låst – endast läsning.</div>}
       </div>
+    </div>
+  )
+}
+
+// ── AI-förslag: granskningsstöd (Steg 2B). Ingen bokföring, inga verifikationer. ──
+function AiSuggestionsPanel({ engagement, suggestions, perms, locked, generating, onGenerate, onChanged, checks, attachments }) {
+  const [busyId, setBusyId] = useState(null)
+  const checkById = useMemo(() => Object.fromEntries((checks || []).map(c => [c.id, c.title])), [checks])
+  const attById = useMemo(() => Object.fromEntries((attachments || []).map(a => [a.id, a.title])), [attachments])
+  async function setStatus(s, sug) {
+    setBusyId(sug.id)
+    try { const { error } = await supabase.rpc('bokslut_set_ai_suggestion_status', { p_suggestion: sug.id, p_status: s, p_comment: null }); if (error) throw error; toast.success('Status uppdaterad'); await onChanged() }
+    catch (e) { await logDenied({ engagement: engagement.id }, 'ai_suggestion_status:' + s, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte ändra status') }
+    setBusyId(null)
+  }
+  return (
+    <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
+      <div className="px-4 py-2.5 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: 'rgba(0,0,0,0.06)' }}>
+        <span className="text-[13px] font-semibold flex items-center gap-1.5"><i className="ti ti-bulb text-purple-600" /> AI-förslag</span>
+        <span className="text-[11px] text-gray-400">{suggestions.length} st</span>
+        {!locked && perms.ai_suggestion_write && <button className="btn btn-primary text-sm ml-auto" disabled={generating} onClick={onGenerate}><i className={`ti ${generating ? 'ti-loader-2 animate-spin' : 'ti-sparkles'}`} /> {generating ? 'Genererar…' : 'Generera AI-förslag'}</button>}
+      </div>
+      <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b" style={{ borderColor: 'rgba(0,0,0,0.05)' }}><i className="ti ti-info-circle mr-1" />{AI_SUGGESTION_WARNING}</div>
+      {suggestions.length === 0 ? (
+        <div className="px-4 py-6 text-center text-sm text-gray-400">Inga AI-förslag ännu.{!locked && perms.ai_suggestion_write ? ' Klicka "Generera AI-förslag".' : ''}</div>
+      ) : (
+        <div className="divide-y" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+          {suggestions.map(s => (
+            <div key={s.id} className="px-4 py-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <RiskChip r={s.risk_level} />
+                <span className="text-[11px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{SUGGESTION_TYPE_LABEL[s.suggestion_type] || s.suggestion_type}</span>
+                <span className="text-[11px] text-gray-400">Säkerhet {confidencePct(s.confidence)}</span>
+                <Chip meta={AI_SUGGESTION_STATUS_META[s.status]} />
+                {s.model && <span className="text-[10px] text-gray-300">{s.model}</span>}
+              </div>
+              <div className="text-[14px] font-medium mt-1">{s.title}</div>
+              {s.summary && <div className="text-[13px] text-gray-700 mt-0.5">{s.summary}</div>}
+              {s.reasoning && <div className="text-[12px] text-gray-500 mt-1 whitespace-pre-wrap leading-relaxed"><span className="font-medium text-gray-600">Varför:</span> {s.reasoning}</div>}
+              {s.suggested_next_action && <div className="text-[12px] text-blue-900 bg-blue-50 rounded px-2 py-1 mt-1.5"><i className="ti ti-arrow-right mr-1" />{s.suggested_next_action}</div>}
+              <div className="text-[11px] text-gray-400 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                {s.related_check_id && <span><i className="ti ti-list-check mr-0.5" />Kontroll: {checkById[s.related_check_id] || '—'}</span>}
+                {s.related_attachment_id && <span><i className="ti ti-paperclip mr-0.5" />Bilaga: {attById[s.related_attachment_id] || '—'}</span>}
+                {s.reviewed_at && <span>Granskad {fmt(s.reviewed_at)}</span>}
+                {s.source_data && Object.keys(s.source_data).length > 0 && <span title={JSON.stringify(s.source_data)}><i className="ti ti-database mr-0.5" />Källdata</span>}
+              </div>
+              {!locked && perms.ai_suggestion_write && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button className="btn text-xs" disabled={busyId === s.id} onClick={() => setStatus('accepted', s)}><i className="ti ti-check" /> Acceptera</button>
+                  <button className="btn text-xs" disabled={busyId === s.id} onClick={() => setStatus('rejected', s)}><i className="ti ti-x" /> Avvisa</button>
+                  <button className="btn text-xs" disabled={busyId === s.id} onClick={() => setStatus('ignored', s)}><i className="ti ti-eye-off" /> Ignorera</button>
+                  <button className="btn text-xs" disabled={busyId === s.id} onClick={() => setStatus('resolved', s)}><i className="ti ti-circle-check" /> Åtgärdad</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
