@@ -12,6 +12,7 @@ import {
   VALIDATION_WARNING, VALIDATION_SEVERITY_META, VALIDATION_STATUS_META, VALIDATION_SOURCE_LABEL,
   validationSummary, approveBlockReason, lockBlockReason,
   AI_TEXT_WARNING, AI_TEXT_SECTIONS_NOTE,
+  EXPORT_TYPE_LABEL, EXPORT_STATUS_META, exportWarnings,
   isOpenCheck, groupByCategory, categoryLabel, fiscalYearLabel, fmtAmount,
 } from '../lib/bokslut'
 
@@ -62,6 +63,7 @@ export default function AiBokslut() {
   const [arDraft, setArDraft] = useState(null)
   const [arSections, setArSections] = useState([])
   const [arValidation, setArValidation] = useState([])
+  const [arExports, setArExports] = useState([])
   const [generatingDraft, setGeneratingDraft] = useState(false)
   const [validating, setValidating] = useState(false)
   const [generatingTexts, setGeneratingTexts] = useState(false)
@@ -101,15 +103,16 @@ export default function AiBokslut() {
     setChecks(ch || []); setAudit(au || []); setAttachments(at || []); setAiSuggestions(sg || [])
     // K2-årsredovisningsutkast (Steg 2C-1): läs befintligt utkast (skapas ej automatiskt vid besök).
     const { data: dr } = await supabase.from('annual_report_drafts').select('*').eq('engagement_id', eng.id).maybeSingle()
-    let sec = [], val = []
+    let sec = [], val = [], exp = []
     if (dr) {
-      const [{ data: s }, { data: v }] = await Promise.all([
+      const [{ data: s }, { data: v }, { data: ex }] = await Promise.all([
         supabase.rpc('annual_report_list_sections', { p_draft: dr.id }),
         supabase.rpc('annual_report_list_validation_items', { p_draft: dr.id }),
+        supabase.rpc('annual_report_list_exports', { p_draft: dr.id }),
       ])
-      sec = s || []; val = v || []
+      sec = s || []; val = v || []; exp = ex || []
     }
-    setArDraft(dr || null); setArSections(sec); setArValidation(val)
+    setArDraft(dr || null); setArSections(sec); setArValidation(val); setArExports(exp)
   }, [company?.id, fyId, licensed])
   useEffect(() => { loadEngagement() }, [loadEngagement])
 
@@ -287,7 +290,7 @@ export default function AiBokslut() {
 
       {/* Årsredovisningsutkast K2 (Steg 2C-1) */}
       <div className="mt-5">
-        {engagement && <AnnualReportPanel engagement={engagement} draft={arDraft} sections={arSections} validation={arValidation} perms={perms} locked={locked} generating={generatingDraft} validating={validating} generatingTexts={generatingTexts} onGenerate={generateDraft} onValidate={runValidation} onGenerateTexts={generateTexts} onChanged={loadEngagement} />}
+        {engagement && <AnnualReportPanel engagement={engagement} company={company} fy={fy} draft={arDraft} sections={arSections} validation={arValidation} exports={arExports} perms={perms} locked={locked} generating={generatingDraft} validating={validating} generatingTexts={generatingTexts} onGenerate={generateDraft} onValidate={runValidation} onGenerateTexts={generateTexts} onChanged={loadEngagement} />}
       </div>
 
       {/* Spårbarhet (audit) */}
@@ -576,7 +579,7 @@ function AiSuggestionsPanel({ engagement, suggestions, perms, locked, generating
 }
 
 // ── K2-årsredovisningsutkast (Steg 2C-1). Struktur + spårbarhet. Bokför aldrig, lämnar inte in, godkänner inte automatiskt. ──
-function AnnualReportPanel({ engagement, draft, sections, validation, perms, locked, generating, validating, generatingTexts, onGenerate, onValidate, onGenerateTexts, onChanged }) {
+function AnnualReportPanel({ engagement, company, fy, draft, sections, validation, exports, perms, locked, generating, validating, generatingTexts, onGenerate, onValidate, onGenerateTexts, onChanged }) {
   const [openSection, setOpenSection] = useState(null)
   const [busy, setBusy] = useState(false)
   const draftLocked = draft?.status === 'locked'
@@ -650,6 +653,9 @@ function AnnualReportPanel({ engagement, draft, sections, validation, perms, loc
 
           {/* Validering (Steg 2C-2) */}
           <AnnualReportValidation engagement={engagement} draft={draft} items={validation} summary={vsum} canWrite={canWrite} onChanged={onChanged} />
+
+          {/* Export/PDF (Steg 2C-4) */}
+          <AnnualReportExport engagement={engagement} company={company} fy={fy} draft={draft} sections={sections} validation={validation} exports={exports} canExport={perms.annual_report_write} onChanged={onChanged} />
 
           {canWrite && (
             <div className="px-4 py-2.5 border-t flex flex-col gap-1.5" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
@@ -731,6 +737,158 @@ function AnnualReportValidation({ engagement, draft, items, summary, canWrite, o
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── K2-export/PDF (Steg 2C-4): gransknings-export. Ingen e-inlämning, ingen signering, inget skickas externt. ──
+function AnnualReportExport({ engagement, company, fy, draft, sections, validation, exports, canExport, onChanged }) {
+  const [busy, setBusy] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const warnings = useMemo(() => exportWarnings({ draft, sections, validation }), [draft, sections, validation])
+
+  async function runExport(type) {
+    if (!sections || sections.length === 0) { toast.error('Skapa årsredovisningsutkast först.'); return }
+    setBusy(type)
+    let exportId = null
+    try {
+      const { data, error } = await supabase.rpc('annual_report_prepare_export', { p_draft: draft.id, p_export_type: type }); if (error) throw error
+      exportId = data?.export_id
+      setPreview({ autoPrint: type === 'review_pdf' })
+      const fname = `arsredovisning-utkast-${draft.period_end || ''}.html`
+      await supabase.rpc('annual_report_mark_export_ready', { p_export: exportId, p_file_path: null, p_file_name: fname, p_file_size: null })
+      await onChanged()
+    } catch (e) {
+      if (exportId) { try { await supabase.rpc('annual_report_mark_export_failed', { p_export: exportId, p_error: e.message }) } catch { /* ignore */ } }
+      await logDenied({ engagement: engagement.id }, 'export:' + type, e); toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte exportera')
+    }
+    setBusy(null)
+  }
+
+  return (
+    <div className="border-t" style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
+      <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap">
+        <span className="text-[12px] font-semibold flex items-center gap-1.5"><i className="ti ti-file-export text-purple-600" /> Export / gransknings-PDF</span>
+        <span className="text-[11px] text-gray-400">Ingen inlämning eller signering – endast för granskning.</span>
+        {canExport && (
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button className="btn text-sm" disabled={busy} onClick={() => runExport('html_preview')}><i className={`ti ${busy === 'html_preview' ? 'ti-loader-2 animate-spin' : 'ti-eye'}`} /> Förhandsgranska export</button>
+            <button className="btn text-sm" disabled={busy} onClick={() => runExport('review_pdf')}><i className={`ti ${busy === 'review_pdf' ? 'ti-loader-2 animate-spin' : 'ti-printer'}`} /> Skapa gransknings-PDF</button>
+          </div>
+        )}
+      </div>
+      {warnings.length > 0 && (
+        <div className="px-4 pb-2 flex flex-col gap-1">
+          {warnings.map((w, i) => (
+            <div key={i} className={`text-[11px] ${w.level === 'error' ? 'text-red-600' : w.level === 'ai' ? 'text-purple-600' : 'text-amber-700'}`}>
+              <i className={`ti ${w.level === 'error' ? 'ti-alert-triangle' : w.level === 'ai' ? 'ti-sparkles' : 'ti-file-alert'} mr-1`} />{w.text}
+            </div>
+          ))}
+        </div>
+      )}
+      {exports && exports.length > 0 && (
+        <div className="px-4 pb-2.5">
+          <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Exporthistorik</div>
+          <div className="space-y-0.5">
+            {exports.slice(0, 8).map(ex => (
+              <div key={ex.id} className="text-[12px] text-gray-600 flex items-center gap-2 flex-wrap">
+                <Chip meta={EXPORT_STATUS_META[ex.status]} />
+                <span>{EXPORT_TYPE_LABEL[ex.export_type] || ex.export_type}</span>
+                <span className="text-gray-400">{ex.generated_at ? fmt(ex.generated_at) : '–'}</span>
+                {ex.file_name && <span className="text-gray-400">· {ex.file_name}</span>}
+                {ex.status === 'ready' && <button className="text-purple-600 hover:underline" onClick={() => setPreview({ autoPrint: false })}>Öppna förhandsvisning</button>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {preview && <AnnualReportExportPreview company={company} fy={fy} draft={draft} sections={sections} validation={validation} autoPrint={preview.autoPrint} onClose={() => setPreview(null)} />}
+    </div>
+  )
+}
+
+// Print-vänlig förhandsvisning (#printable utnyttjar @media print i index.css → ingen sidebar i utskrift).
+function AnnualReportExportPreview({ company, fy, draft, sections, validation, autoPrint, onClose }) {
+  const warnings = useMemo(() => exportWarnings({ draft, sections, validation }), [draft, sections, validation])
+  const byKey = useMemo(() => Object.fromEntries((sections || []).map(s => [s.section_key, s])), [sections])
+  useEffect(() => { if (autoPrint) { const t = setTimeout(() => window.print(), 450); return () => clearTimeout(t) } }, [autoPrint])
+
+  const StructuredTable = ({ sd }) => {
+    const keys = Object.keys(STRUCTURED_FIELD_LABEL).filter(k => sd?.[k] !== undefined && sd?.[k] !== null)
+    if (keys.length === 0) return null
+    return (
+      <>
+        <table className="w-full text-[13px] my-2" style={{ borderCollapse: 'collapse' }}>
+          <tbody>
+            {keys.map(k => (
+              <tr key={k} style={{ borderBottom: '0.5px solid #ddd' }}>
+                <td className="py-1 pr-4">{STRUCTURED_FIELD_LABEL[k]}</td>
+                <td className="py-1 text-right tabular-nums" style={{ whiteSpace: 'nowrap' }}>{fmtAmount(sd[k])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {'balanserar' in (sd || {}) && <div className="text-[12px]" style={{ color: sd.balanserar ? '#15803d' : '#b91c1c' }}>{sd.balanserar ? 'Balansräkningen balanserar.' : 'Balansräkningen balanserar inte – kräver manuell granskning.'}</div>}
+        {sd?.jamforelsetal && <div className="text-[11px] text-gray-500 mt-0.5">{sd.jamforelsetal}</div>}
+      </>
+    )
+  }
+  const Section = ({ k }) => {
+    const s = byKey[k]
+    if (!s) return null
+    const sd = s.structured_data || {}
+    const structured = k === 'resultatrakning' || k === 'balansrakning'
+    return (
+      <section className="mt-6" style={{ breakInside: 'avoid' }}>
+        <h2 className="text-[15px] font-semibold border-b pb-1 mb-2" style={{ borderColor: '#ccc' }}>
+          {SECTION_LABEL[k]} {s.ai_generated && <span className="text-[10px] font-normal text-purple-600">(AI-genererad – kräver granskning)</span>}
+        </h2>
+        {structured && <StructuredTable sd={sd} />}
+        {s.content && <div className="text-[13px] whitespace-pre-wrap leading-relaxed">{s.content}</div>}
+      </section>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-white overflow-auto">
+      <div className="no-print sticky top-0 z-10 bg-gray-50 border-b px-4 py-2 flex items-center gap-2" style={{ borderColor: 'rgba(0,0,0,0.1)' }}>
+        <span className="text-sm font-semibold">Förhandsvisning – årsredovisningsutkast (K2)</span>
+        <span className="text-[11px] text-gray-500">Granskning – ingen inlämning/signering</span>
+        <div className="ml-auto flex gap-2">
+          <button className="btn btn-primary text-sm" onClick={() => window.print()}><i className="ti ti-printer" /> Skriv ut / Spara som PDF</button>
+          <button className="btn text-sm" onClick={onClose}><i className="ti ti-x" /> Stäng</button>
+        </div>
+      </div>
+
+      <div id="printable" className="mx-auto" style={{ maxWidth: '800px', padding: '32px', color: '#111' }}>
+        {warnings.map((w, i) => (
+          <div key={i} className="mb-2 px-3 py-2 text-[13px] font-medium rounded" style={{
+            printColorAdjust: 'exact', WebkitPrintColorAdjust: 'exact',
+            border: '1px solid', borderColor: w.level === 'error' ? '#dc2626' : w.level === 'ai' ? '#7c3aed' : '#d97706',
+            background: w.level === 'error' ? '#fef2f2' : w.level === 'ai' ? '#faf5ff' : '#fffbeb',
+            color: w.level === 'error' ? '#b91c1c' : w.level === 'ai' ? '#6d28d9' : '#b45309',
+          }}>{w.text}</div>
+        ))}
+
+        <div className="text-center mt-4 mb-6">
+          <div className="text-[20px] font-bold">{company?.name || '—'}</div>
+          <div className="text-[13px] text-gray-600">Org.nr {company?.org_nr || '—'}</div>
+          <div className="text-[15px] font-semibold mt-3">Årsredovisning</div>
+          <div className="text-[13px] text-gray-600">för räkenskapsåret {draft?.period_start || (fy?.start_date) || '—'} – {draft?.period_end || (fy?.end_date) || '—'}</div>
+          <div className="text-[12px] text-gray-500 mt-0.5">Regelverk: {draft?.regelverk || 'K2'} (BFNAR 2016:10)</div>
+        </div>
+
+        <Section k="forvaltningsberattelse" />
+        <Section k="resultatrakning" />
+        <Section k="balansrakning" />
+        <Section k="noter" />
+        <Section k="faststallelseintyg" />
+        <Section k="underskriftssida" />
+
+        <div className="mt-8 pt-3 text-[11px] text-gray-500" style={{ borderTop: '0.5px solid #ccc' }}>
+          Genererad {fmt(new Date().toISOString())} · BokPilot · Gransknings-exempel – ej för inlämning till Bolagsverket. Beloppen i resultat- och balansräkning är hämtade från bokföringen och har inte ändrats av AI.
+        </div>
+      </div>
     </div>
   )
 }

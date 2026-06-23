@@ -107,6 +107,18 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
   UI: "Generera AI-texter" (notis "endast förvaltningsberättelse/noter"), varning "AI-texter är utkast …",
   sektion-drawer visar AI-metadata (modell/prompt/genererad/kräver granskning); manuell redigering återställer
   sektionen till "kräver granskning". **Ingår fortfarande INTE:** PDF, e-inlämning, automatisk signering, K3.
+- ✅ **Export/gransknings-PDF (Steg 2C-4, tillagt):** tabell `annual_report_exports` (export_type
+  review_pdf/html_preview, status generating/ready/failed) + RPC `annual_report_prepare_export` (admin,
+  kräver draft MED sektioner annars "Skapa årsredovisningsutkast först.", fångar valideringssammanfattning,
+  **locked = read-only export tillåts**), `annual_report_list_exports`, `annual_report_mark_export_ready`,
+  `annual_report_mark_export_failed`. **Print-vänlig HTML-preview** (återanvänder `#printable`+`@media print`
+  i index.css → ingen sidebar i utskrift) med alla sex sektioner, RR/BR som tabeller från strukturerad data,
+  bolagsnamn/org.nr/räkenskapsår/K2 och tre vattenstämplar/varningar: "UTKAST – ej godkänd årsredovisning",
+  "VARNING: … inte klart för användning" (öppna high/critical) och "Dokumentet innehåller AI-genererade
+  texter …". **Gransknings-PDF = webbläsarens utskrift** (window.print → Spara som PDF; ingen tung PDF-infra).
+  UI: "Förhandsgranska export"/"Skapa gransknings-PDF", exporthistorik + status, valideringsvarningar före
+  export. Audit: export_prepared/ready/failed; nekat → `bokslut_denied_log`.
+  **Ingår INTE (medvetet):** e-inlämning till Bolagsverket, automatisk signering, externt utskick, K3.
 
 **Återstår i Steg 1B:** att UI visar de fasta kategorierna som tom checklista redan innan analys körts
 (idag visas tomt-läge tills "Kör analys").
@@ -114,9 +126,9 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 ## 4. Vad som fortfarande saknas (kommande steg)
 - **Draft adjustments / bokslutsverifikationer** (utkast till verifikationer — får ALDRIG bokföras automatiskt).
   Medvetet UTANFÖR AI-förslag och K2-utkastet (dessa är endast granskningsstöd, skapar inga verifikationer).
-- **K2-årsredovisningsutkast – nästa steg (2C-4+):** PDF-generering, e-inlämning till Bolagsverket,
-  formell/juridisk fullständighetskontroll och automatisk signering. (Struktur+RR/BR = 2C-1, validering+spärrar
-  = 2C-2, AI-texter för förvaltningsberättelse/noter = 2C-3 är klara.)
+- **K2-årsredovisningsutkast – nästa steg (2C-5+):** e-inlämning till Bolagsverket, automatisk/digital
+  signering, formell/juridisk fullständighetskontroll och serverrenderad PDF/arkivfil. (Struktur+RR/BR = 2C-1,
+  validering+spärrar = 2C-2, AI-texter = 2C-3, export/gransknings-PDF via utskrift = 2C-4 är klara.)
 - **K3-regelverk** (arkitekturen är förberedd via `regelverk`-kolumn).
 - **Djupare avstämning** i kontrollkonto-checkarna (idag `needs_review` med saldovisning, ingen reskontra-matchning).
 
@@ -202,6 +214,8 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - `annual_report_validation_items` (draft_id, engagement_id, company_id, section_id, validation_key [unik per
   draft], title, description, severity, status, source, source_data, suggested_action, resolved_by/at,
   ignored_by/at, ignored_reason, created/updated) – deterministiska valideringspunkter (kontrollstöd, ingen bokföring).
+- `annual_report_exports` (draft_id, engagement_id, company_id, export_type, status, file_path, file_name,
+  file_size, validation_summary, error, generated_by/at, created_at) – gransknings-exporter (ingen inlämning).
 - Realtime aktiverat på: `bokslut_checks`
 
 **RPC:er** (SECURITY DEFINER)
@@ -235,9 +249,13 @@ Allt i sektion 2 ovan motsvarar Steg 1B-omfånget:
 - K2 AI-texter: `annual_report_ai_context(p_draft)`, `annual_report_save_ai_texts(p_draft, p_payload)` (endast
   forvaltningsberattelse/noter, avvisar RR/BR, sätter ai_generated/requires_review/needs_review + metadata),
   `annual_report_generate_ai_texts(p_draft)` (regelbaserad fallback, ingen AI). Behörighet `annual_report_write` (admin).
+- K2-export: `annual_report_prepare_export(p_draft, p_export_type)` (kräver draft+sektioner, fångar valideringssammanfattning),
+  `annual_report_list_exports(p_draft)`, `annual_report_mark_export_ready(p_export, p_file_path, p_file_name, p_file_size)`,
+  `annual_report_mark_export_failed(p_export, p_error)`. Behörighet `annual_report_write` (admin); locked = read-only export tillåts.
 - Migrationer: `ai_bokslut_annual_report_tables`, `ai_bokslut_annual_report_rpcs`, `ai_bokslut_annual_report_validation_table`,
   `ai_bokslut_annual_report_validation_rpcs`, `ai_bokslut_ar_section_label_helper`,
-  `ai_bokslut_annual_report_ai_text_columns`, `ai_bokslut_annual_report_ai_text_rpcs`.
+  `ai_bokslut_annual_report_ai_text_columns`, `ai_bokslut_annual_report_ai_text_rpcs`,
+  `ai_bokslut_annual_report_exports_table`, `ai_bokslut_annual_report_export_rpcs`.
 - interna: `_bokslut_recount(p_eng)`, `_bokslut_check_guard(p_check)`, `_bokslut_attachment_guard(p_attachment)`
 
 **Edge-funktioner:** `bokslut-ai` (Gemini-granskningsförslag, strikt JSON, quota; läser via `bokslut_ai_context`,

@@ -243,6 +243,24 @@ export const AI_TEXT_WARNING = 'AI-texter är utkast. De måste granskas och få
 export const AI_TEXT_SECTIONS = ['forvaltningsberattelse', 'noter']
 export const AI_TEXT_SECTIONS_NOTE = 'Endast Förvaltningsberättelse och Noter påverkas. AI ändrar aldrig siffror, resultat- eller balansräkning.'
 
+// Export/PDF (Steg 2C-4): gransknings-export. Ingen e-inlämning, ingen signering, inget skickas externt.
+export const EXPORT_TYPE_LABEL = { review_pdf: 'Gransknings-PDF', html_preview: 'HTML-förhandsvisning' }
+export const EXPORT_STATUS_META = {
+  generating: { label: 'Skapas', chip: 'bg-amber-100 text-amber-700' },
+  ready: { label: 'Klar', chip: 'bg-green-100 text-green-700' },
+  failed: { label: 'Misslyckades', chip: 'bg-red-100 text-red-700' },
+}
+export const NO_DRAFT_MESSAGE = 'Skapa årsredovisningsutkast först.'
+// Varningar/vattenstämplar som ska visas i exporten.
+export function exportWarnings({ draft, sections, validation }) {
+  const out = []
+  if (!draft || draft.status !== 'approved') out.push({ level: 'draft', text: 'UTKAST – ej godkänd årsredovisning' })
+  const s = validationSummary(validation)
+  if (s.critical + s.high > 0) out.push({ level: 'error', text: 'VARNING: Utkastet har öppna valideringspunkter och är inte klart för användning.' })
+  if ((sections || []).some(x => x.ai_generated)) out.push({ level: 'ai', text: 'Dokumentet innehåller AI-genererade texter som kräver mänsklig granskning.' })
+  return out
+}
+
 export const fiscalYearLabel = fy => fy ? `${fy.year} (${fy.start_date} – ${fy.end_date})` : ''
 export const fmtAmount = n => (n === null || n === undefined) ? '–' : Number(n).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
