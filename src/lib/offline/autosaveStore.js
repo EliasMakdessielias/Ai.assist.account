@@ -46,13 +46,38 @@ export function byteLength(str) {
 }
 
 // ── IndexedDB-operationer ──
-export async function getDraft(identity) {
-  if (!identityComplete(identity) || !ops.idbAvailable()) return null
+// Etapp 2C: skilj läsfel från "inget utkast". status: draft_loaded | draft_not_found | storage_read_error.
+export async function getDraftResult(identity) {
+  if (!identityComplete(identity)) return { status: 'draft_not_found', entry: null }
+  if (!ops.idbAvailable()) return { status: 'storage_read_error', entry: null }   // kan inte läsa ≠ saknas
   let e
-  try { e = await ops.idbGet(STORE, makeId(identity)) } catch { return null }
-  if (!e || !identityMatches(e, identity)) return null      // försvar på djupet
-  if (isExpired(e, Date.now())) { try { await ops.idbDelete(STORE, e.id) } catch { /* ignore */ } return null }
-  return e
+  try { e = await ops.idbGet(STORE, makeId(identity)) } catch { return { status: 'storage_read_error', entry: null } }
+  if (!e || !identityMatches(e, identity)) return { status: 'draft_not_found', entry: null }
+  if (isExpired(e, Date.now())) { try { await ops.idbDelete(STORE, e.id) } catch { /* ignore */ } return { status: 'draft_not_found', entry: null } }
+  return { status: 'draft_loaded', entry: e }
+}
+export async function getDraft(identity) {
+  const r = await getDraftResult(identity)
+  return r.status === 'draft_loaded' ? r.entry : null
+}
+
+// Fork-utkast (separata konfliktkopior) för en fullständig identity.
+export function forkPrefix(identity) { return `${identity.fieldId}::fork-` }
+export async function listForkDrafts(identity) {
+  if (!identityComplete(identity) || !ops.idbAvailable()) return []
+  try {
+    const all = await ops.idbGetAll(STORE) || []
+    const pfx = forkPrefix(identity)
+    return all
+      .filter(e => e.userId === identity.userId && e.companyId === identity.companyId && e.fiscalYearId === identity.fiscalYearId &&
+        e.engagementId === identity.engagementId && e.entityType === identity.entityType &&
+        typeof e.fieldId === 'string' && e.fieldId.startsWith(pfx))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+  } catch { return [] }
+}
+export async function deleteDraftById(id) {
+  if (!ops.idbAvailable() || !id) return false
+  try { await ops.idbDelete(STORE, id); return true } catch { return false }
 }
 
 // Skriver lokalt. expectedRevision !== null → atomisk revisionskontroll (förhindrar tyst multi-tab-överskrivning).

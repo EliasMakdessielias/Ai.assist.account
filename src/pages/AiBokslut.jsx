@@ -7,7 +7,8 @@ import HelpButton from '../components/HelpButton'
 import { useAutosaveDraft } from '../hooks/useAutosaveDraft'
 import AutosaveIndicator from '../components/offline/AutosaveIndicator'
 import RestoreDraftBanner from '../components/offline/RestoreDraftBanner'
-import { isAutosavePilotEnabled } from '../lib/offline/flags'
+import { isAutosavePilotEnabled, PILOT_FEATURE_KEY } from '../lib/offline/flags'
+import { commitCheckComment } from '../lib/offline/commit'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
   ATTACHMENT_TYPES, ATTACHMENT_TYPE_LABEL, ATTACHMENT_STATUS_META, attachmentTypeForCategory, hasDifferens,
@@ -71,6 +72,7 @@ export default function AiBokslut() {
   const [generatingDraft, setGeneratingDraft] = useState(false)
   const [validating, setValidating] = useState(false)
   const [generatingTexts, setGeneratingTexts] = useState(false)
+  const [autosavePilotServer, setAutosavePilotServer] = useState(false)   // Etapp 2C: serverstyrd flagga
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -85,6 +87,8 @@ export default function AiBokslut() {
     if (!company?.id) return
     setLicensed(null)
     supabase.rpc('has_ai_feature', { p_company: company.id, p_key: FEATURE_KEY }).then(({ data }) => setLicensed(!!data))
+    // Etapp 2C: serverstyrd aktivering av autosave-piloten (company_ai_features/plan, RLS-skyddad).
+    supabase.rpc('has_ai_feature', { p_company: company.id, p_key: PILOT_FEATURE_KEY }).then(({ data }) => setAutosavePilotServer(!!data)).catch(() => setAutosavePilotServer(false))
     supabase.rpc('bokslut_my_permissions', { p_company: company.id }).then(({ data }) => setPerms(data || {}))
     supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('year', { ascending: false }).then(({ data }) => {
       setYears(data || [])
@@ -309,7 +313,7 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer key={selected.id} check={selected} user={user} company={company} fy={fy} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
+      {selected && <CheckDrawer key={selected.id} check={selected} user={user} company={company} fy={fy} pilotServerEnabled={autosavePilotServer} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
         onCreateAttachment={c => { setSelected(null); setEditAttachment({ _fromCheck: true, check_id: c.id, type: attachmentTypeForCategory(c.category), account_nr: c.account_nr || '', saldo_huvudbok: c.saldo ?? '', title: 'Bilaga – ' + categoryLabel(c.category) }) }}
         onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
       {editAttachment && <AttachmentModal initial={editAttachment} engagement={engagement} perms={perms} locked={locked} onClose={() => setEditAttachment(null)} onSaved={async () => { setEditAttachment(null); await loadEngagement() }} />}
@@ -317,14 +321,14 @@ export default function AiBokslut() {
   )
 }
 
-function CheckDrawer({ check, user, company, fy, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
+function CheckDrawer({ check, user, company, fy, pilotServerEnabled = false, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
   const NO_RESOLVE = 'Endast admin kan markera kontroller som klara/ignorerade'
   const LOCKED = 'Engagemanget är låst – inga ändringar tillåts'
   const [busy, setBusy] = useState(false)
   const [comment, setComment] = useState('')
 
-  // Etapp 2A: lokal autosave-pilot för kommentarsutkast (flaggstyrd, ingen serversynk).
-  const pilotOn = isAutosavePilotEnabled({ company })
+  // Etapp 2A–2C: lokal autosave-pilot för kommentarsutkast. Aktivering är serverstyrd i byggd miljö.
+  const pilotOn = isAutosavePilotEnabled({ serverEnabled: pilotServerEnabled })
   const autosaveIdentity = {
     userId: user?.id, companyId: company?.id, fiscalYearId: fy?.id,
     engagementId: check.engagement_id, entityType: 'bokslut_check_comment', fieldId: check.id,
@@ -407,24 +411,46 @@ function CheckDrawer({ check, user, company, fy, perms = {}, locked = false, has
                 </div>
               </div>
             )}
+            {pilotOn && autosave.readError && (
+              <div className="text-[11px] text-red-600 mb-1">
+                <i className="ti ti-database-off mr-0.5" />Lokalt utkast kunde inte läsas. Autospar är pausat.
+                <button className="ml-2 underline" onClick={() => autosave.retryRead()}>Försök igen</button>
+              </div>
+            )}
             <div className="flex gap-2">
               <textarea className="input text-sm flex-1" rows={2} placeholder="Skriv en kommentar…" value={comment} onChange={e => setComment(e.target.value)} />
               <button className="btn btn-primary self-end" disabled={busy || locked || !comment.trim() || !perms.comment_check} onClick={async () => {
+                setBusy(true)
                 try {
-                  const { error } = await supabase.rpc('bokslut_comment_check', { p_check: check.id, p_comment: comment })
-                  if (error) throw error
+                  await commitCheckComment(supabase, check.id, comment)   // kastar vid ALLA fel; true endast vid bekräftad respons
                   toast.success('Kommentar sparad')
-                  if (pilotOn) await autosave.clearLocal()   // server bekräftat → ta bort lokalt utkast
+                  if (pilotOn) await autosave.clearLocal()                // server bekräftat → ta bort lokalt utkast
                   setComment('')
                   await onChanged()
                 } catch (e) {
-                  // Serverfel/timeout/401/403/5xx → behåll det lokala utkastet (raderas EJ).
+                  // Offline/timeout/abort/401/403/500/felaktigt svar → behåll lokalt utkast (raderas EJ), ingen success-notis.
                   await logDenied({ engagement: check.engagement_id }, 'bokslut_comment_check', e)
-                  toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte spara kommentaren')
+                  toast.error(e.message?.replace(/^.*?:\s*/, '') || 'Kunde inte spara kommentaren på servern')
                 }
+                setBusy(false)
               }}><i className="ti ti-send" /></button>
             </div>
             {pilotOn && <div className="mt-1"><AutosaveIndicator status={autosave.status} lastSavedAt={autosave.lastSavedAt} storageError={autosave.storageError} /></div>}
+            {pilotOn && autosave.forks.length > 0 && (
+              <div className="mt-2 rounded-lg border px-3 py-2 text-[12px]" style={{ borderColor: 'rgba(0,0,0,0.1)', background: '#fafafa' }}>
+                <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Separata lokala konfliktkopior ({autosave.forks.length})</div>
+                <div className="space-y-1">
+                  {autosave.forks.map(f => (
+                    <div key={f.id} className="flex items-center gap-2">
+                      <span className="text-gray-400 shrink-0">{fmt(f.updatedAt)}</span>
+                      <span className="truncate text-gray-700 flex-1" title={f.payload}>{f.payload}</span>
+                      <button className="underline text-purple-600 shrink-0" onClick={() => { const p = autosave.restoreFork(f); if (p != null) setComment(p) }}>Återställ</button>
+                      <button className="underline text-gray-500 shrink-0" onClick={() => autosave.deleteFork(f.id)}>Radera</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

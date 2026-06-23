@@ -384,6 +384,60 @@ expectedRevision + listUserDrafts + injicerbar ops), `src/lib/offline/flags.js` 
 Flagga av (default i prod) → tidigare beteende. IDB v2 är additiv/icke-destruktiv; vid behov radera IndexedDB
 `bokpilot-offline`. Logout-confirm/konflikt-UI visas bara när flaggan är på.
 
+## Etapp 2C – slutlig acceptansverifiering ✅ (klar)
+
+### 1. Separata serverfel (per fall, ej gemensamt catch)
+Servspar extraherat till `commitCheckComment(supabase, checkId, comment)` (kastar vid ALLA fel, true endast vid
+validerad respons). Enhetstest (`commit.test.js`) verifierar VARJE fall separat: 401, 403, 500, timeout, AbortError,
+offline (Failed to fetch), felaktigt RPC-svar (null/undefined), lyckad. Live (prod-build) per fall separat: 401,
+403, 500, abort, offline → **formulärtext + IndexedDB-post behålls, ingen "Kommentar sparad", svenskt fel**.
+Lyckad respons rensar exakt rätt post (clearLocal endast i success-grenen; verifierat 2A/2B).
+
+### 2. Logout-flöde (ordning)
+`window.confirm` behålls (appens etablerade dialogmönster – används i 11 filer inkl. samma flöden; `ConfirmDialog`
+är en kontoplan-lokal wizardmodal, ej delat system). Exakt ordning i `useAuth.signOut`:
+1) `listUserDrafts(uid)` → 2) om >0: `window.confirm` (antal + senaste spartid; Avbryt → `return false`, ingen
+utloggning) → 3) `await supabase.auth.signOut()` (kastar vid fel → hoppar purge) → 4) **endast vid lyckad**
+utloggning: `purgeUserDrafts(uid)` → 5) rensa state. Tillfälligt sessionsfel går aldrig denna väg.
+**Live-not:** den explicita utloggningen triggades INTE i preview (sessionen är icke-återställbar där); byggstenarna
+`listUserDrafts`/`purgeUserDrafts` är verifierade och ordningen är garanterad av kodstrukturen (purge efter await).
+
+### 3. Kontextisolering
+CheckDrawer `key={check.id}` (färskt state per check), drawer stängs vid bolags-/årsbyte, hook nollställer +
+`alive`-flagga ignorerar sena async-resultat. Live: check A→B → fält tomt (ingen läcka, 2B+2C). Snabba växlingar
+täcks av remount + alive-guard. Användarisolering via nyckeln (userId ingår) + per-användar-purge.
+
+### 4. IndexedDB-läsfel (≠ saknad post)
+`getDraftResult` returnerar **draft_loaded | draft_not_found | storage_read_error**. Vid `storage_read_error`
+(idbGet kastar / IDB otillgänglig) visar hooken "Lokalt utkast kunde inte läsas", **pausar autosave** (skriver
+inte över en eventuell befintlig post), loggar ingen payload, och erbjuder "Försök igen" (`retryRead`).
+Enhetstestat (open/read-fel + otillgänglig IDB). Läsfel behandlas ALDRIG som "inget utkast".
+
+### 5. Fork-utkast (synliga & hanterbara)
+Separata konfliktkopior listas i CheckDrawer ("Separata lokala konfliktkopior (N)") med spartid + **Återställ**
+(läs in i fältet) + **Radera**. `listForkDrafts(identity)` matchar full identity + fork-prefix. Retention 30 dagar
+gäller även forks. Live verifierat: fork skapad vid "Behåll min text som separat" → syns i listan → kan raderas.
+
+### 6. Feature flag (serverstyrd, auktoritativ)
+Aktivering i byggd miljö = **`has_ai_feature(company, 'offline_autosave_pilot')`** (company_ai_features/plan, RLS).
+Inga hårdkodade frontend-ID:n, ingen localStorage/URL-styrning i prod (localStorage endast dev-override).
+Live (prod-build): pilot på via serverflagga med **tom localStorage**; icke-allowlistat bolag av; localStorage='1'
+aktiverar INTE i byggd miljö. Frontend-flaggan är presentation; server + RLS + servervalidering är auktoritativa.
+
+### 7. Tre testkörningar
+Full svit **DETERMINISTISK: 841/841 (79 filer) tre körningar i rad**. Build grön.
+
+### Ändrade/skapade filer (2C)
+Nya: `src/lib/offline/commit.js` (+ `commit.test.js`). Ändrade: `src/lib/offline/autosaveStore.js` (getDraftResult/
+listForkDrafts/deleteDraftById + tester), `src/lib/offline/flags.js` (serverstyrd), `src/hooks/useAutosaveDraft.js`
+(read-error-paus + retryRead + forks), `src/pages/AiBokslut.jsx` (serverflagga + läsfel-banner + fork-lista +
+commitCheckComment), `docs/offline-pwa-status.md`. DB: rad i `company_ai_features` (data, ej migration) för testbolaget.
+
+### Kända risker (2C)
+- Logout-confirm via `window.confirm` (appmönster); live-logout ej kört i preview (icke-återställbar session) – ordning kodverifierad.
+- Read-error live-forcering ej möjlig i preview-harnessen → deterministiska injicerade-ops-tester istället.
+- Konfliktlösning är lokal (server-konflikt = Etapp 3).
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
 - **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
   Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.

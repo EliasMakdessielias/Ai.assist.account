@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import {
   makeId, payloadHash, isExpired, identityComplete, identityMatches, byteLength, RETENTION_MS,
-  saveDraft, getDraft, RevisionConflict, MAX_PAYLOAD_BYTES, __setOpsForTests,
+  saveDraft, getDraft, getDraftResult, listForkDrafts, RevisionConflict, MAX_PAYLOAD_BYTES, makeId, __setOpsForTests,
 } from './autosaveStore'
 
 const full = {
@@ -111,5 +111,44 @@ describe('autosaveStore – lokal optimistic concurrency (Etapp 2B)', () => {
   it('getDraft svälier läsfel och returnerar null (kraschar inte formuläret)', async () => {
     __setOpsForTests({ ...memOps(), idbGet: async () => { throw new Error('open error') } })
     expect(await getDraft(ident)).toBeNull()
+  })
+})
+
+describe('autosaveStore – getDraftResult skiljer läsfel från saknad post (Etapp 2C)', () => {
+  afterEach(() => __setOpsForTests(null))
+  const ident = { userId: 'u1', companyId: 'c1', fiscalYearId: 'fy1', engagementId: 'e1', entityType: 'bokslut_check_comment', fieldId: 'chk1' }
+
+  it('post finns → draft_loaded', async () => {
+    __setOpsForTests(memOps())
+    await saveDraft(ident, { payload: 'hej', expectedRevision: 0 })
+    const r = await getDraftResult(ident)
+    expect(r.status).toBe('draft_loaded'); expect(r.entry.payload).toBe('hej')
+  })
+
+  it('ingen post → draft_not_found', async () => {
+    __setOpsForTests(memOps())
+    expect((await getDraftResult(ident)).status).toBe('draft_not_found')
+  })
+
+  it('läsfel (idbGet kastar) → storage_read_error (INTE not_found)', async () => {
+    __setOpsForTests({ ...memOps(), idbGet: async () => { throw new Error('open error') } })
+    expect((await getDraftResult(ident)).status).toBe('storage_read_error')
+  })
+
+  it('IndexedDB otillgänglig → storage_read_error', async () => {
+    __setOpsForTests({ ...memOps(), idbAvailable: () => false })
+    expect((await getDraftResult(ident)).status).toBe('storage_read_error')
+  })
+
+  it('listForkDrafts hittar fork-kopior för samma fullständiga identity', async () => {
+    __setOpsForTests(memOps())
+    await saveDraft(ident, { payload: 'huvud', expectedRevision: 0 })
+    await saveDraft({ ...ident, fieldId: `${ident.fieldId}::fork-tabX-1` }, { payload: 'kopia 1', expectedRevision: 0 })
+    await saveDraft({ ...ident, fieldId: `${ident.fieldId}::fork-tabX-2` }, { payload: 'kopia 2', expectedRevision: 0 })
+    const forks = await listForkDrafts(ident)
+    expect(forks).toHaveLength(2)
+    expect(forks.map(f => f.payload).sort()).toEqual(['kopia 1', 'kopia 2'])
+    // huvudposten är inte en fork
+    expect(forks.some(f => f.id === makeId(ident))).toBe(false)
   })
 })

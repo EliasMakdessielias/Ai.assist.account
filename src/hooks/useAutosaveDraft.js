@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  saveDraft, getDraft, deleteDraft, enforceCap, RevisionConflict,
+  saveDraft, getDraftResult, deleteDraft, deleteDraftById, listForkDrafts, enforceCap, RevisionConflict,
   makeId, payloadHash, identityComplete,
 } from '../lib/offline/autosaveStore'
 
@@ -21,6 +21,8 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
   const [otherTab, setOtherTab] = useState(false)
   const [storageError, setStorageError] = useState(false)
   const [conflict, setConflict] = useState(null)        // { current } – nyare version finns i annan flik
+  const [readError, setReadError] = useState(false)     // läsfel ≠ "inget utkast"
+  const [forks, setForks] = useState([])                // separata konfliktkopior för denna identity
 
   const id = identityComplete(identity) ? makeId(identity) : null
   const ready = !!enabled && !!id
@@ -29,20 +31,30 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
   const timerRef = useRef(null)
   const chRef = useRef(null)
   const conflictRef = useRef(false)
+  const readErrorRef = useRef(false)                    // pausa autosave vid läsfel (skriv ej över ev. post)
+  const [reloadKey, setReloadKey] = useState(0)         // för manuell omläsning (Försök igen)
 
-  // Ladda ev. befintligt lokalt utkast vid identitetsbyte (visas, ersätter ALDRIG automatiskt).
+  // Ladda ev. befintligt lokalt utkast vid identitetsbyte. Visar ALDRIG/ersätter aldrig automatiskt.
+  // Läsfel behandlas som storage_read_error (INTE som "saknas") och pausar autosave.
   useEffect(() => {
-    lastHashRef.current = null; expectedRevRef.current = 0; conflictRef.current = false
-    setRestorable(null); setOtherTab(false); setStatus('idle'); setLastSavedAt(null); setStorageError(false); setConflict(null)
+    lastHashRef.current = null; expectedRevRef.current = 0; conflictRef.current = false; readErrorRef.current = false
+    setRestorable(null); setOtherTab(false); setStatus('idle'); setLastSavedAt(null); setStorageError(false); setConflict(null); setReadError(false); setForks([])
     if (!ready) return
     let alive = true
-    getDraft(identity).then(e => {
-      if (!alive || !e) return
-      setRestorable(e); lastHashRef.current = e.payloadHash; expectedRevRef.current = e.localRevision || 0
+    getDraftResult(identity).then(({ status, entry }) => {
+      if (!alive) return
+      if (status === 'storage_read_error') {
+        readErrorRef.current = true; setReadError(true)   // pausa autosave; skriv inte över potentiell post
+        return
+      }
+      if (status === 'draft_loaded' && entry) {
+        setRestorable(entry); lastHashRef.current = entry.payloadHash; expectedRevRef.current = entry.localRevision || 0
+      }
     }).catch(() => {})
+    listForkDrafts(identity).then(fs => { if (alive) setForks(fs) }).catch(() => {})
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, id])
+  }, [ready, id, reloadKey])
 
   // Multi-flik-signal (snabb varning utöver den hårda revisionskontrollen).
   useEffect(() => {
@@ -53,9 +65,9 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, id])
 
-  // Debounced lokal sparning vid faktisk ändring. Pausad medan en konflikt väntar på beslut.
+  // Debounced lokal sparning vid faktisk ändring. Pausad vid konflikt ELLER läsfel (skriv ej över ev. post).
   useEffect(() => {
-    if (!ready || conflictRef.current) return
+    if (!ready || conflictRef.current || readErrorRef.current) return
     const text = String(value ?? '')
     const h = payloadHash(text)
     if (h === lastHashRef.current) return
@@ -113,11 +125,18 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
     try {
       const forkIdentity = { ...identity, fieldId: `${identity.fieldId}::fork-${tabId()}-${Date.now()}` }
       await saveDraft(forkIdentity, { payload: mine, expectedRevision: 0, appBuildId: (typeof window !== 'undefined' && window.__bokpilotBuildId) || null, tabId: tabId() })
+      try { setForks(await listForkDrafts(identity)) } catch { /* ignore */ }   // gör forken synlig i listan
     } catch { /* fork best-effort */ }
     if (cur) { lastHashRef.current = cur.payloadHash; expectedRevRef.current = cur.localRevision || 0 }
     conflictRef.current = false; setConflict(null); setOtherTab(false)
     return cur ? cur.payload : null
   }, [conflict, identity, value]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Läsfel: försök läsa om identityn (återupptar autosave om läsningen lyckas).
+  const retryRead = useCallback(() => { readErrorRef.current = false; setReadError(false); setReloadKey(k => k + 1) }, [])
+  // Fork-utkast: returnera payload att återställa i fältet, eller radera forken.
+  const restoreFork = useCallback((forkEntry) => (forkEntry ? forkEntry.payload : null), [])
+  const deleteFork = useCallback(async (forkId) => { await deleteDraftById(forkId); setForks(fs => fs.filter(f => f.id !== forkId)) }, [])
 
   // Efter BEKRÄFTAT lyckat serversparande → ta bort motsvarande lokala utkast.
   const clearLocal = useCallback(async () => {
@@ -127,5 +146,5 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
     await deleteDraft(identity)
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { ready, status, lastSavedAt, restorable, otherTab, storageError, conflict, restore, discard, dismissBanner, resolveLoadNewer, resolveKeepSeparate, clearLocal }
+  return { ready, status, lastSavedAt, restorable, otherTab, storageError, conflict, readError, forks, restore, discard, dismissBanner, resolveLoadNewer, resolveKeepSeparate, retryRead, restoreFork, deleteFork, clearLocal }
 }
