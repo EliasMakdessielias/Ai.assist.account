@@ -1,0 +1,48 @@
+-- AI Bokslut & Årsredovisning – Steg 1 (kärnslice). Referens/dokumentation.
+-- Tillämpat via migrationerna:
+--   ai_bokslut_tables_and_license   (licens + tabeller + RLS + realtime)
+--   ai_bokslut_engine_and_actions   (regelmotor + check-RPC + recount + badge)
+-- HUVUDREGEL: modulen LÄSER bara bokföring. Den bokför aldrig, ändrar aldrig låsta perioder och lämnar
+-- aldrig in något. Allt kräver mänsklig granskning och loggas i bokslut_audit_log.
+
+-- ── Licens / AI-paket ───────────────────────────────────────────────────────
+--   company_ai_features (company_id, feature_key, enabled, note) – per bolag/byrå-aktivering.
+--   has_ai_feature(company, key) = override-tabell true ELLER aktiv plan vars features-array innehåller key.
+--   Feature-nyckel: 'ai_bokslut_arsredovisning'. Saknas licens → UI visar "ingår inte i din nuvarande plan".
+
+-- ── Tabeller ────────────────────────────────────────────────────────────────
+--   bokslut_engagements (company_id, fiscal_year_id [unik], regelverk 'K2', status, ansvarig_user_id,
+--     last_analysis_at, open/critical/high_count). Status: ej_paborjad/pagar/kraver_granskning/
+--     klar_for_konsult/godkand/avvisad/last.
+--   bokslut_checks (engagement_id, company_id, category, title, description, account_nr, saldo, risk_level
+--     [low/medium/high/critical], status [open/in_progress/needs_review/resolved/ignored], suggested_action,
+--     source, action_url, rule_key, assigned_to, comment, source_data). Unik: (engagement, rule_key, konto).
+--   bokslut_audit_log (engagement_id, company_id, user_id, action, model, prompt_version, detail) – revisionsspår.
+--   RLS: select per company_id in (select user_company_ids()); mutationer endast via SECURITY DEFINER-RPC.
+
+-- ── RPC:er ──────────────────────────────────────────────────────────────────
+--   bokslut_get_or_create(company, fiscal_year_id) -> engagement (kräver licens + medlemskap).
+--   run_bokslut_analysis(engagement) -> engagement. Deterministisk regelmotor (läser verifikation_rows ⋈
+--     verifikationer för räkenskapsåret, accounts, bank_transactions, documents). Idempotent upsert,
+--     auto-resolve borttagna risk-checkar, recount, audit ('run_analysis', model='rule-engine', v1).
+--     Blockeras om engagemang-status = 'last' (låst period respekteras).
+--   bokslut_set_check_status(check, status, comment) / bokslut_assign_check(check, user) /
+--     bokslut_comment_check(check, comment) – alla loggar audit + recount.
+--   bokslut_open_counts(company) -> {critical, high, open} för sidomeny-badge.
+
+-- ── Regelmotorns checkar (Steg 1 – schema-verifierade) ──────────────────────
+--   trial_balance_not_zero (kritisk): Σ(ingående balans + årets rörelse) ≠ 0.
+--   unmatched_bank (hög): omatchade bankhändelser i räkenskapsåret.
+--   missing_documents (medel): verifikationer i året utan kopplat underlag.
+--   unusual_balance (hög): tillgångskonto (klass 1) med kreditsaldo / skuld-EK (klass 2) med debetsaldo.
+--   vat_settlement_open (medel): saldo på 2650 ≠ 0.
+--   review_* (needs_review): kontrollkonton per område (kundfordringar 15, lev.skulder 24, skattekonto 16,
+--     eget kapital 20, anläggningar 10–12, avskrivningar 78, periodiseringar 17/29, lön 27, skatt 25) med
+--     saldovisning; arets_resultat_review (resultat = -Σ klass 3–8); noter + bokslutsverifikationer (scaffold).
+--   Inga gissade konteringar; osäkert → needs_review (konsulten äger bedömningen).
+
+-- ── Steg 2 (byggs additivt senare, ej i denna leverans) ─────────────────────
+--   bokslut_suggestions + edge 'bokslut-ai' (strukturerad JSON, status 'Förslag, ej bokförd', confidence,
+--   requires_manual_review, draft-adjustment som utkast). bokslut_attachments (bilagor: saldo huvudbok/
+--   avstämt/differens). annual_report_drafts (K2: förvaltningsberättelse, RR, BR, noter, fastställelseintyg,
+--   underskriftssida + varning). Roll-baserat godkännandeflöde mot user_companies.role. K3-regelverk.

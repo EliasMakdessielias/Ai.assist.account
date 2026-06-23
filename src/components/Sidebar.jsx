@@ -6,6 +6,7 @@ import { isValidOrgNr, normalizeOrgNr } from '../lib/orgnr'
 import { BRAND } from '../lib/brand'
 import { SETTINGS_ITEMS, isSettingsItemActive, isSettingsSection } from '../lib/settingsNav'
 import NotificationCenter from './NotificationCenter'
+import { FEATURE_KEY as BOKSLUT_FEATURE } from '../lib/bokslut'
 import toast from 'react-hot-toast'
 
 const navItems = [
@@ -13,6 +14,7 @@ const navItems = [
   { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
+  { label: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', to: '/ai-bokslut', featureKey: BOKSLUT_FEATURE, badgeKey: 'bokslut' },
   { section: 'Ekonomi' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },
@@ -63,6 +65,23 @@ export default function Sidebar({ collapsed = false, onToggle }) {
     return () => { active = false; supabase.removeChannel(ch) }
   }, [company?.id])
   const mcBadge = mcCounts.critical > 0 ? { n: mcCounts.critical, bg: '#dc2626' } : (mcCounts.high > 0 ? { n: mcCounts.high, bg: '#f97316' } : null)
+
+  // AI Bokslut & Årsredovisning: licensgrindat menyval + badge (kritisk röd/hög orange), realtid.
+  const [bokslutLicensed, setBokslutLicensed] = useState(false)
+  const [bokslutCounts, setBokslutCounts] = useState({ critical: 0, high: 0, open: 0 })
+  useEffect(() => {
+    if (!company?.id) { setBokslutLicensed(false); return }
+    let active = true
+    supabase.rpc('has_ai_feature', { p_company: company.id, p_key: BOKSLUT_FEATURE }).then(({ data }) => { if (active) setBokslutLicensed(!!data) })
+    const load = async () => { const { data } = await supabase.rpc('bokslut_open_counts', { p_company: company.id }); if (active && data) setBokslutCounts(data) }
+    load()
+    const ch = supabase.channel('sidebar-bokslut')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bokslut_checks' }, load)
+      .subscribe()
+    return () => { active = false; supabase.removeChannel(ch) }
+  }, [company?.id])
+  const bokslutBadge = bokslutCounts.critical > 0 ? { n: bokslutCounts.critical, bg: '#dc2626' } : (bokslutCounts.high > 0 ? { n: bokslutCounts.high, bg: '#f97316' } : null)
+  const badgeForItem = item => item.badgeKey === 'mc' ? mcBadge : item.badgeKey === 'bokslut' ? bokslutBadge : null
 
   // Hämtar företagsnamnet automatiskt från organisationsnumret (officiell källa via
   // edge-funktionen hamta-foretag). Best-effort: misslyckas tyst så namnet kan skrivas manuellt.
@@ -139,21 +158,25 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       </div>
 
       <nav className="flex-1 py-2.5 overflow-y-auto overflow-x-hidden">
-        {navItems.map((item, i) =>
-          item.section ? (
-            collapsed
+        {navItems.map((item, i) => {
+          // Licensgrindade menyval (t.ex. AI Bokslut) visas bara om funktionen ingår i planen.
+          if (item.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) return null
+          if (item.section) {
+            return collapsed
               ? <div key={i} className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }} />
               : <div key={i} className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{item.section}</div>
-          ) : (
+          }
+          const badge = badgeForItem(item)
+          return (
             <NavLink key={i} to={item.to} end={item.to === '/'} className={s => `${linkClass(s)} relative`} title={collapsed ? item.label : undefined}>
               <i className={`ti ${item.icon} text-[17px] w-5 text-center`} />
               {!collapsed && <span className="flex-1">{item.label}</span>}
-              {item.badgeKey === 'mc' && mcBadge && (collapsed
-                ? <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full" style={{ background: mcBadge.bg }} />
-                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: mcBadge.bg }}>{mcBadge.n > 9 ? '9+' : mcBadge.n}</span>)}
+              {badge && (collapsed
+                ? <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full" style={{ background: badge.bg }} />
+                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: badge.bg }}>{badge.n > 9 ? '9+' : badge.n}</span>)}
             </NavLink>
           )
-        )}
+        })}
 
         {(isAdmin || canViewOps || canViewSupport || canManageBilling) && (
           collapsed ? (
