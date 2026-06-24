@@ -567,6 +567,16 @@ Neutraliserad (v2 inert 410, ingen service-role) men skalet är INTE raderat –
 `supabase functions delete e2e-user-admin --project-ref bypebgvxdmbzxqecllao` (efter `supabase login`), ELLER
 Dashboard → Edge Functions → `e2e-user-admin` → Delete. Verifiera: saknas i listan, endpoint ger 404.
 
+#### Slutverifiering 2026-06-24 (efter begärd manuell borttagning): ❌ EJ RADERAD
+- **Metod:** `list_edge_functions` (MCP) + HTTP-prob med `curl` mot endpointen (GET/POST/OPTIONS).
+- **Resultat:** funktionen finns KVAR i listan (`e2e-user-admin`, version **2**, status **ACTIVE**).
+  Endpointstatus: **GET 401**, **POST 401**, **OPTIONS 410** (OPTIONS når den neutraliserade v2-koden →
+  bevis att funktionen fortfarande exekverar). Ingen metod returnerar **404**.
+- **Slutsats:** den manuella raderingen har inte genomförts/propagerat. Risken är fortsatt eliminerad
+  (neutraliserad, ingen service-role), men kriterierna "fullständigt raderad" + "endpoint 404" är fortfarande
+  EJ uppfyllda. Testdata = 0 (e2e_users/identities/sessions/refresh/membership/audit/feature-rader/kommentarer).
+  **Etapp 3 får inte startas förrän endpointen ger 404.**
+
 ### Förebyggande utvecklingsregel (säkerhet)
 1. Inga temporära adminfunktioner i produktionsprojekt; auth-admin-tester körs i separat testprojekt/lokal Supabase.
 2. Service-role-endpoints kräver plattformsadmin-kontroll + strikt action-allowlist + audit + rate limit.
