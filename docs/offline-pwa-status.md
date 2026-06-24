@@ -526,5 +526,55 @@ B_temp_features=0, B_engagements=0, test_comments=0; A:s riktiga engagement+lice
 `e2e-user-admin`-edgen är **neutraliserad** (v2: inert 410, ingen service-role, ingen kapacitet) men dess tomma
 skal kunde inte raderas helt via tillgängliga verktyg (ingen delete-funktion i MCP, ingen access token för CLI).
 **Radera funktionsskalet `e2e-user-admin` via Supabase-dashboard (Edge Functions).** Risken är redan eliminerad.
+
+## Etapp 2F – säkerhetsstängning av `e2e-user-admin`
+
+### Incidentklassificering: INGEN OBEHÖRIG AKTIVITET HITTAD
+Exponeringen fanns men loggarna visar ENBART de planerade testoperationerna, utförda av den legitima
+admin-användaren (admin@bokpilot.se / 3baa21a4). Inga oväntade konton, sessioner, medlemskap eller identiteter.
+
+### Exponeringsfönster (UTC, 2026-06-24)
+v1 deploy **20:44:33** (created_at 1782333873440) → v2 neutralisering **20:52:26** (updated_at 1782334346077). **≈ 7 min 53 s.**
+
+### Anrop mot `e2e-user-admin` (edge- + auth-loggar)
+| Tid UTC | Operation | Status | Anropare (verifierad via getUser 200) | Käll-IP | Förväntat? |
+|---|---|---|---|---|---|
+| 20:45:12 | OPTIONS | 200 | — | edge | Ja |
+| 20:45:13 | create → autosave-e2e-b@e2e.bokpilot.test | 200 | admin@bokpilot.se | edge 3.75.241.234 | Ja (skapa testkonto B) |
+| 20:50:38 | delete-försök (B) | 500 (FK bokslut_audit_log) | admin@bokpilot.se | edge 63.177.110.40 | Ja (B raderades sedan via SQL efter audit-rensning) |
+
+Övriga auth-events i fönstret (alla planerade): B login 20:47:22 (IP 83.251.89.112), B logout 20:48:23,
+refresh-token-fel 20:49:24 (sessionsavbrottstestet). Inga andra `/admin/*`-anrop. service_role-aktören = edgen.
+
+### Auth-/DB-granskning efter städning (exakta antal)
+e2e_users=0, e2e_identities=0, B_user_row=0, B_sessions=0, B_refresh_tokens=0, B_membership=0,
+B_bokslut_audit=0, users_created_in_window (kvar)=0, users_total=1 (endast legitim admin). Inga orphaner.
+
+### v1:s auktoriseringsmodell (granskad)
+v1 krävde giltig JWT (`verify_jwt=true` + `getUser()`); **create** var domän-låst till `@e2e.bokpilot.test`.
+v1 SAKNADE `is_platform_admin()`, testanvändar-allowlist, rate limit, idempotency och egen audit; **delete**
+tog ett godtyckligt `userId` utan allowlist → **tillfällig privilege-escalation-exponering** (en autentiserad
+användare hade under fönstret kunnat radera valfri auth-användare). Loggarna visar att det INTE utnyttjades.
+
+### Hemligheter (bedömning)
+`SUPABASE_SERVICE_ROLE_KEY` användes ENDAST i edge-env. Nyckelvärdet förekom ALDRIG i frontend-bundle, Git
+(edgen deployades inline via MCP – ej i repo/lokal mapp/historik), network-svar (endast `{id,email}`/`{ok}`/`{error}`),
+console, testoutput eller docs. Endast den PUBLIKA anon-nyckeln användes i browsertesterna. → **Ingen nyckelexponering. Rotation behövs ej.**
+
+### Borttagningsstatus (KVARSTÅR – kräver projektägarens åtkomst)
+Neutraliserad (v2 inert 410, ingen service-role) men skalet är INTE raderat – gick ej med tillgängliga verktyg
+(ingen delete i MCP; ingen `SUPABASE_ACCESS_TOKEN`/CLI). **Projektägaren raderar:**
+`supabase functions delete e2e-user-admin --project-ref bypebgvxdmbzxqecllao` (efter `supabase login`), ELLER
+Dashboard → Edge Functions → `e2e-user-admin` → Delete. Verifiera: saknas i listan, endpoint ger 404.
+
+### Förebyggande utvecklingsregel (säkerhet)
+1. Inga temporära adminfunktioner i produktionsprojekt; auth-admin-tester körs i separat testprojekt/lokal Supabase.
+2. Service-role-endpoints kräver plattformsadmin-kontroll + strikt action-allowlist + audit + rate limit.
+3. Testfunktioner ska ha automatisk expiry; deployment + cleanup i SAMMA kontrollerade testscript.
+4. Browsern får aldrig anropa en generell auth-admin-endpoint.
+
+## Nästa (ej påbörjat – inväntar separat beslut)
+- **Etapp 2F – kvarstår:** projektägaren måste radera funktionsskalet `e2e-user-admin` (se ovan). Risken är redan
+  eliminerad (neutraliserad); kriterierna "fullständigt raderad" + "endpoint 404" är ej uppfyllda förrän dess.
 - **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
   Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.
