@@ -540,10 +540,10 @@ v1 deploy **20:44:33** (created_at 1782333873440) → v2 neutralisering **20:52:
 | Tid UTC | Operation | Status | Anropare (verifierad via getUser 200) | Käll-IP | Förväntat? |
 |---|---|---|---|---|---|
 | 20:45:12 | OPTIONS | 200 | — | edge | Ja |
-| 20:45:13 | create → autosave-e2e-b@e2e.bokpilot.test | 200 | admin@bokpilot.se | edge 3.75.241.234 | Ja (skapa testkonto B) |
-| 20:50:38 | delete-försök (B) | 500 (FK bokslut_audit_log) | admin@bokpilot.se | edge 63.177.110.40 | Ja (B raderades sedan via SQL efter audit-rensning) |
+| 20:45:13 | create → autosave-e2e-b@e2e.bokpilot.test | 200 | admin@bokpilot.se | edge 3.75.x.x | Ja (skapa testkonto B) |
+| 20:50:38 | delete-försök (B) | 500 (FK bokslut_audit_log) | admin@bokpilot.se | edge 63.177.x.x | Ja (B raderades sedan via SQL efter audit-rensning) |
 
-Övriga auth-events i fönstret (alla planerade): B login 20:47:22 (IP 83.251.89.112), B logout 20:48:23,
+Övriga auth-events i fönstret (alla planerade): B login 20:47:22 (klient-IP 83.251.x.x), B logout 20:48:23,
 refresh-token-fel 20:49:24 (sessionsavbrottstestet). Inga andra `/admin/*`-anrop. service_role-aktören = edgen.
 
 ### Auth-/DB-granskning efter städning (exakta antal)
