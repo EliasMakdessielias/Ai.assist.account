@@ -491,8 +491,40 @@ enabled=true→på, enabled=false→av, ingen rad→av, planens AI-features akti
 gav av), localStorage aktiverar inte i byggd miljö: **Verifierad i browser**. RLS-skrivskydd: **Integrationstestad**
 (SQL som authenticated-roll).
 
-## Nästa (ej påbörjat – inväntar separat beslut)
-- **Etapp 2D – kvarstår:** användare A→B i browser kräver en säker andra-konto-fixture (auth-admin). Tills den
-  finns är kravet **Inte verifierad** och Etapp 2 ska inte beskrivas som komplett.
+## Etapp 2E – stängning av kvarvarande E2E-luckor ✅
+
+### 1. Feature-flag-race vid bolagsbyte (åtgärdad + browserverifierad)
+Rotorsak: flaggläsningen låg i en delad effekt utan avbrott/nollställning → ett sent svar från bolag A kunde
+tillämpas på bolag B, och flaggan nollställdes inte vid byte. Fix (AiBokslut): egen effekt bunden till `companyId`,
+`setAutosavePilotServer(false)` direkt vid byte (autosave startar inte förrän rätt bolags flagga verifierats) +
+`cancelled`-guard (request generation) som ignorerar sent svar. **Verifierad i browser via auktoritativ state:**
+in-app byte B→A→B (rätt flagga utan reload), A(on)→B(off), A(off)→B(on), snabb A→B→A→B (rätt slutläge), och
+**fördröjt A-svar efter att B blivit aktivt → ignorerat** (`staleAIgnored`). Inget utkast skrivs under fel companyId.
+
+### 2. Användare A→B (verifierad i browser)
+Tillfälligt testkonto B skapades via en **temporär service-role-edge** (`e2e-user-admin`) – service role stannar
+server-side, nådde aldrig klienten; endast `@e2e.bokpilot.test`-adresser. Flöde: A skapar utkast → byte till B utan
+explicit logout (token togs bort lokalt → A:s utkast raderades INTE) → login som B → **B ser aldrig A:s utkast**
+(tomt fält, ingen banner) → B skapar eget utkast → **distinkta userId i IndexedDB** → B explicit logout raderar
+ENDAST B:s utkast (A:s kvar) → re-login som A → **A ser endast A:s utkast**.
+
+### 3. Sessionsavbrott (verifierad i browser)
+Session ogiltigförklarad (utgången access token + ogiltig refresh token) UTAN explicit logout → Supabase
+TOKEN_REFRESH_FAILED → **icke-explicit SIGNED_OUT** → `onAuthStateChange` nollar user → /login (re-auth krävs).
+**Utkastet behölls (ingen purge)** – purge sker ENDAST i den explicita `signOut`. Re-auth → samma user → utkast återfunnet.
+
+### 4. Regression
+Build grön. Full svit **DETERMINISTISK: 850/850 (80 filer), tre körningar i rad** (diagnostik borttagen, prod-ren kod).
+
+### Testfixtures + cleanup (exakta antal efter)
+Återanvände befintliga bolag (inget nytt fullt bolag med kontoplanstrigger): testbolag A (4f0d) + den
+disponibla "BokPilot AB - ska tas bort" (d3382ea7) som B, temporära company_ai_features-rader, temporärt
+medlemskap, temporärt testkonto. **Cleanup verifierad:** e2e_users=0, B_membership=0, pilot_rows_anywhere=0,
+B_temp_features=0, B_engagements=0, test_comments=0; A:s riktiga engagement+licens intakta (1/1). Lokal IDB + backuper rensade.
+
+### Kvarstående manuell åtgärd (säkerhet)
+`e2e-user-admin`-edgen är **neutraliserad** (v2: inert 410, ingen service-role, ingen kapacitet) men dess tomma
+skal kunde inte raderas helt via tillgängliga verktyg (ingen delete-funktion i MCP, ingen access token för CLI).
+**Radera funktionsskalet `e2e-user-admin` via Supabase-dashboard (Edge Functions).** Risken är redan eliminerad.
 - **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
   Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.

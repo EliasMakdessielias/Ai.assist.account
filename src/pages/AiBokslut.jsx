@@ -87,14 +87,22 @@ export default function AiBokslut() {
     if (!company?.id) return
     setLicensed(null)
     supabase.rpc('has_ai_feature', { p_company: company.id, p_key: FEATURE_KEY }).then(({ data }) => setLicensed(!!data))
-    // Etapp 2D: serverstyrd aktivering via EXPLICIT company-level uppslag (ingen plan-fallback). RLS-skyddad; läsfel → false.
-    fetchPilotServerEnabled(supabase, company.id).then(setAutosavePilotServer)
     supabase.rpc('bokslut_my_permissions', { p_company: company.id }).then(({ data }) => setPerms(data || {}))
     supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('year', { ascending: false }).then(({ data }) => {
       setYears(data || [])
       const active = (data || []).find(y => y.status === 'active') || (data || [])[0]
       setFyId(prev => prev || active?.id || '')
     })
+  }, [company?.id])
+
+  // Etapp 2E: serverflaggan bunden till AKTUELLT companyId. Nollställ direkt vid byte (autosave startar inte
+  // förrän rätt bolags flagga verifierats), och ignorera sent svar från ett tidigare bolag (request generation).
+  useEffect(() => {
+    setAutosavePilotServer(false)
+    if (!company?.id) return
+    let cancelled = false
+    fetchPilotServerEnabled(supabase, company.id).then(v => { if (!cancelled) setAutosavePilotServer(v) })
+    return () => { cancelled = true }
   }, [company?.id])
 
   const loadEngagement = useCallback(async () => {
