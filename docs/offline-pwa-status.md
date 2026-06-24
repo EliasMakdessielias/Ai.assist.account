@@ -613,9 +613,55 @@ speglad reproducerbart i `supabase/harden_user_company_ids.sql`). **Avstängd ba
 - **Testmatris (verifierad mot DB):** feature av/på, upsert/clear/no_change/overwrite, revision endast vid ändring,
   idempotens (replay=lagrat, mismatch, ny nyckel), revision_conflict, godkand/last-block, non-member/unauthorized/anon/
   authenticated-direktläsning nekas, audit exakt en gång utan kommentartext, clientCreatedAt påverkar ej identitet.
-  Samtidighet vilar på unik-constraint + ON CONFLICT + lock_timeout→transaction_retry (mekanism verifierad sekventiellt).
+  Samtidighet bekräftades i 3B-1 med parallella DB-sessioner (se nedan).
 - **Verifiering:** build grön; full svit 850/850 × 3. All testdata städad (ops=0, sync-audit=0, temp-flagga=0, fixtur återställd).
 - **Avgränsning:** ingen klient-sync-queue/Background Sync/andra entiteter implementerade. Funktionen avstängd.
+
+## Etapp 3B-1 – verifieringsstängning med verklig parallellitet ✅ (2026-06-25)
+Migration: `offline_autosave_sync_nondisclosure` (repo: `supabase/offline_autosave_sync_nondisclosure.sql`).
+**Servern ändrades på en punkt** (konkret test visade läcka): okänd/otillåten check gav tidigare olika svar
+(`entity_deleted` vs `membership_removed`) → kunde avslöja att ett UUID fanns i annan tenant. Ny icke-avslöjande
+modell: generiskt `not_found` för okänd check / cross-tenant-probe utan tidigare egen operation; `entity_deleted`
+endast vid replay där operationraden binder user+nyckel+entitet; `membership_removed` endast vid replay av tidigare behörig op.
+
+**Verifierad med parallella DB-sessioner** (samtidiga PostgREST-anrop, oberoende backends):
+- 8 samtidiga identiska (samma nyckel/payload) → exakt **1 mutation + 1 audit**, övriga replay (alla `succeeded`, rev +1 en gång).
+- 6 samtidiga samma nyckel/olika payload → **1 succeeded + 5 idempotency_payload_mismatch**.
+- 6 samtidiga olika nycklar/samma baseRevision (CAS-race) → **1 succeeded + 5 revision_conflict**.
+- Lock-timeout: hållen nyckel (>3 s) + samtidigt riktigt anrop → blockerade **3088 ms** → `transaction_retry`, ingen
+  mutation/audit, ingen synlig claimed-rad; retry efter släppt lås → succeeded.
+
+**Integrationstestad atomic rollback:** real RPC i yttre transaktion → ROLLBACK lämnar 0 rader/0 audit, oförändrad
+revision, nyckel återanvändbar. *Detta bevisar transaktionell atomicitet, INTE en intern felpunkt efter claim* — en
+intern crash-after-claip kunde inte testas utan permanent produktions-test-hook och lämnas därför **Inte verifierad**.
+
+**Integrationstestat (simulerade identiteter):** lost-response-replay (replay returnerar lagrat succeeded, ingen ny
+mutation/audit); rollmatris (member upsert/clear ✓, member overwrite nekas utan rad/audit, admin overwrite ✓, reversibel
+rollflip); feature-matris (se nedan); gamla RPC:n (no-change → ingen revisionökning, ändring +1, 8000 ✓, 8001/emoji
+avvisas, ingen trunkering); entitetsmatris (random UUID → not_found; raderad bunden entitet vid replay → entity_deleted;
+cross-tenant-probe → not_found).
+
+**Feature-matris (separata konkreta utfall):** ingen rad → `feature_disabled`; enabled=false → `feature_disabled`;
+enabled=true → mutation lyckas; **plan-feature utan explicit rad** → `feature_disabled` (konkret divergens: `has_ai_feature`
+med plan-fallback = true, RPC:ns explicita rad-predikat = false → RPC läser ALDRIG plan); **feature av före replay av
+tidigare succeeded** → `feature_disabled` (replay kringgår aldrig färska grindar). Alla avvisade fall: 0 ny operationrad, 0 audit, 0 mutation.
+
+**Migrationskedja:** projektet använder INTE `supabase/migrations/`; etablerat format är referens-SQL i `supabase/`-roten
++ MCP `apply_migration` (spårad i `supabase_migrations`). Tre filer = tre migrationer i versionsordning, motsvarar
+live-definitionerna, ingen drift; temp hold-RPC + dblink ingår INTE i någon migrationsfil:
+`harden_user_company_ids.sql` (20260624222148) → `offline_autosave_sync.sql` (20260624224219) → `offline_autosave_sync_nondisclosure.sql`.
+
+**KVARSTÅR – Inte verifierad:** "olika användare med samma idempotencyKey" är INTE E2E-verifierad mellan två riktiga
+principals — projektet har endast 1 auth-användare och en ny temporär auth-admin-edge är utesluten (3B-0/2F-regeln).
+`UNIQUE(user_id, idempotency_key)` är schema- och integrationstestad (per-användar-scoping), men inte E2E mellan två konton.
+
+**Temporära testobjekt borttagna:** `_test_hold_sync_key` (pg_proc=0, grants=0, finns ej i någon .sql/deploy-fil),
+`dblink`-extension (borttagen; fanns inte före testet). Testanvändarens roll på testbolaget återställd till baseline `admin` (exakt samma värde).
+
+**Status:** 3B-1 markeras INTE komplett. Enda kvarvarande lucka = två riktiga principals (ovan).
+
+**Städning:** ops=0, sync-audit=0, testfixturer=0, feature-rad=0, claimed-orphans=0, roll återställd, dblink-extension
+borttagen, temp-RPC borttagen, inga testanvändare. Build grön; full svit 850/850 × 3.
 
 ## Nästa (ej påbörjat – inväntar separat beslut)
 - **Etapp 3C:** klientens sync queue (IndexedDB-kö → `bokslut_sync_comment`), konfliktlösnings-UI
