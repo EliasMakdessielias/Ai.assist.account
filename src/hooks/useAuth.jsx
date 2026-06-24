@@ -143,7 +143,10 @@ export function AuthProvider({ children }) {
       )
       if (!ok) return false   // avbryt och återgå – ingen utloggning, inga utkast raderade
     }
-    await supabase.auth.signOut()   // kastar vid fel → utkast behålls (raderas ej nedan)
+    // Misslyckad utloggning (serverfel/nätfel) → BEHÅLL utkast (radera inte), surfacea fel.
+    let signOutError = null
+    try { const { error } = await supabase.auth.signOut(); signOutError = error || null } catch (e) { signOutError = e }
+    if (signOutError) return false   // radera INTE utkast vid misslyckad utloggning
     if (store && uid && drafts.length > 0) { try { await store.purgeUserDrafts(uid) } catch { /* ignore */ } }
     setUser(null); setCompanies([]); setCompany(null); setIsAdmin(false); setPlatformAccess(null)
     return true

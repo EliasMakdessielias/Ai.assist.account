@@ -38,4 +38,17 @@ describe('commitCheckComment – serverfelmatris (Etapp 2C)', () => {
     await expect(commitCheckComment(sb(async () => null), 'c', 't')).rejects.toThrow(/Ogiltigt svar/)
     await expect(commitCheckComment(sb(async () => undefined), 'c', 't')).rejects.toThrow(/Ogiltigt svar/)
   })
+
+  it('timeout via riktig AbortController → kastar TIMEOUT (utkast behålls), skild från 401/500', async () => {
+    // builder.abortSignal(sig) avvisar med AbortError NÄR signalen aborteras → bevisar att aborten når anropet.
+    const sb2 = { rpc: () => ({ abortSignal: (sig) => new Promise((_, rej) => { sig.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; rej(e) }) }) }) }
+    await expect(commitCheckComment(sb2, 'c', 't', { timeoutMs: 20 })).rejects.toMatchObject({ code: 'TIMEOUT' })
+  })
+
+  it('AbortSignal skickas genom adaptern (.abortSignal anropas med en AbortSignal)', async () => {
+    let got = null
+    const sb2 = { rpc: () => ({ abortSignal: (sig) => { got = sig; return Promise.resolve({ error: null }) } }) }
+    await expect(commitCheckComment(sb2, 'c', 't')).resolves.toBe(true)
+    expect(got).toBeInstanceOf(AbortSignal)
+  })
 })

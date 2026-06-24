@@ -32,12 +32,15 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
   const chRef = useRef(null)
   const conflictRef = useRef(false)
   const readErrorRef = useRef(false)                    // pausa autosave vid läsfel (skriv ej över ev. post)
+  const initializedRef = useRef(false)                  // spara/radera först EFTER att laddning av ev. utkast är klar
+  const hadContentRef = useRef(false)                   // radera tomt utkast ENDAST om användaren själv tömt (inte vid öppning)
   const [reloadKey, setReloadKey] = useState(0)         // för manuell omläsning (Försök igen)
 
   // Ladda ev. befintligt lokalt utkast vid identitetsbyte. Visar ALDRIG/ersätter aldrig automatiskt.
   // Läsfel behandlas som storage_read_error (INTE som "saknas") och pausar autosave.
   useEffect(() => {
     lastHashRef.current = null; expectedRevRef.current = 0; conflictRef.current = false; readErrorRef.current = false
+    initializedRef.current = false; hadContentRef.current = false
     setRestorable(null); setOtherTab(false); setStatus('idle'); setLastSavedAt(null); setStorageError(false); setConflict(null); setReadError(false); setForks([])
     if (!ready) return
     let alive = true
@@ -50,6 +53,7 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
       if (status === 'draft_loaded' && entry) {
         setRestorable(entry); lastHashRef.current = entry.payloadHash; expectedRevRef.current = entry.localRevision || 0
       }
+      initializedRef.current = true   // klart att spara/radera först nu (inte före laddning)
     }).catch(() => {})
     listForkDrafts(identity).then(fs => { if (alive) setForks(fs) }).catch(() => {})
     return () => { alive = false }
@@ -67,7 +71,9 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
 
   // Debounced lokal sparning vid faktisk ändring. Pausad vid konflikt ELLER läsfel (skriv ej över ev. post).
   useEffect(() => {
-    if (!ready || conflictRef.current || readErrorRef.current) return
+    // Vänta tills laddning av ev. befintligt utkast är klar – annars skulle ett tomt fält vid öppning
+    // hinna radera ett sparat utkast innan det laddats. Pausad även vid konflikt/läsfel.
+    if (!ready || !initializedRef.current || conflictRef.current || readErrorRef.current) return
     const text = String(value ?? '')
     const h = payloadHash(text)
     if (h === lastHashRef.current) return
@@ -76,10 +82,16 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
     timerRef.current = setTimeout(async () => {
       try {
         if (text.trim() === '') {
-          await deleteDraft(identity)
-          lastHashRef.current = h; expectedRevRef.current = 0; setStatus('idle'); setLastSavedAt(null); setStorageError(false)
+          // Radera ENDAST om användaren själv tömt fältet (hade innehåll) – inte bara för att fältet
+          // öppnades tomt medan ett utkast väntar på återställning.
+          if (hadContentRef.current) {
+            await deleteDraft(identity)
+            expectedRevRef.current = 0; setLastSavedAt(null)
+          }
+          lastHashRef.current = h; setStatus('idle'); setStorageError(false)
           return
         }
+        hadContentRef.current = true
         const entry = await saveDraft(identity, {
           payload: text, expectedRevision: expectedRevRef.current,
           appBuildId: (typeof window !== 'undefined' && window.__bokpilotBuildId) || null, tabId: tabId(),
@@ -102,7 +114,7 @@ export function useAutosaveDraft({ enabled, identity, value, debounceMs = 800 })
 
   const restore = useCallback(() => {
     const e = restorable
-    if (e) { lastHashRef.current = e.payloadHash; expectedRevRef.current = e.localRevision || 0 }
+    if (e) { lastHashRef.current = e.payloadHash; expectedRevRef.current = e.localRevision || 0; hadContentRef.current = !!String(e.payload ?? '').trim() }
     setRestorable(null)
     return e ? e.payload : null
   }, [restorable])

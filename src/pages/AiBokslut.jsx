@@ -7,7 +7,7 @@ import HelpButton from '../components/HelpButton'
 import { useAutosaveDraft } from '../hooks/useAutosaveDraft'
 import AutosaveIndicator from '../components/offline/AutosaveIndicator'
 import RestoreDraftBanner from '../components/offline/RestoreDraftBanner'
-import { isAutosavePilotEnabled, PILOT_FEATURE_KEY } from '../lib/offline/flags'
+import { isAutosavePilotEnabled, fetchPilotServerEnabled } from '../lib/offline/flags'
 import { commitCheckComment } from '../lib/offline/commit'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
@@ -87,8 +87,8 @@ export default function AiBokslut() {
     if (!company?.id) return
     setLicensed(null)
     supabase.rpc('has_ai_feature', { p_company: company.id, p_key: FEATURE_KEY }).then(({ data }) => setLicensed(!!data))
-    // Etapp 2C: serverstyrd aktivering av autosave-piloten (company_ai_features/plan, RLS-skyddad).
-    supabase.rpc('has_ai_feature', { p_company: company.id, p_key: PILOT_FEATURE_KEY }).then(({ data }) => setAutosavePilotServer(!!data)).catch(() => setAutosavePilotServer(false))
+    // Etapp 2D: serverstyrd aktivering via EXPLICIT company-level uppslag (ingen plan-fallback). RLS-skyddad; läsfel → false.
+    fetchPilotServerEnabled(supabase, company.id).then(setAutosavePilotServer)
     supabase.rpc('bokslut_my_permissions', { p_company: company.id }).then(({ data }) => setPerms(data || {}))
     supabase.from('fiscal_years').select('*').eq('company_id', company.id).order('year', { ascending: false }).then(({ data }) => {
       setYears(data || [])

@@ -438,6 +438,61 @@ commitCheckComment), `docs/offline-pwa-status.md`. DB: rad i `company_ai_feature
 - Read-error live-forcering ej möjlig i preview-harnessen → deterministiska injicerade-ops-tester istället.
 - Konfliktlösning är lokal (server-konflikt = Etapp 3).
 
+## Etapp 2D – end-to-end-verifiering (status: EJ KOMPLETT – ett krav Inte verifierad)
+
+### Kodändringar (verifiering visade faktiska brister)
+- **Hook-bugg (browserfunnen):** att öppna en check med ett befintligt utkast – utan att skriva – kunde radera
+  utkastet (tom-fält-städningen kördes före laddningen var klar). Fix: `initializedRef` (spara/radera först efter
+  laddning) + `hadContentRef` (radera tomt utkast ENDAST om användaren själv tömt). Browser-omverifierad: båda
+  utkasten kvarstår vid återöppning; städning vid manuell tömning fungerar fortfarande.
+- **Riktig timeout:** `commitCheckComment` använder nu en AbortController kopplad via Supabase-adaptern
+  (`.abortSignal`), 15 000 ms. Browser-bevisat att signalen når `fetch` och att själva nätverksanropet
+  aborteras (inte bara UI). Skild från 401/403/500 och valideringsfel. Ingen auto-retry.
+- **Misslyckad signOut:** `useAuth.signOut` kontrollerar nu `{ error }` och raderar INTE utkast vid serverfel.
+- **Serverstyrd flagga utan plan-fallback:** `fetchPilotServerEnabled` läser EXPLICIT company_ai_features
+  (ingen has_ai_feature/plan-fallback). Frånvaro/false/fel/flera rader → false.
+
+### RLS för company_ai_features (verifierat)
+SELECT-policy: `company_id IN user_company_ids()`. INSERT/UPDATE/DELETE har INGA policys. Vanliga `anon`/
+`authenticated`-roller kan därför INTE skriva (verifierat: INSERT → RLS-violation; UPDATE/DELETE → 0 rader).
+**OBS (PostgreSQL-modellen):** table owner, `service_role` och roller med BYPASSRLS kringgår fortfarande RLS –
+administration av pilotflaggan sker via server (service role)/SECURITY DEFINER, aldrig från klienten. PK
+`(company_id, feature_key)` ⇒ max en rad per bolag/nyckel.
+
+### Build + tester (efter ALLA 2D-kodändringar)
+Build grön. Full svit **DETERMINISTISK: 850/850 (80 filer), tre körningar i rad.**
+
+### Kontextmatris (reversibla fixtures skapade + städade)
+Fixtures: extra räkenskapsår 2025 för testbolaget, ett isolerat testbolag B (medlemskap + tillfällig
+company_ai_features-rad + licens). **Alla fixtures borttagna efteråt; pilotflaggsrader = 0 (prior value återställd).**
+- check A→B: **Verifierad i browser** (ingen läcka direkt/efter laddning, sen async ignoreras, återbyte hittar rätt).
+- räkenskapsår A→B: **Verifierad i browser** (drawer stängs, ingen läcka, två utkast med distinkt fiscalYearId, återbyte hittar 2026-utkastet).
+- engagement A→B: **Verifierad i browser** (årbyte = engagementbyte; distinkt engagementId).
+- bolag A→B (pilot på BÅDA via serverflagga): **Verifierad i browser** (ingen läcka åt något håll, distinkt companyId, återbyte hittar A:s utkast).
+- användare A→B: **Inte verifierad** – en andra riktig auth-inloggning kunde inte skapas säkert i testmiljön
+  (ingen auth-admin-väg; rå auth.users-insert är osäker). Stödbevis: identiteten innehåller userId,
+  `identityMatches` kräver full match (Enhetstestad), och per-användar-purge vid utloggning (Verifierad i browser, L2).
+
+### Logout (recoverable testsession via token-backup/restore)
+- utan utkast → ingen dialog, utloggning sker: **Verifierad i browser** (L3: confirm anropas ej).
+- med utkast + Avbryt → ingen utloggning, utkast kvar: **Verifierad i browser** (dialog visar antal + senaste tid).
+- med utkast + bekräfta → signOut lyckas FÖRST, sedan purge av endast den användarens utkast: **Verifierad i browser** (landade på /login, utkast = 0).
+- misslyckad signOut → utkast behålls + sessionen kvar (ingen falsk utloggning): **Verifierad i browser** (L4).
+- sessionsavbrott utan explicit logout → utkast behålls: **Kodinspekterad** (purge anropas ENDAST från den
+  explicita signOut-knappen, aldrig från auth SIGNED_OUT-event) + L4 stödjer browservägen.
+
+### Felmatris via produktionsadaptern (supabase.rpc, transport-stub)
+401, 403, 500, AbortError, offline, felaktigt svar → formulärtext + IDB-post kvar, ingen falsk "Kommentar sparad":
+**Verifierad i browser**. Lyckad respons → raderar exakt rätt post: **Verifierad i browser**. Riktig timeout →
+fetch-signal aborterad + "Tidsgräns nådd" + utkast kvar: **Verifierad i browser**.
+
+### Flagg-matris
+enabled=true→på, enabled=false→av, ingen rad→av, planens AI-features aktiverar INTE (licensierat bolag utan rad
+gav av), localStorage aktiverar inte i byggd miljö: **Verifierad i browser**. RLS-skrivskydd: **Integrationstestad**
+(SQL som authenticated-roll).
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
+- **Etapp 2D – kvarstår:** användare A→B i browser kräver en säker andra-konto-fixture (auth-admin). Tills den
+  finns är kravet **Inte verifierad** och Etapp 2 ska inte beskrivas som komplett.
 - **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
   Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.

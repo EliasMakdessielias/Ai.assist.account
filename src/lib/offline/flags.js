@@ -17,6 +17,23 @@ export function isAutosavePilotEnabled({ serverEnabled = false } = {}) {
   return !!serverEnabled                                     // byggd miljö: endast serverstyrt
 }
 
+// Explicit company-level uppslag av pilotbeslutet. INGEN plan-fallback (till skillnad från has_ai_feature):
+// endast en uttrycklig rad i company_ai_features med enabled=true aktiverar. Frånvaro, enabled=false,
+// flera rader, läsfel eller ogiltigt svar → ALLTID false. Klienten kan inte skriva raden (RLS, verifierat).
+export async function fetchPilotServerEnabled(supabase, companyId) {
+  if (!supabase || !companyId) return false
+  try {
+    const { data, error } = await supabase
+      .from('company_ai_features')
+      .select('enabled')
+      .eq('company_id', companyId)
+      .eq('feature_key', PILOT_FEATURE_KEY)
+      .maybeSingle()                       // PK (company_id, feature_key) ⇒ ≤1 rad; >1 ⇒ error ⇒ false
+    if (error) return false
+    return data?.enabled === true
+  } catch { return false }
+}
+
 export function autosaveFlagDiagnostics({ serverEnabled = false } = {}) {
   return {
     enabled: isAutosavePilotEnabled({ serverEnabled }),
