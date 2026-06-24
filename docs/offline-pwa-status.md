@@ -561,21 +561,20 @@ användare hade under fönstret kunnat radera valfri auth-användare). Loggarna 
 (edgen deployades inline via MCP – ej i repo/lokal mapp/historik), network-svar (endast `{id,email}`/`{ok}`/`{error}`),
 console, testoutput eller docs. Endast den PUBLIKA anon-nyckeln användes i browsertesterna. → **Ingen nyckelexponering. Rotation behövs ej.**
 
-### Borttagningsstatus (KVARSTÅR – kräver projektägarens åtkomst)
-Neutraliserad (v2 inert 410, ingen service-role) men skalet är INTE raderat – gick ej med tillgängliga verktyg
-(ingen delete i MCP; ingen `SUPABASE_ACCESS_TOKEN`/CLI). **Projektägaren raderar:**
-`supabase functions delete e2e-user-admin --project-ref bypebgvxdmbzxqecllao` (efter `supabase login`), ELLER
-Dashboard → Edge Functions → `e2e-user-admin` → Delete. Verifiera: saknas i listan, endpoint ger 404.
+### Borttagningsstatus: ✅ FULLSTÄNDIGT RADERAD (verifierad 2026-06-24)
+Projektägaren raderade funktionen manuellt (Dashboard/CLI). Borttagningen är verifierad:
+- **Metod:** `list_edge_functions` (MCP, **primär kontroll**) + HTTP-prob med `curl` (GET/POST/OPTIONS).
+- **Primär kontroll:** `e2e-user-admin` SAKNAS i Edge Functions-listan. Ingen aktiv eller inaktiv version kvar.
+- **Endpointstatus:** **GET 404**, **POST 404**, **OPTIONS 404** (samtliga metoder). Primär kontroll och
+  HTTP-status samstämmiga → ingen propageringsväntan behövdes.
+- **Återdeploy ej möjlig:** ej i Git, ingen lokal funktionsmapp, ingen CI-/deployreferens.
+- **Testdata:** 0 (e2e_users/identities/sessions/refresh_tokens/membership/bokslut_audit/pilot-feature-rader/kommentarer).
+- **Hemligheter:** inga tillfälliga E2E-secrets; `SERVICE_ROLE_KEY` ej exponerad → ingen rotation.
+- **Incidentklassificering:** *"Ingen obehörig aktivitet identifierades i tillgängliga loggar."*
+- **Status:** Etapp 2F KOMPLETT. Samtliga acceptanskriterier uppfyllda. Etapp 2 (offline autosave-pilot) komplett.
 
-#### Slutverifiering 2026-06-24 (efter begärd manuell borttagning): ❌ EJ RADERAD
-- **Metod:** `list_edge_functions` (MCP) + HTTP-prob med `curl` mot endpointen (GET/POST/OPTIONS).
-- **Resultat:** funktionen finns KVAR i listan (`e2e-user-admin`, version **2**, status **ACTIVE**).
-  Endpointstatus: **GET 401**, **POST 401**, **OPTIONS 410** (OPTIONS når den neutraliserade v2-koden →
-  bevis att funktionen fortfarande exekverar). Ingen metod returnerar **404**.
-- **Slutsats:** den manuella raderingen har inte genomförts/propagerat. Risken är fortsatt eliminerad
-  (neutraliserad, ingen service-role), men kriterierna "fullständigt raderad" + "endpoint 404" är fortfarande
-  EJ uppfyllda. Testdata = 0 (e2e_users/identities/sessions/refresh/membership/audit/feature-rader/kommentarer).
-  **Etapp 3 får inte startas förrän endpointen ger 404.**
+Historik: funktionen deployades som tillfällig v1 (skapa-kapacitet) under Etapp 2E, neutraliserades till
+v2 (inert 410, ingen service-role) under Etapp 2F, och raderades slutligen helt av projektägaren.
 
 ### Förebyggande utvecklingsregel (säkerhet)
 1. Inga temporära adminfunktioner i produktionsprojekt; auth-admin-tester körs i separat testprojekt/lokal Supabase.
@@ -583,8 +582,20 @@ Dashboard → Edge Functions → `e2e-user-admin` → Delete. Verifiera: saknas 
 3. Testfunktioner ska ha automatisk expiry; deployment + cleanup i SAMMA kontrollerade testscript.
 4. Browsern får aldrig anropa en generell auth-admin-endpoint.
 
+## Etapp 3B-0 – säkerhetshärdning av `public.user_company_ids()` ✅ (2026-06-25)
+Isolerad säkerhetshärdning (separat från synkpiloten). Migration: `harden_user_company_ids_search_path`.
+- **Ändring:** lade till `SET search_path = ''` + fullt schemakvalificerade objekt (`public.user_companies`,
+  `public.companies`; `auth.uid()` redan kvalificerad; `coalesce` från implicit `pg_catalog`). **Funktionell logik
+  byte-identisk.** Bevarade signatur `()`, `SETOF uuid`, owner `postgres`, `SECURITY DEFINER`, `VOLATILE`, grants.
+- **Före/efter-paritet (verifierad):** medlem → samma 4 bolag; non-member → `[]`; `auth.uid()=NULL` → `[]`.
+  Empirisk RLS (`SET ROLE authenticated`): medlem ser sina rader (3 checks/1 bolag), non-member ser 0 (cross-tenant-deny).
+  End-to-end PostgREST med verklig JWT: 4 bolag + checks laddar (200), inga permission_denied.
+- **56 beroende RLS-policys oförändrade.** Inga okvalificerade objektreferenser. `search_path` verifierat tomt.
+- **Verifiering:** build grön; full svit 850/850 × 3; inga DB-fel orsakade av migrationen. Ingen rollback behövdes.
+- **Lås:** endast kort ACCESS EXCLUSIVE på funktionsposten (pg_proc); inga tabellås; atomisk (begin/commit).
+- **Avgränsning:** ingen pilot-/synkfunktion implementerad (ingen `bokslut_sync_comment`, revision-kolumn, idempotency-tabell).
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
-- **Etapp 2F – kvarstår:** projektägaren måste radera funktionsskalet `e2e-user-admin` (se ovan). Risken är redan
-  eliminerad (neutraliserad); kriterierna "fullständigt raderad" + "endpoint 404" är ej uppfyllda förrän dess.
-- **Etapp 3:** säker Sync Queue (server-revision, idempotency, multi-tab-lås, audit, servervalidering) för piloten.
-  Kräver additiv migration (revision-kolumn + idempotens-tabell). Bygg INTE utan separat beslut.
+- **Etapp 3B:** pilotmigration (comment_revision + idempotency-tabell + `bokslut_sync_comment`-RPC) bakom
+  `offline_autosave_sync`. **NO-GO** tills blockerare B-1…B-3 (frys MAX_COMMENT_BYTES, gamla RPC:ns byte-gräns +
+  godkand-spärr, roll för clear/konflikt) är beslutade. Bygg INTE utan separat beslut.
