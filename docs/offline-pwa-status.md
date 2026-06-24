@@ -595,7 +595,28 @@ Isolerad säkerhetshärdning (separat från synkpiloten). Migration: `harden_use
 - **Lås:** endast kort ACCESS EXCLUSIVE på funktionsposten (pg_proc); inga tabellås; atomisk (begin/commit).
 - **Avgränsning:** ingen pilot-/synkfunktion implementerad (ingen `bokslut_sync_comment`, revision-kolumn, idempotency-tabell).
 
+## Etapp 3B – servergrund för säker synk av AI Bokslut-kommentar ✅ (2026-06-25)
+Migration: `offline_autosave_sync_server_foundation` (repo-fil `supabase/offline_autosave_sync.sql`; 3B-0
+speglad reproducerbart i `supabase/harden_user_company_ids.sql`). **Avstängd bakom `offline_autosave_sync`**
+(explicit company_ai_features-rad, enabled=true, INGEN plan fallback, default av — ingen aktiv produktionsrad finns).
+- **Schema:** `bokslut_checks` + `comment_revision bigint NOT NULL DEFAULT 1`, `comment_updated_at`, `comment_updated_by`
+  (ingen FK till auth.users). BEFORE UPDATE-trigger äger revisionsfälten: ökar endast vid faktisk comment-ändring,
+  återställer OLD annars (run_bokslut_analysis bumpar updated_at men **ej** comment_revision – verifierat).
+- **`bokslut_sync_operations`:** idempotency-tabell, `UNIQUE(user_id, idempotency_key)`, check-constraints
+  (entity/op/status), RLS på + `REVOKE ALL` från public/anon/authenticated (ingen klient-SELECT; endast definer-RPC). Retention 90 d (manuell cleanup-query dokumenterad).
+- **RPC `bokslut_sync_comment`** (SECURITY DEFINER, `search_path=''`, kvalificerade objekt, EXECUTE endast authenticated):
+  färska grindar (auth→entitet→medlemskap→roll→feature→status) **före** idempotency; canonical SHA-256 (jsonb fasta nycklar,
+  NFC, `extensions.digest`, ingen klient-hash); claim via `INSERT ON CONFLICT DO NOTHING`; CAS `comment_revision=base`.
+- **Gamla `bokslut_comment_check` härdad:** `left(2000)` borttagen → NFC + 8000-byte-avvisning + godkand/last-spärr;
+  triggern ökar samma revision (gamla vägen kan inte kringgå storleks-/statusregler).
+- **Payload:** `MAX_COMMENT_BYTES = 8000` UTF-8 efter NFC; ingen tyst trunkering (verifierat: 8000 ok, 8001 + 2001 emoji=8004 byte avvisas).
+- **Testmatris (verifierad mot DB):** feature av/på, upsert/clear/no_change/overwrite, revision endast vid ändring,
+  idempotens (replay=lagrat, mismatch, ny nyckel), revision_conflict, godkand/last-block, non-member/unauthorized/anon/
+  authenticated-direktläsning nekas, audit exakt en gång utan kommentartext, clientCreatedAt påverkar ej identitet.
+  Samtidighet vilar på unik-constraint + ON CONFLICT + lock_timeout→transaction_retry (mekanism verifierad sekventiellt).
+- **Verifiering:** build grön; full svit 850/850 × 3. All testdata städad (ops=0, sync-audit=0, temp-flagga=0, fixtur återställd).
+- **Avgränsning:** ingen klient-sync-queue/Background Sync/andra entiteter implementerade. Funktionen avstängd.
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
-- **Etapp 3B:** pilotmigration (comment_revision + idempotency-tabell + `bokslut_sync_comment`-RPC) bakom
-  `offline_autosave_sync`. **NO-GO** tills blockerare B-1…B-3 (frys MAX_COMMENT_BYTES, gamla RPC:ns byte-gräns +
-  godkand-spärr, roll för clear/konflikt) är beslutade. Bygg INTE utan separat beslut.
+- **Etapp 3C:** klientens sync queue (IndexedDB-kö → `bokslut_sync_comment`), konfliktlösnings-UI
+  (reload_newer/keep_separate/overwrite_with_confirmation), nät-/retry-policy. Flaggstyrt. Bygg INTE utan separat beslut.
