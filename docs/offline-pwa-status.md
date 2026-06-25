@@ -742,7 +742,31 @@ godkänd/låst, cleanup, tre gröna regressioner) är **Verifierade i browser**.
 öppna två riktiga flikar (t.ex. Playwright multi-page). **Två-principal-idempotens på servern kvarstår som separat blockerare för
 produktionsaktivering.**
 
+## Etapp 3C-2 – tvåfliks-/sessionsverifiering: BLOCKERAD av verktygsmiljön → NO-GO (2026-06-25)
+Försök att köra de obligatoriska tvåflikstesterna (§3 Web Locks i två pages, §4 BroadcastChannel-fallback i två pages)
+samt fullt UI-drivet flöde (§2). **Hård miljöblockerare:**
+- **Ingen tvåsidig browserautomation tillgänglig.** Playwright är INTE installerat (saknas i package.json/node_modules;
+  `npx` vill ladda ner `playwright@1.61.1`). `Claude_Preview` är en EN-sidig harness och kan inte öppna två pages i samma
+  BrowserContext. → §3/§4 **Inte verifierad** (får ej ersättas med enhetstest).
+- **Autentiserad storageState kan inte skapas regelkonformt.** §1 förbjuder att läsa/logga access/refresh token OCH
+  fullständig storageState; ingen användartillhandahållen storageState finns. Även med Playwright skulle den autentiserade
+  kontexten inte kunna skapas utan att bryta mot token-regeln.
+- **§2 fullt UI-flöde:** den enkelsidiga harnessens syntetiska DOM-klick öppnade inte CheckDrawerns synk-sektion
+  tillförlitligt. Hela synk-kedjan (IDB-commit före RPC → succeeded, persist-före-nätverk, lost-response, konflikt,
+  feature-av, godkänd/låst) är dock redan **Verifierad i browser via den riktiga autentiserade workern** (3C-1);
+  UI-knappen/komponenterna är **Kodinspekterade** (renderas bakom flaggan, build-verifierade).
+
+Ingen kodändring gjordes (inget konkret E2E-test visade ett produktfel – blockeringen är verktygsmiljö, inte bugg).
+Städning verifierad: fixturer=0, server-sync-ops=0, feature-flagga=0, engagement `pagar`, lokal syncQueue=0, dev-flagga borttagen.
+Full svit 888/888 × 3 (oförändrad kod).
+
+## Beslut 3C-2
+**NO-GO för begränsad intern pilot.** Obligatoriska GO-krav som saknar verifiering: **Web Locks i två riktiga pages**,
+**BroadcastChannel-fallback i två riktiga pages**, samt browserverifierad **logout/sessionsavbrott** och **membership_removed**
+(de två senare undveks live: skulle störa användarens riktiga session resp. kräva en andra riktig principal). För GO krävs en
+miljö med (a) tvåsidig browserautomation (t.ex. Playwright multi-page) och (b) en användartillhandahållen autentiserad
+storageState eller inloggad testprofil. **Två-principal-idempotens på servern kvarstår som separat produktionsblockerare.**
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
-- **3C-1 (omkörning):** kör hela klient-E2E:n i en miljö med giltig session + två riktiga flikar; aktivera
-  `offline_autosave_sync` ENBART för ett isolerat testbolag, kör matrisen, återställ flaggan + städa.
-- **Produktionsaktivering av synk:** kräver dessutom E2E mellan två riktiga principals + explicit beslut.
+- **3C-2 (omkörning):** Playwright multi-page + användartillhandahållen storageState → kör §3/§4/§5/§6/§7-matrisen i två riktiga pages.
+- **Produktionsaktivering:** kräver dessutom E2E mellan två riktiga principals + explicit beslut.
