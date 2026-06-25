@@ -9,16 +9,20 @@ import NotificationCenter from './NotificationCenter'
 import { FEATURE_KEY as BOKSLUT_FEATURE } from '../lib/bokslut'
 import toast from 'react-hot-toast'
 
-const navItems = [
-  { section: 'Översikt' },
-  { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
-  { section: 'AI-paket' },
+// AI-paketets val – visas i en flyout-meny från EN enda knapp (sparar plats i sidomenyn).
+const AI_ITEMS = [
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
   { label: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', to: '/ai-bokslut', featureKey: BOKSLUT_FEATURE, badgeKey: 'bokslut' },
   { label: 'Månadskontroll', icon: 'ti-checklist', to: '/manadskontroll', badgeKey: 'mc' },
   { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
   { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'ops' },
+]
+
+const navItems = [
+  { section: 'Översikt' },
+  { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
+  { aiPaket: true },
   { section: 'Ekonomi' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },
@@ -46,6 +50,9 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const location = useLocation()
   const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
   const [menuOpen, setMenuOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)        // AI-paket flyout-meny
+  const [aiPos, setAiPos] = useState({ top: 0, left: 0 })
+  const aiBtnRef = useRef(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newOrg, setNewOrg] = useState('')
@@ -84,6 +91,16 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   }, [company?.id])
   const bokslutBadge = bokslutCounts.critical > 0 ? { n: bokslutCounts.critical, bg: '#dc2626' } : (bokslutCounts.high > 0 ? { n: bokslutCounts.high, bg: '#f97316' } : null)
   const badgeForItem = item => item.badgeKey === 'mc' ? mcBadge : item.badgeKey === 'bokslut' ? bokslutBadge : null
+  const aiVisible = item => !(item.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) && !(item.perm === 'ops' && !canViewOps)
+  const aiActive = AI_ITEMS.some(it => location.pathname === it.to || location.pathname.startsWith(it.to + '/'))
+
+  // Öppnar AI-paketets flyout. Positioneras med fixed (nav:en klipper overflow-x) intill knappen, klampad i höjd.
+  function toggleAi() {
+    if (aiOpen) { setAiOpen(false); return }
+    const r = aiBtnRef.current?.getBoundingClientRect()
+    if (r) setAiPos({ top: Math.min(r.top, window.innerHeight - 360), left: r.right + 6 })
+    setAiOpen(true)
+  }
 
   // Hämtar företagsnamnet automatiskt från organisationsnumret (officiell källa via
   // edge-funktionen hamta-foretag). Best-effort: misslyckas tyst så namnet kan skrivas manuellt.
@@ -165,6 +182,19 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           if (item.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) return null
           // Behörighetsgrindade menyval (t.ex. OCR-test) visas bara för rätt plattformsroll.
           if (item.perm === 'ops' && !canViewOps) return null
+          // AI-paket: EN framträdande knapp som öppnar en flyout med alla AI-val (sparar plats i sidomenyn).
+          if (item.aiPaket) {
+            return (
+              <button key={i} ref={aiBtnRef} onClick={toggleAi} aria-expanded={aiOpen} title={collapsed ? 'AI-paket' : undefined}
+                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} mx-2 my-1.5 py-2 rounded-lg text-[13.5px] font-semibold text-white transition-all
+                  bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 hover:brightness-110 ${aiActive || aiOpen ? 'ring-2 ring-violet-300 shadow-md' : 'shadow-sm'}`}
+                style={{ width: collapsed ? 'auto' : 'calc(100% - 1rem)' }}>
+                <i className="ti ti-sparkles text-[17px] w-5 text-center" />
+                {!collapsed && <span className="flex-1 text-left">AI-paket</span>}
+                {!collapsed && <i className={`ti ti-chevron-right text-sm transition-transform ${aiOpen ? 'rotate-90' : ''}`} />}
+              </button>
+            )
+          }
           if (item.section) {
             return collapsed
               ? <div key={i} className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }} />
@@ -287,6 +317,27 @@ export default function Sidebar({ collapsed = false, onToggle }) {
           </div>
         )}
       </div>
+
+      {/* AI-paket flyout-meny – alla AI-val på ett ställe, utan att ta plats i sidomenyn */}
+      {aiOpen && (
+        <>
+          <div className="fixed inset-0 z-[55]" onClick={() => setAiOpen(false)} />
+          <div className="fixed z-[56] bg-white rounded-xl shadow-2xl py-1.5" style={{ top: aiPos.top, left: aiPos.left, minWidth: 252, border: '0.5px solid rgba(0,0,0,0.12)' }}>
+            <div className="px-3 py-1.5 mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 flex items-center gap-1.5"><i className="ti ti-sparkles" /> AI-paket</div>
+            {AI_ITEMS.filter(aiVisible).map((it, k) => {
+              const badge = badgeForItem(it)
+              return (
+                <NavLink key={k} to={it.to} end={it.to === '/'} onClick={() => setAiOpen(false)}
+                  className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${isActive ? 'bg-violet-50 text-violet-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
+                  <i className={`ti ${it.icon} text-[16px] w-5 text-center`} />
+                  <span className="flex-1">{it.label}</span>
+                  {badge && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: badge.bg }}>{badge.n > 9 ? '9+' : badge.n}</span>}
+                </NavLink>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       {/* Skapa nytt företag */}
       {createOpen && (
