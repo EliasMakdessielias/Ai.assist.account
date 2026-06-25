@@ -12,9 +12,13 @@ import toast from 'react-hot-toast'
 const navItems = [
   { section: 'Översikt' },
   { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
+  { section: 'AI-paket' },
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
   { label: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', to: '/ai-bokslut', featureKey: BOKSLUT_FEATURE, badgeKey: 'bokslut' },
+  { label: 'Månadskontroll', icon: 'ti-checklist', to: '/manadskontroll', badgeKey: 'mc' },
+  { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
+  { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'ops' },
   { section: 'Ekonomi' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },
@@ -24,9 +28,7 @@ const navItems = [
   { label: 'Kontoanalys', icon: 'ti-report-search', to: '/kontoanalys' },
   { label: 'Lön', icon: 'ti-wallet', to: '/lon' },
   { label: 'Moms', icon: 'ti-receipt-tax', to: '/moms' },
-  { label: 'Månadskontroll', icon: 'ti-checklist', to: '/manadskontroll', badgeKey: 'mc' },
   { label: 'Rapporter', icon: 'ti-chart-bar', to: '/rapporter' },
-  { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
   { section: 'Register' },
   { label: 'Kunder', icon: 'ti-users', to: '/kunder' },
   { label: 'Leverantörer', icon: 'ti-building-store', to: '/leverantorer' },
@@ -161,6 +163,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         {navItems.map((item, i) => {
           // Licensgrindade menyval (t.ex. AI Bokslut) visas bara om funktionen ingår i planen.
           if (item.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) return null
+          // Behörighetsgrindade menyval (t.ex. OCR-test) visas bara för rätt plattformsroll.
+          if (item.perm === 'ops' && !canViewOps) return null
           if (item.section) {
             return collapsed
               ? <div key={i} className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(0,0,0,0.08)' }} />
@@ -183,7 +187,6 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             <>
               {isAdmin && <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>}
               {canViewOps && <NavLink to="/admin/system" className={linkClass} title="Systemövervakning"><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" /></NavLink>}
-              {canViewOps && <NavLink to="/admin/ocr-test" className={linkClass} title="OCR-test"><i className="ti ti-scan text-[17px] w-5 text-center" /></NavLink>}
               {canViewSupport && <NavLink to="/admin/support" className={linkClass} title="Supportärenden"><i className="ti ti-headset text-[17px] w-5 text-center" /></NavLink>}
               {canManageBilling && <NavLink to="/admin/billing" className={linkClass} title="Billing"><i className="ti ti-credit-card text-[17px] w-5 text-center" /></NavLink>}
             </>
@@ -192,7 +195,6 @@ export default function Sidebar({ collapsed = false, onToggle }) {
               <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
               {isAdmin && <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>}
               {canViewOps && <NavLink to="/admin/system" className={linkClass}><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" />Systemövervakning</NavLink>}
-              {canViewOps && <NavLink to="/admin/ocr-test" className={linkClass}><i className="ti ti-scan text-[17px] w-5 text-center" />OCR-test</NavLink>}
               {canViewSupport && <NavLink to="/admin/support" className={linkClass}><i className="ti ti-headset text-[17px] w-5 text-center" />Supportärenden</NavLink>}
               {canManageBilling && <NavLink to="/admin/billing" className={linkClass}><i className="ti ti-credit-card text-[17px] w-5 text-center" />Billing</NavLink>}
             </>
