@@ -121,8 +121,8 @@ export default function AiBokslut() {
   const syncEnabled = isSyncQueueEnabled({ serverEnabled: syncServerEnabled })
   const syncQueue = useSyncQueue({ enabled: syncEnabled, supabase, userId: user?.id, companyId: company?.id })
   useEffect(() => {
-    try { window.__syncDiag = syncQueueDiagnostics({ serverEnabled: syncServerEnabled, companyId: company?.id, pendingCount: syncQueue.counts.pending + syncQueue.counts.retry_wait, leaderMode: syncQueue.leaderMode, isLeader: syncQueue.isLeader }) } catch { /* ignore */ }
-  }, [syncServerEnabled, company?.id, syncQueue.counts.pending, syncQueue.counts.retry_wait, syncQueue.leaderMode, syncQueue.isLeader])
+    try { window.__syncDiag = syncQueueDiagnostics({ serverEnabled: syncServerEnabled, companyId: company?.id, pendingCount: syncQueue.counts.pending + syncQueue.counts.retry_wait, leaderMode: syncQueue.leaderMode, isLeader: syncQueue.isLeader, leaderTabId: syncQueue.leaderTabId }) } catch { /* ignore */ }
+  }, [syncServerEnabled, company?.id, syncQueue.counts.pending, syncQueue.counts.retry_wait, syncQueue.leaderMode, syncQueue.isLeader, syncQueue.leaderTabId])
 
   const loadEngagement = useCallback(async () => {
     if (!company?.id || !fyId || !licensed) return

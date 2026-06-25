@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test'
 
 const CHECK_TITLE = '3C2 E2E synk-test'
-const ENTITY_ID = 'aa46b2ad-3598-450e-bfa8-40f9cc5646d7'
+const ENTITY_ID = '86adca1a-d02c-48d5-8a0b-3cf5905d2924'
 const TEST_COMPANY_ID = '4f0d40a9-a1f1-4271-ad6b-dbbc481853d5' // testbolaget (icke-känsligt id)
 const RPC_GLOB = '**/rest/v1/rpc/bokslut_sync_comment'
 
@@ -199,17 +199,19 @@ test('§4 BroadcastChannel-fallback (Web Locks otillgängligt): en lease-owner, 
   await context.route(RPC_GLOB, async (route) => { rpcCount++; await route.continue() })
   await openCheck(pageA)
   await openCheck(pageB)
+  await pageA.waitForFunction(() => !!window.__syncDiag?.leaderTabId, { timeout: 15000 })
+  await pageB.waitForFunction(() => !!window.__syncDiag?.leaderTabId, { timeout: 15000 })
   expect((await pageA.evaluate(() => window.__syncDiag)).leaderMode).toBe('broadcast-lease')
   expect((await pageB.evaluate(() => window.__syncDiag)).leaderMode).toBe('broadcast-lease')
-  // lease-konvergens: transient dual-claim minimeras → exakt EN owner (lägst tabId vinner)
-  const leaders = async () => {
-    const la = await pageA.evaluate(() => !!window.__syncDiag?.isLeader)
-    const lb = await pageB.evaluate(() => !!window.__syncDiag?.isLeader)
-    return { la, lb, n: [la, lb].filter(Boolean).length }
-  }
-  await expect.poll(async () => (await leaders()).n, { timeout: 15000 }).toBe(1)
-  const { la } = await leaders()
-  const leader = la ? pageA : pageB, follower = la ? pageB : pageA
+  // lease-konvergens (election-settle): LÄGST tabId blir ensam stabil owner
+  const ta = (await pageA.evaluate(() => window.__syncDiag)).leaderTabId
+  const tb = (await pageB.evaluate(() => window.__syncDiag)).leaderTabId
+  const leader = ta < tb ? pageA : pageB, follower = ta < tb ? pageB : pageA
+  await expect.poll(async () => {
+    const lo = await leader.evaluate(() => !!window.__syncDiag?.isLeader)
+    const hi = await follower.evaluate(() => !!window.__syncDiag?.isLeader)
+    return lo && !hi
+  }, { timeout: 25000 }).toBe(true)
   await clearQueue(leader)
   await typeAndQueue(leader, 'E2E broadcast-lease')
   await expect.poll(() => opForEntity(leader).then(o => o?.status), { timeout: 20000 }).toBe('succeeded')

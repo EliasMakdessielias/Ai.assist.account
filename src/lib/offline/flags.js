@@ -63,14 +63,14 @@ export async function fetchSyncServerEnabled(supabase, companyId) {
 }
 
 // Diagnostik UTAN payload/känslig text.
-export function syncQueueDiagnostics({ serverEnabled = false, companyId = null, pendingCount = 0, leaderMode = null, isLeader = null } = {}) {
+export function syncQueueDiagnostics({ serverEnabled = false, companyId = null, pendingCount = 0, leaderMode = null, isLeader = null, leaderTabId = null } = {}) {
   return {
     queueFeatureLoaded: true,
     serverFlagStatus: serverEnabled ? 'enabled' : 'disabled',
     enabled: isSyncQueueEnabled({ serverEnabled }),
     activeCompanyId: companyId,
     pendingOperations: pendingCount,
-    leaderMode, isLeader,
+    leaderMode, isLeader, leaderTabId,        // leaderTabId: icke-känsligt fliks-id (diagnostik/test)
     env: import.meta.env.DEV ? 'development' : 'built',
     featureKey: SYNC_FEATURE_KEY,
   }

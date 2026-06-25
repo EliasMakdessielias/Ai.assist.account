@@ -112,6 +112,7 @@ export function useSyncQueue({ enabled, supabase, userId, companyId }) {
   return {
     counts, operations, isLeader, reauthNeeded,
     leaderMode: leaderRef.current?.mode || null,
+    leaderTabId: leaderRef.current?.tabId || null,
     enqueueComment, retry, discardOperation, refresh, drain,
     OP_UPSERT, OP_CLEAR, OP_OVERWRITE, QUEUE_STATUS,
   }
