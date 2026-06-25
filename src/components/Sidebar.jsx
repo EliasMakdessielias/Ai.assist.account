@@ -9,7 +9,7 @@ import NotificationCenter from './NotificationCenter'
 import { FEATURE_KEY as BOKSLUT_FEATURE } from '../lib/bokslut'
 import toast from 'react-hot-toast'
 
-// AI-paketets val – visas i en flyout-meny från EN enda knapp (sparar plats i sidomenyn).
+// Grupperade menyer – var och en visas som EN knapp som öppnar en flyout (sparar plats i sidomenyn).
 const AI_ITEMS = [
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
@@ -18,11 +18,27 @@ const AI_ITEMS = [
   { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
   { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'ops' },
 ]
+const HELP_ITEMS = [
+  { label: 'Handbok', icon: 'ti-book-2', to: '/help' },
+  { label: 'Support', icon: 'ti-headset', to: '/support' },
+]
+const PLATFORM_ITEMS = [
+  { label: 'Superadmin', icon: 'ti-shield-lock', to: '/admin', perm: 'admin' },
+  { label: 'Systemövervakning', icon: 'ti-activity-heartbeat', to: '/admin/system', perm: 'ops' },
+  { label: 'Supportärenden', icon: 'ti-headset', to: '/admin/support', perm: 'support' },
+  { label: 'Billing', icon: 'ti-credit-card', to: '/admin/billing', perm: 'billing' },
+]
+// accent:true → framträdande gradient-knapp (endast AI-paket). Övriga är vanliga knappar utan färgmarkering.
+const FLYOUTS = {
+  ai: { label: 'AI-paket', icon: 'ti-sparkles', items: AI_ITEMS, accent: true },
+  help: { label: 'Hjälp', icon: 'ti-lifebuoy', items: HELP_ITEMS },
+  platform: { label: 'Plattform', icon: 'ti-shield-lock', items: PLATFORM_ITEMS },
+}
 
 const navItems = [
   { section: 'Översikt' },
   { label: 'Dashboard', icon: 'ti-layout-dashboard', to: '/' },
-  { aiPaket: true },
+  { flyout: 'ai' },
   { section: 'Ekonomi' },
   { label: 'Inkorg', icon: 'ti-inbox', to: '/inkorg' },
   { label: 'Bokföring', icon: 'ti-book', to: '/bokforing' },
@@ -37,9 +53,8 @@ const navItems = [
   { label: 'Kunder', icon: 'ti-users', to: '/kunder' },
   { label: 'Leverantörer', icon: 'ti-building-store', to: '/leverantorer' },
   { label: 'Produkter', icon: 'ti-package', to: '/produkter' },
-  { section: 'Hjälp' },
-  { label: 'Handbok', icon: 'ti-book-2', to: '/help' },
-  { label: 'Support', icon: 'ti-headset', to: '/support' },
+  { flyout: 'help' },
+  { flyout: 'platform' },
 ]
 
 export default function Sidebar({ collapsed = false, onToggle }) {
@@ -50,9 +65,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const location = useLocation()
   const [settingsOpen, setSettingsOpen] = useState(isSettingsSection(location.pathname))
   const [menuOpen, setMenuOpen] = useState(false)
-  const [aiOpen, setAiOpen] = useState(false)        // AI-paket flyout-meny
-  const [aiPos, setAiPos] = useState({ top: 0, left: 0 })
-  const aiBtnRef = useRef(null)
+  const [flyout, setFlyout] = useState(null)         // öppen flyout-grupp: 'ai' | 'help' | 'platform' | null
+  const [flyoutPos, setFlyoutPos] = useState({ top: 0, left: 0 })
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newOrg, setNewOrg] = useState('')
@@ -91,15 +105,18 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   }, [company?.id])
   const bokslutBadge = bokslutCounts.critical > 0 ? { n: bokslutCounts.critical, bg: '#dc2626' } : (bokslutCounts.high > 0 ? { n: bokslutCounts.high, bg: '#f97316' } : null)
   const badgeForItem = item => item.badgeKey === 'mc' ? mcBadge : item.badgeKey === 'bokslut' ? bokslutBadge : null
-  const aiVisible = item => !(item.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) && !(item.perm === 'ops' && !canViewOps)
-  const aiActive = AI_ITEMS.some(it => location.pathname === it.to || location.pathname.startsWith(it.to + '/'))
+  // Behörighet per menyval: licens (AI Bokslut) + plattformsroll (admin/ops/support/billing).
+  const permOk = perm => !perm || (perm === 'admin' ? isAdmin : perm === 'ops' ? canViewOps : perm === 'support' ? canViewSupport : perm === 'billing' ? canManageBilling : false)
+  const itemVisible = it => !(it.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) && permOk(it.perm)
+  const groupHasItems = key => FLYOUTS[key].items.some(itemVisible)
+  const groupActive = key => FLYOUTS[key].items.some(it => location.pathname === it.to || location.pathname.startsWith(it.to + '/'))
 
-  // Öppnar AI-paketets flyout. Positioneras med fixed (nav:en klipper overflow-x) intill knappen, klampad i höjd.
-  function toggleAi() {
-    if (aiOpen) { setAiOpen(false); return }
-    const r = aiBtnRef.current?.getBoundingClientRect()
-    if (r) setAiPos({ top: Math.min(r.top, window.innerHeight - 360), left: r.right + 6 })
-    setAiOpen(true)
+  // Öppnar/stänger en flyout-grupp. Positioneras med fixed (nav:en klipper overflow-x) intill knappen, klampad i höjd.
+  function toggleFlyout(key, e) {
+    if (flyout === key) { setFlyout(null); return }
+    const r = e.currentTarget.getBoundingClientRect()
+    setFlyoutPos({ top: Math.min(r.top, window.innerHeight - 360), left: r.right + 6 })
+    setFlyout(key)
   }
 
   // Hämtar företagsnamnet automatiskt från organisationsnumret (officiell källa via
@@ -180,18 +197,29 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         {navItems.map((item, i) => {
           // Licensgrindade menyval (t.ex. AI Bokslut) visas bara om funktionen ingår i planen.
           if (item.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) return null
-          // Behörighetsgrindade menyval (t.ex. OCR-test) visas bara för rätt plattformsroll.
-          if (item.perm === 'ops' && !canViewOps) return null
-          // AI-paket: EN framträdande knapp som öppnar en flyout med alla AI-val (sparar plats i sidomenyn).
-          if (item.aiPaket) {
-            return (
-              <button key={i} ref={aiBtnRef} onClick={toggleAi} aria-expanded={aiOpen} title={collapsed ? 'AI-paket' : undefined}
-                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} mx-2 my-1.5 py-2 rounded-lg text-[13.5px] font-semibold text-white transition-all
-                  bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 hover:brightness-110 ${aiActive || aiOpen ? 'ring-2 ring-violet-300 shadow-md' : 'shadow-sm'}`}
-                style={{ width: collapsed ? 'auto' : 'calc(100% - 1rem)' }}>
-                <i className="ti ti-sparkles text-[17px] w-5 text-center" />
-                {!collapsed && <span className="flex-1 text-left">AI-paket</span>}
-                {!collapsed && <i className={`ti ti-chevron-right text-sm transition-transform ${aiOpen ? 'rotate-90' : ''}`} />}
+          // Grupp-knapp som öppnar en flyout med alla val (AI-paket / Hjälp / Plattform).
+          if (item.flyout) {
+            const g = FLYOUTS[item.flyout]
+            if (!groupHasItems(item.flyout)) return null              // dölj helt om inga val är synliga (t.ex. Plattform utan roll)
+            const open = flyout === item.flyout, active = groupActive(item.flyout)
+            if (g.accent) {                                           // AI-paket: framträdande gradient-knapp
+              return (
+                <button key={i} onClick={e => toggleFlyout(item.flyout, e)} aria-expanded={open} title={collapsed ? g.label : undefined}
+                  className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} mx-2 my-1.5 py-2 rounded-lg text-[13.5px] font-semibold text-white transition-all
+                    bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 hover:brightness-110 ${active || open ? 'ring-2 ring-violet-300 shadow-md' : 'shadow-sm'}`}
+                  style={{ width: collapsed ? 'auto' : 'calc(100% - 1rem)' }}>
+                  <i className={`ti ${g.icon} text-[17px] w-5 text-center`} />
+                  {!collapsed && <span className="flex-1 text-left">{g.label}</span>}
+                  {!collapsed && <i className={`ti ti-chevron-right text-sm transition-transform ${open ? 'rotate-90' : ''}`} />}
+                </button>
+              )
+            }
+            return (                                                  // Hjälp / Plattform: vanlig knapp utan färgmarkering
+              <button key={i} onClick={e => toggleFlyout(item.flyout, e)} aria-expanded={open} title={collapsed ? g.label : undefined}
+                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-5'} py-2 text-[13.5px] w-full transition-colors ${active || open ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+                <i className={`ti ${g.icon} text-[17px] w-5 text-center`} />
+                {!collapsed && <span className="flex-1 text-left">{g.label}</span>}
+                {!collapsed && <i className={`ti ti-chevron-right text-sm transition-transform ${open ? 'rotate-90' : ''}`} />}
               </button>
             )
           }
@@ -211,25 +239,6 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             </NavLink>
           )
         })}
-
-        {(isAdmin || canViewOps || canViewSupport || canManageBilling) && (
-          collapsed ? (
-            <>
-              {isAdmin && <NavLink to="/admin" className={linkClass} title="Superadmin"><i className="ti ti-shield-lock text-[17px] w-5 text-center" /></NavLink>}
-              {canViewOps && <NavLink to="/admin/system" className={linkClass} title="Systemövervakning"><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" /></NavLink>}
-              {canViewSupport && <NavLink to="/admin/support" className={linkClass} title="Supportärenden"><i className="ti ti-headset text-[17px] w-5 text-center" /></NavLink>}
-              {canManageBilling && <NavLink to="/admin/billing" className={linkClass} title="Billing"><i className="ti ti-credit-card text-[17px] w-5 text-center" /></NavLink>}
-            </>
-          ) : (
-            <>
-              <div className="px-5 pt-2.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Plattform</div>
-              {isAdmin && <NavLink to="/admin" className={linkClass}><i className="ti ti-shield-lock text-[17px] w-5 text-center" />Superadmin</NavLink>}
-              {canViewOps && <NavLink to="/admin/system" className={linkClass}><i className="ti ti-activity-heartbeat text-[17px] w-5 text-center" />Systemövervakning</NavLink>}
-              {canViewSupport && <NavLink to="/admin/support" className={linkClass}><i className="ti ti-headset text-[17px] w-5 text-center" />Supportärenden</NavLink>}
-              {canManageBilling && <NavLink to="/admin/billing" className={linkClass}><i className="ti ti-credit-card text-[17px] w-5 text-center" />Billing</NavLink>}
-            </>
-          )
-        )}
 
         {/* Inställningar */}
         {collapsed ? (
@@ -318,17 +327,18 @@ export default function Sidebar({ collapsed = false, onToggle }) {
         )}
       </div>
 
-      {/* AI-paket flyout-meny – alla AI-val på ett ställe, utan att ta plats i sidomenyn */}
-      {aiOpen && (
+      {/* Flyout-meny (AI-paket / Hjälp / Plattform) – alla val på ett ställe, utan att ta plats i sidomenyn */}
+      {flyout && (
         <>
-          <div className="fixed inset-0 z-[55]" onClick={() => setAiOpen(false)} />
-          <div className="fixed z-[56] bg-white rounded-xl shadow-2xl py-1.5" style={{ top: aiPos.top, left: aiPos.left, minWidth: 252, border: '0.5px solid rgba(0,0,0,0.12)' }}>
-            <div className="px-3 py-1.5 mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-600 flex items-center gap-1.5"><i className="ti ti-sparkles" /> AI-paket</div>
-            {AI_ITEMS.filter(aiVisible).map((it, k) => {
+          <div className="fixed inset-0 z-[55]" onClick={() => setFlyout(null)} />
+          <div className="fixed z-[56] bg-white rounded-xl shadow-2xl py-1.5" style={{ top: flyoutPos.top, left: flyoutPos.left, minWidth: 252, border: '0.5px solid rgba(0,0,0,0.12)' }}>
+            <div className={`px-3 py-1.5 mb-0.5 text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1.5 ${FLYOUTS[flyout].accent ? 'text-violet-600' : 'text-gray-400'}`}><i className={`ti ${FLYOUTS[flyout].icon}`} /> {FLYOUTS[flyout].label}</div>
+            {FLYOUTS[flyout].items.filter(itemVisible).map((it, k) => {
               const badge = badgeForItem(it)
+              const accent = FLYOUTS[flyout].accent
               return (
-                <NavLink key={k} to={it.to} end={it.to === '/'} onClick={() => setAiOpen(false)}
-                  className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${isActive ? 'bg-violet-50 text-violet-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
+                <NavLink key={k} to={it.to} end={it.to === '/'} onClick={() => setFlyout(null)}
+                  className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${isActive ? (accent ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700') + ' font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
                   <i className={`ti ${it.icon} text-[16px] w-5 text-center`} />
                   <span className="flex-1">{it.label}</span>
                   {badge && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: badge.bg }}>{badge.n > 9 ? '9+' : badge.n}</span>}
