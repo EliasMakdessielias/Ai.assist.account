@@ -18,13 +18,14 @@ const webLocksAvailable = () => { try { return typeof navigator !== 'undefined' 
  * Skapar en ledare. onBecomeLeader/onLoseLeader anropas vid övergångar.
  * Returnerar { start, stop, isLeader, mode }.
  */
-export function createLeader({ userId, companyId, tabId = makeTabId(), onBecomeLeader, onLoseLeader, leaseTtl = 8000, heartbeatMs = 3000 }) {
+export function createLeader({ userId, companyId, tabId = makeTabId(), onBecomeLeader, onLoseLeader, leaseTtl = 8000, heartbeatMs = 3000, electionDelayMs = 400 }) {
   const name = leaderLockName({ userId, companyId })
   let leader = false
   let abort = null
   let stopped = false
   let ch = null
   let hbTimer = null
+  let electionTimer = null
   let lease = { owner: null, expiresAt: 0 }
 
   function setLeader(v) {
@@ -66,8 +67,18 @@ export function createLeader({ userId, companyId, tabId = makeTabId(), onBecomeL
         lease = { owner: null, expiresAt: 0 }
       }
     }
-    tick()
-    hbTimer = setInterval(tick, heartbeatMs)
+    // ELECTION-SETTLE: annonsera tentativ närvaro men bli INTE ledare under konvergensfönstret.
+    // Hindrar att två nystartade flikar båda blir ledare och skickar RPC samtidigt. Lägst tabId vinner i handlern.
+    lease = { owner: tabId, expiresAt: now() + leaseTtl }
+    broadcast('claim')
+    const reAnnounce = setTimeout(() => { try { broadcast('claim') } catch { /* ignore */ } }, Math.max(50, Math.floor(electionDelayMs / 2)))
+    electionTimer = setTimeout(() => {
+      electionTimer = null
+      try { clearTimeout(reAnnounce) } catch { /* ignore */ }
+      if (stopped) return
+      tick()                                  // beslut efter settle: lägst tabId hävdar ledarskap, övriga avstår
+      hbTimer = setInterval(tick, heartbeatMs)
+    }, electionDelayMs)
   }
   function tick() {
     if (stopped) return
@@ -86,6 +97,7 @@ export function createLeader({ userId, companyId, tabId = makeTabId(), onBecomeL
   function stop() {
     stopped = true
     if (hbTimer) { clearInterval(hbTimer); hbTimer = null }
+    if (electionTimer) { clearTimeout(electionTimer); electionTimer = null }
     if (leader && ch) broadcast('release')
     setLeader(false)
     try { startWebLocks._release?.() } catch { /* ignore */ }
@@ -94,5 +106,12 @@ export function createLeader({ userId, companyId, tabId = makeTabId(), onBecomeL
     ch = null
   }
 
-  return { start, stop, isLeader: () => leader, mode: webLocksAvailable() ? 'web-locks' : 'broadcast-lease', tabId }
+  // Bekräftar STABILT ledarskap direkt före varje RPC (försvar mot split-brain).
+  // Web Locks: själva låset är auktoritativt. Broadcast-lease: kräver giltig lease ägd av DENNA tabId.
+  function confirmLeadership() {
+    if (webLocksAvailable()) return leader
+    return leader && leaseValid() && lease.owner === tabId && !stopped
+  }
+
+  return { start, stop, isLeader: () => leader, confirmLeadership, mode: webLocksAvailable() ? 'web-locks' : 'broadcast-lease', tabId }
 }

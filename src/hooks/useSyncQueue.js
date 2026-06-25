@@ -33,12 +33,14 @@ export function useSyncQueue({ enabled, supabase, userId, companyId }) {
   const drain = useCallback(async () => {
     if (!enabled || !userId || !supabase) return
     if (drainingRef.current) return
-    // Bearbeta endast som ledare, med giltig session och nåbar server.
-    if (!leaderRef.current?.isLeader() || !sessionValidRef.current || !reachableRef.current) { await refresh(); return }
+    // Bearbeta endast som STABILT bekräftad ledare (split-brain-skydd), med giltig session och nåbar server.
+    const ldr = leaderRef.current
+    const confirm = () => !!(ldr?.confirmLeadership ? ldr.confirmLeadership() : ldr?.isLeader())
+    if (!confirm() || !sessionValidRef.current || !reachableRef.current) { await refresh(); return }
     drainingRef.current = true
     try {
       const processed = await drainQueue(supabase, userId, {
-        shouldContinue: () => !!leaderRef.current?.isLeader() && sessionValidRef.current && reachableRef.current,
+        shouldContinue: () => confirm() && sessionValidRef.current && reachableRef.current,   // omkontrolleras direkt före varje RPC
       })
       if (processed.some(p => p.mapped?.requireReauth)) setReauthNeeded(true)
     } finally {

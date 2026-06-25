@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test'
 
 const CHECK_TITLE = '3C2 E2E synk-test'
-const ENTITY_ID = 'b18a84e7-d291-41ae-bc27-3a10b96282a7'
+const ENTITY_ID = 'aa46b2ad-3598-450e-bfa8-40f9cc5646d7'
 const TEST_COMPANY_ID = '4f0d40a9-a1f1-4271-ad6b-dbbc481853d5' // testbolaget (icke-känsligt id)
 const RPC_GLOB = '**/rest/v1/rpc/bokslut_sync_comment'
 
