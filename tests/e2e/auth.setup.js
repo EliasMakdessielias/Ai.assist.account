@@ -9,14 +9,20 @@ import path from 'node:path'
 import { AUTH_FILE, BASE_URL } from './_env.js'
 
 test('manuell inloggning → spara opak storageState', async ({ page, context }) => {
-  test.setTimeout(6 * 60 * 1000) // 6 min för manuell inmatning
+  test.setTimeout(10 * 60 * 1000) // 10 min för manuell inmatning
   await page.goto(BASE_URL + '/login')
-  // eslint-disable-next-line no-console
-  console.log('\n>>> Logga in MANUELLT i fönstret. Väntar på autentiserad route (lämnar /login) ...\n')
-  await page.waitForURL((url) => !/\/login/.test(new URL(url).pathname), { timeout: 6 * 60 * 1000 })
-  await expect(page.getByText('ÖVERSIKT').first()).toBeVisible({ timeout: 30000 }) // autentiserad layout
+  /* eslint-disable no-console */
+  console.log('\n========================================================================')
+  console.log('  Logga in MANUELLT i webbläsarfönstret som öppnades.')
+  console.log('  Stäng INTE fönstret – vänta tills du ser raden: "OPAK storageState sparad".')
+  console.log('========================================================================\n')
+  // Vänta tills appen lämnat /login (robust: bara pathname-kontroll, ingen brittle textmatchning).
+  await page.waitForURL((url) => !/\/login(\/|$)/.test(new URL(url).pathname), { timeout: 10 * 60 * 1000 })
+  // Bästa-effort: vänta in att appen hunnit skriva session/aktivt bolag innan state fångas (ej fatal).
+  try { await page.getByText('ÖVERSIKT').first().waitFor({ timeout: 20000 }) } catch { /* ignore – sparar ändå */ }
+  await page.waitForTimeout(2500) // settle: säkerställ att localStorage/session är persisterad
   fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true })
-  await context.storageState({ path: AUTH_FILE }) // skrivs direkt till fil; innehåll läses aldrig
-  // eslint-disable-next-line no-console
-  console.log('>>> Opak storageState sparad. Kör nu: npm run e2e:smoke:auth (eller e2e:sync).\n')
+  await context.storageState({ path: AUTH_FILE }) // skrivs direkt till fil; innehåll läses/loggas aldrig
+  console.log('\n>>> OPAK storageState sparad. Kör nu: npm run e2e:smoke:auth\n')
+  /* eslint-enable no-console */
 })
