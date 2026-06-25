@@ -500,7 +500,12 @@ function CheckDrawer({ check, user, company, fy, pilotServerEnabled = false, syn
             {syncOn && conflictOp && (
               <ConflictReviewDialog operation={conflictOp} localText={comment} canOverwrite={!!perms.resolve_check}
                 onClose={() => setConflictOp(null)}
-                onLoadServer={async () => { await syncQueue.discardOperation(conflictOp.operationId); setConflictOp(null); await onChanged() }}
+                onLoadServer={async () => {
+                  // behörighetskontrollerad läsning (RLS) av serverns aktuella kommentar → ersätter formulärtexten efter användarens val
+                  const { data, error } = await supabase.from('bokslut_checks').select('comment').eq('id', check.id).maybeSingle()
+                  if (!error) setComment(data?.comment ?? '')
+                  await syncQueue.discardOperation(conflictOp.operationId); setConflictOp(null); await onChanged()
+                }}
                 onKeepSeparate={async () => { await syncQueue.discardOperation(conflictOp.operationId); setConflictOp(null); toast.success('Din text behålls lokalt – inget skrevs över') }}
                 onOverwrite={async () => {
                   const cr = conflictOp.serverResult?.currentRevision
