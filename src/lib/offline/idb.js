@@ -2,9 +2,19 @@
 // Inget nytt paket (Dexie utvärderat men ej nödvändigt för 2 stores). Endast lokala utkast lagras här –
 // ALDRIG tokens, sessioner eller bokföringsdata. Service Worker rör aldrig IndexedDB.
 const DB_NAME = 'bokpilot-offline'
-// v2 (Etapp 2B): tog bort oanvänd store 'localMetadata'. autosaveEntries (med ev. befintliga utkast) bevaras.
-const DB_VERSION = 2
-const STORES = { autosaveEntries: { keyPath: 'id' } }
+// v3 (Etapp 3C): lägg till 'syncQueue' (intern, feature-avstängd synkköprototyp). autosaveEntries bevaras.
+const DB_VERSION = 3
+const STORES = {
+  autosaveEntries: { keyPath: 'id' },
+  syncQueue: {
+    keyPath: 'operationId',
+    indexes: [
+      { name: 'byUser', keyPath: 'userId' },
+      { name: 'byStatus', keyPath: 'status' },
+      { name: 'byEntity', keyPath: 'entityId' },
+    ],
+  },
+}
 const REMOVED_STORES = ['localMetadata']
 
 let dbPromise = null
@@ -20,8 +30,14 @@ function openDB() {
     try { req = indexedDB.open(DB_NAME, DB_VERSION) } catch (e) { return reject(e) }
     req.onupgradeneeded = () => {
       const db = req.result
+      const tx = req.transaction                          // versionändringstransaktionen (för indexskapande på befintlig store)
       for (const [name, opt] of Object.entries(STORES)) {
-        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, opt)   // bevarar befintlig data
+        const store = db.objectStoreNames.contains(name)
+          ? tx.objectStore(name)                          // bevarar befintlig data (t.ex. autosave-utkast)
+          : db.createObjectStore(name, { keyPath: opt.keyPath })
+        for (const ix of opt.indexes || []) {
+          if (!store.indexNames.contains(ix.name)) store.createIndex(ix.name, ix.keyPath, ix.options || {})
+        }
       }
       for (const name of REMOVED_STORES) {
         if (db.objectStoreNames.contains(name)) db.deleteObjectStore(name)         // v1→v2: ta bort oanvänd store

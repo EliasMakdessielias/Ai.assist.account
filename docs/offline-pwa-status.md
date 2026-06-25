@@ -663,6 +663,86 @@ principals — projektet har endast 1 auth-användare och en ny temporär auth-a
 **Städning:** ops=0, sync-audit=0, testfixturer=0, feature-rad=0, claimed-orphans=0, roll återställd, dblink-extension
 borttagen, temp-RPC borttagen, inga testanvändare. Build grön; full svit 850/850 × 3.
 
+## Etapp 3C – intern feature-avstängd klientprototyp för synkkö ⚠️ (2026-06-25)
+Klientens synkkö för EXAKT en entitet (`bokslut_checks.comment`). **AVSTÄNGD i alla byggda miljöer** bakom
+`offline_autosave_sync` (serverstyrd, ingen plan-fallback; localStorage/URL/state kan ej aktivera i byggd miljö;
+dev kräver dessutom uttrycklig opt-in). **Ingen produktionsrad aktiverad.** Ingen bokföringsåtgärd skapas.
+
+**Nya moduler:** `src/lib/offline/idb.js` (v3 + `syncQueue`-store, bevarar autosave-utkast), `syncQueue.js`
+(state machine, deterministisk resultatmappning, retry/backoff, dedup, NFC+8000-byte, per-användar-isolering),
+`syncWorker.js` (RPC-anrop med timeout, en op åt gången, drain-while-leader), `syncLeader.js` (Web Locks +
+BroadcastChannel-lease-fallback), `flags.js` (`fetchSyncServerEnabled`/`isSyncQueueEnabled`/`syncQueueDiagnostics`),
+`hooks/useSyncQueue.js`, `components/SyncQueueUI.jsx` (SyncStatusIndicator/PendingSyncList/ConflictReviewDialog/RetryAction).
+Wirad i `AiBokslut`-CheckDrawer bakom flaggan (inert när av → tidigare beteende oförändrat).
+
+**Kärnegenskaper:** lokal op sparas FÖRE nätverksanrop; samma `idempotencyKey` återanvänds vid retry (ny nyckel vid
+ny payload); dubbelklick → en op (dedup på identity+payloadHash+baseRevision); endast en flik bearbetar (Web Locks);
+konflikt skrivs ALDRIG över automatiskt (tre val, overwrite endast admin/ny nyckel/aktuell baseRevision); autosave-utkast
+behålls vid fel/konflikt; "Synkad" visas först vid serverbekräftat succeeded/no_change; diagnostik utan kommentartext.
+Resultatmappning (§7) deterministisk; auto-retry endast timeout/unavailable/transaction_retry. baseRevision krävs
+(saknas → "Serverversion behöver hämtas", ingen blind op).
+
+**Bevisnivåer:**
+- **Enhetstestad:** 33 nya tester (`syncQueue.test.js`) – state machine, resultatmappning (alla domän+transport),
+  retry/backoff, dedup/dubbelklick, claim-atomicitet, recoverStuck, byte-gräns, isolering, sanitering (ingen text), leader-tiebreak.
+- **Verifierad i browser (auth-fri):** IndexedDB v2→v3-uppgradering bevarar autosave-utkast + skapar `syncQueue`+index;
+  Web Locks-exklusivitet (andra exklusiva begäran nekas medan första håller låset → grund för en-flik-bearbetning).
+- **Verifierad med parallella DB-sessioner (ärvd från 3B-1):** serverns idempotency/CAS/lock-timeout.
+- **Inte verifierad i denna miljö:** full live-E2E (köläggning→RPC→succeeded, offline/reconnect, två RIKTIGA flikar) –
+  preview-sessionens refresh token gick ut (kan ej återautentisera utan användaren) och en enda preview-sida kan ej
+  hosta två riktiga flikar. Logiken är dock enhetstestad och servervägen parallellt verifierad.
+
+**Blockerare för produktion (kvarstår):** två RIKTIGA principals med samma `idempotencyKey` (1 auth-användare; ingen temp
+auth-admin tillåten). **Build grön; full svit 883/883 × 3.** Inga DB-testdata/flaggor/temp-objekt (verifierat: alla = 0).
+
+## Etapp 3C-1 – E2E-verifiering av klientkön (2026-06-25)
+Användaren autentiserade preview-sessionen manuellt. E2E kördes via den **riktiga autentiserade workern** (sidans
+egen Supabase-klient gjorde RPC-anropen; access/refresh token lästes/loggades aldrig av mig – endast nyckelns
+*närvaro* kontrollerades, idempotencyKey rapporteras maskerad). Operationer skrevs till IndexedDB och bearbetades
+av sidans worker via riktiga triggers. Isolerat testbolag (4f0d) med temporär `offline_autosave_sync=true`.
+
+**Verifierad i browser (riktig autentiserad worker):**
+| Test | Resultat (lokal status + server) |
+|---|---|
+| §2 Persist före nätverk | op skrevs som `pending` i IndexedDB FÖRE RPC; status_before=pending |
+| §3 Online happy path | pending→`succeeded`; DB: rev 1→2, 1 op-rad, 1 audit, ingen kommentartext i audit/serverResult |
+| §4 Lost-response replay | samma idempotencyKey → `succeeded` (replay), rev oförändrad (3), ingen ny op/mutation/audit |
+| §5 revision_conflict | stale base=1 (server rev=2) → `conflict`, serverVersion rev=2 + changedBy, ingen auto-overwrite, lokal payload kvar |
+| §6 godkänd | engagement `godkand` → `rejected`/`engagement_approved`, ingen mutation |
+| §6 låst | engagement `last` → `rejected`/`engagement_locked`, ingen mutation |
+| §7/§13 feature av efter köläggning | serverflagga false → `paused`/`feature_disabled`; localStorage återaktiverade INTE (serverstyrt); rev oförändrad, ingen audit |
+| §14 ingen kommentartext | diagnostik + serverResult innehöll aldrig kommentartext |
+
+Server-/DB-sammanställning efter E2E: rev=3, server-ops `succeeded,conflict,succeeded`, **mutationer=audits=2** (replay/conflict
+skapade ingen mutation/audit). operationId loggat, idempotencyKey maskerad.
+
+**Verifierad i browser (auth-fri, från 3C):** IndexedDB v2→v3 utan dataförlust; Web Locks-exklusivitet (andra exklusiva
+låstagaren nekas medan första håller låset).
+
+**Enhetstestad:** hela resultatmatrisen (mapServerResult, 15 utfall), retry/backoff deterministiskt (injicerbar klocka+random),
+lease-takeover-cykel §9 (claim→stuck→recover→reclaim; samma operationId; attemptCount +1/försök), dedup, claim-atomicitet,
+byte-gräns, isolering, sanitering. **38 synkkö-tester; full svit 888/888 × 3.**
+
+**Integrationstestad / Kodinspekterad:** membership_removed (servern returnerar membership_removed – 3B-1; klientmappning enhetstestad);
+logout-med-pending + sessionsavbrott-isolering (hook-policy: stoppa worker, släpp ledarskap, per-user-isolering – kodinspekterad,
+ej kört live för att inte störa användarens riktiga session); autosave behålls vid fel (hooken raderar aldrig utkast utom vid succeeded – kodinspekterad).
+
+**Inte verifierad:** **två RIKTIGA flikar (§10)** och **BroadcastChannel-fallback i två flikar (§11)** – preview-harnessen är
+EN headless sida och kan inte öppna två riktiga browserflikar. Per regeln "ett Web Locks-test i en enda JS-evaluering räknas
+inte som tvåflikstest" ersätts dessa INTE med enhetstest. Mekanismen (Web Locks-exklusivitet) är dock browser-verifierad.
+
+**Cleanup (verifierat):** fixturkontroll=0, server-sync-ops=0, feature-flagga=0, fixtur-audit=0, engagement återställt till `pagar`,
+lokal IndexedDB-syncQueue tömd (0), dev-localStorage-flagga borttagen. Inga temp-RPC/edge/extensions, inga testanvändare.
+
+## Beslut 3C-1
+**NO-GO för begränsad pilot** – men endast på grund av en **kvarvarande obligatorisk lucka**: **tvåfliksledarskap +
+BroadcastChannel-fallback i två RIKTIGA flikar** kunde inte köras i denna enkelsidiga harness (får ej ersättas med enhetstest,
+får ej GO utan). Samtliga övriga obligatoriska flöden (persist-före-nätverk, online, lost-response, riktig konflikt, feature-av,
+godkänd/låst, cleanup, tre gröna regressioner) är **Verifierade i browser**. Återstår för GO: kör §10/§11 i en miljö som kan
+öppna två riktiga flikar (t.ex. Playwright multi-page). **Två-principal-idempotens på servern kvarstår som separat blockerare för
+produktionsaktivering.**
+
 ## Nästa (ej påbörjat – inväntar separat beslut)
-- **Etapp 3C:** klientens sync queue (IndexedDB-kö → `bokslut_sync_comment`), konfliktlösnings-UI
-  (reload_newer/keep_separate/overwrite_with_confirmation), nät-/retry-policy. Flaggstyrt. Bygg INTE utan separat beslut.
+- **3C-1 (omkörning):** kör hela klient-E2E:n i en miljö med giltig session + två riktiga flikar; aktivera
+  `offline_autosave_sync` ENBART för ett isolerat testbolag, kör matrisen, återställ flaggan + städa.
+- **Produktionsaktivering av synk:** kräver dessutom E2E mellan två riktiga principals + explicit beslut.

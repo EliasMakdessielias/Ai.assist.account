@@ -8,6 +8,9 @@ import { useAutosaveDraft } from '../hooks/useAutosaveDraft'
 import AutosaveIndicator from '../components/offline/AutosaveIndicator'
 import RestoreDraftBanner from '../components/offline/RestoreDraftBanner'
 import { isAutosavePilotEnabled, fetchPilotServerEnabled } from '../lib/offline/flags'
+import { fetchSyncServerEnabled, isSyncQueueEnabled, syncQueueDiagnostics } from '../lib/offline/flags'
+import { useSyncQueue } from '../hooks/useSyncQueue'
+import { SyncStatusIndicator, CheckSyncBadge, PendingSyncList, ConflictReviewDialog } from '../components/SyncQueueUI'
 import { commitCheckComment } from '../lib/offline/commit'
 import {
   FEATURE_KEY, NOT_LICENSED_MESSAGE, AI_WARNING, ENGAGEMENT_STATUS_META, ADMIN_SETTABLE_STATUSES, RISK_META, CHECK_STATUS_META,
@@ -73,6 +76,7 @@ export default function AiBokslut() {
   const [validating, setValidating] = useState(false)
   const [generatingTexts, setGeneratingTexts] = useState(false)
   const [autosavePilotServer, setAutosavePilotServer] = useState(false)   // Etapp 2C: serverstyrd flagga
+  const [syncServerEnabled, setSyncServerEnabled] = useState(false)        // Etapp 3C: serverstyrd synkkö-flagga (default av)
   const loggedNoLicenseRef = useRef(null)
 
   // Logga försök att öppna modulen utan licens (en gång per bolag).
@@ -104,6 +108,21 @@ export default function AiBokslut() {
     fetchPilotServerEnabled(supabase, company.id).then(v => { if (!cancelled) setAutosavePilotServer(v) })
     return () => { cancelled = true }
   }, [company?.id])
+
+  // Etapp 3C: synkkö-flaggan (offline_autosave_sync) bunden till AKTUELLT companyId, samma cancellation-mönster. Default av.
+  useEffect(() => {
+    setSyncServerEnabled(false)
+    if (!company?.id) return
+    let cancelled = false
+    fetchSyncServerEnabled(supabase, company.id).then(v => { if (!cancelled) setSyncServerEnabled(v) })
+    return () => { cancelled = true }
+  }, [company?.id])
+
+  const syncEnabled = isSyncQueueEnabled({ serverEnabled: syncServerEnabled })
+  const syncQueue = useSyncQueue({ enabled: syncEnabled, supabase, userId: user?.id, companyId: company?.id })
+  useEffect(() => {
+    try { window.__syncDiag = syncQueueDiagnostics({ serverEnabled: syncServerEnabled, companyId: company?.id, pendingCount: syncQueue.counts.pending + syncQueue.counts.retry_wait, leaderMode: syncQueue.leaderMode, isLeader: syncQueue.isLeader }) } catch { /* ignore */ }
+  }, [syncServerEnabled, company?.id, syncQueue.counts.pending, syncQueue.counts.retry_wait, syncQueue.leaderMode, syncQueue.isLeader])
 
   const loadEngagement = useCallback(async () => {
     if (!company?.id || !fyId || !licensed) return
@@ -321,7 +340,7 @@ export default function AiBokslut() {
         </div>
       )}
 
-      {selected && <CheckDrawer key={selected.id} check={selected} user={user} company={company} fy={fy} pilotServerEnabled={autosavePilotServer} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
+      {selected && <CheckDrawer key={selected.id} check={selected} user={user} company={company} fy={fy} pilotServerEnabled={autosavePilotServer} syncEnabled={syncEnabled} syncQueue={syncQueue} perms={perms} locked={locked} hasAttachment={linkedCheckIds.has(selected.id)}
         onCreateAttachment={c => { setSelected(null); setEditAttachment({ _fromCheck: true, check_id: c.id, type: attachmentTypeForCategory(c.category), account_nr: c.account_nr || '', saldo_huvudbok: c.saldo ?? '', title: 'Bilaga – ' + categoryLabel(c.category) }) }}
         onClose={() => setSelected(null)} onChanged={loadEngagement} navigate={navigate} />}
       {editAttachment && <AttachmentModal initial={editAttachment} engagement={engagement} perms={perms} locked={locked} onClose={() => setEditAttachment(null)} onSaved={async () => { setEditAttachment(null); await loadEngagement() }} />}
@@ -329,11 +348,18 @@ export default function AiBokslut() {
   )
 }
 
-function CheckDrawer({ check, user, company, fy, pilotServerEnabled = false, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
+function CheckDrawer({ check, user, company, fy, pilotServerEnabled = false, syncEnabled = false, syncQueue = null, perms = {}, locked = false, hasAttachment = false, onCreateAttachment, onClose, onChanged, navigate }) {
   const NO_RESOLVE = 'Endast admin kan markera kontroller som klara/ignorerade'
   const LOCKED = 'Engagemanget är låst – inga ändringar tillåts'
   const [busy, setBusy] = useState(false)
   const [comment, setComment] = useState('')
+  const [conflictOp, setConflictOp] = useState(null)
+
+  // Etapp 3C: synkkö-prototyp (avstängd om inte syncEnabled). EXAKT en entitet: denna check-kommentar.
+  const syncOn = !!syncEnabled && !!syncQueue
+  const syncIdentity = { userId: user?.id, companyId: company?.id, fiscalYearId: fy?.id, engagementId: check.engagement_id, entityType: 'bokslut_check_comment', entityId: check.id }
+  const baseRevision = check.comment_revision   // serverbaserad revision; saknas → kan ej synka (hämta serverversion först)
+  const checkOps = syncOn ? (syncQueue.operations || []).filter(o => o.entityId === check.id) : []
 
   // Etapp 2A–2C: lokal autosave-pilot för kommentarsutkast. Aktivering är serverstyrd i byggd miljö.
   const pilotOn = isAutosavePilotEnabled({ serverEnabled: pilotServerEnabled })
@@ -444,6 +470,46 @@ function CheckDrawer({ check, user, company, fy, pilotServerEnabled = false, per
               }}><i className="ti ti-send" /></button>
             </div>
             {pilotOn && <div className="mt-1"><AutosaveIndicator status={autosave.status} lastSavedAt={autosave.lastSavedAt} storageError={autosave.storageError} /></div>}
+
+            {/* Etapp 3C: synkkö-prototyp (avstängd om inte syncEnabled). Skapar aldrig en bokföringsåtgärd. */}
+            {syncOn && (
+              <div className="mt-3 border-t pt-3 space-y-2" style={{ borderColor: 'rgba(0,0,0,0.08)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-gray-400 uppercase tracking-wide">Serversynk (intern prototyp)</span>
+                  <span className="flex items-center gap-3">
+                    <SyncStatusIndicator counts={syncQueue.counts} reauthNeeded={syncQueue.reauthNeeded} />
+                    <CheckSyncBadge operations={syncQueue.operations} entityId={check.id} />
+                  </span>
+                </div>
+                {baseRevision == null
+                  ? <div className="text-[12px] text-amber-700"><i className="ti ti-cloud-download mr-0.5" />Serverversion behöver hämtas innan synk</div>
+                  : (
+                    <div className="flex flex-wrap gap-2">
+                      <button className="btn text-sm" disabled={busy || locked || !comment.trim() || !perms.comment_check} title={locked ? LOCKED : undefined}
+                        onClick={async () => {
+                          const r = await syncQueue.enqueueComment(syncIdentity, { operationType: syncQueue.OP_UPSERT, comment, baseRevision })
+                          if (r.ok) toast.success('Köad för serversynk'); else if (r.reason === 'too_large') toast.error('Kommentaren är för lång (max 8000 byte)'); else if (r.reason === 'base_revision_missing') toast.error('Serverversion behöver hämtas innan synk'); else toast.error('Kunde inte köa')
+                        }}><i className="ti ti-cloud-up" /> Köa serversynk</button>
+                      {check.comment != null && <button className="btn text-sm" disabled={busy || locked || !perms.comment_check}
+                        onClick={async () => { const r = await syncQueue.enqueueComment(syncIdentity, { operationType: syncQueue.OP_CLEAR, baseRevision }); if (r.ok) toast.success('Rensning köad') }}><i className="ti ti-eraser" /> Köa rensning</button>}
+                    </div>
+                  )}
+                <PendingSyncList operations={checkOps} onRetry={syncQueue.retry} onReview={op => setConflictOp(op)} onDiscard={syncQueue.discardOperation} />
+              </div>
+            )}
+            {syncOn && conflictOp && (
+              <ConflictReviewDialog operation={conflictOp} localText={comment} canOverwrite={!!perms.resolve_check}
+                onClose={() => setConflictOp(null)}
+                onLoadServer={async () => { await syncQueue.discardOperation(conflictOp.operationId); setConflictOp(null); await onChanged() }}
+                onKeepSeparate={async () => { await syncQueue.discardOperation(conflictOp.operationId); setConflictOp(null); toast.success('Din text behålls lokalt – inget skrevs över') }}
+                onOverwrite={async () => {
+                  const cr = conflictOp.serverResult?.currentRevision
+                  if (cr == null) { toast.error('Saknar serverrevision'); return }
+                  const r = await syncQueue.enqueueComment(syncIdentity, { operationType: syncQueue.OP_OVERWRITE, comment, baseRevision: cr })
+                  if (r.ok) { await syncQueue.discardOperation(conflictOp.operationId); setConflictOp(null); toast.success('Överskrivning köad (kräver admin på servern)') }
+                }} />
+            )}
+
             {pilotOn && autosave.forks.length > 0 && (
               <div className="mt-2 rounded-lg border px-3 py-2 text-[12px]" style={{ borderColor: 'rgba(0,0,0,0.1)', background: '#fafafa' }}>
                 <div className="text-[11px] text-gray-500 uppercase tracking-wide mb-1">Separata lokala konfliktkopior ({autosave.forks.length})</div>

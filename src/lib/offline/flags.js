@@ -34,6 +34,48 @@ export async function fetchPilotServerEnabled(supabase, companyId) {
   } catch { return false }
 }
 
+// ── Etapp 3C: synkkö-prototyp (offline_autosave_sync) ──
+// AVSTÄNGD som default i ALLA miljöer. Auktoritativ aktivering är ENBART serverstyrd (explicit company_ai_features-rad,
+// enabled=true, INGEN plan-fallback). localStorage/URL/frontend-state kan ALDRIG aktivera i byggd miljö.
+// I dev krävs uttrycklig opt-in (localStorage='1') OCH serverflagga – annars av (testbart "tidigare beteende").
+export const SYNC_FEATURE_KEY = 'offline_autosave_sync'
+const SYNC_FLAG_KEY = 'bokpilot.flags.syncQueue'
+
+export function isSyncQueueEnabled({ serverEnabled = false } = {}) {
+  if (!serverEnabled) return false                            // server är auktoritativ i ALLA miljöer (default av)
+  if (import.meta.env.DEV) return lsGet(SYNC_FLAG_KEY) === '1'   // dev: dessutom uttrycklig lokal opt-in
+  return true                                                  // byggd miljö: serverflaggan räcker (men aktiveras endast på isolerat testbolag)
+}
+
+// Explicit company-level uppslag. INGEN plan-fallback (till skillnad från has_ai_feature). Frånvaro/false/fel → false.
+export async function fetchSyncServerEnabled(supabase, companyId) {
+  if (!supabase || !companyId) return false
+  try {
+    const { data, error } = await supabase
+      .from('company_ai_features')
+      .select('enabled')
+      .eq('company_id', companyId)
+      .eq('feature_key', SYNC_FEATURE_KEY)
+      .maybeSingle()
+    if (error) return false
+    return data?.enabled === true
+  } catch { return false }
+}
+
+// Diagnostik UTAN payload/känslig text.
+export function syncQueueDiagnostics({ serverEnabled = false, companyId = null, pendingCount = 0, leaderMode = null, isLeader = null } = {}) {
+  return {
+    queueFeatureLoaded: true,
+    serverFlagStatus: serverEnabled ? 'enabled' : 'disabled',
+    enabled: isSyncQueueEnabled({ serverEnabled }),
+    activeCompanyId: companyId,
+    pendingOperations: pendingCount,
+    leaderMode, isLeader,
+    env: import.meta.env.DEV ? 'development' : 'built',
+    featureKey: SYNC_FEATURE_KEY,
+  }
+}
+
 export function autosaveFlagDiagnostics({ serverEnabled = false } = {}) {
   return {
     enabled: isAutosavePilotEnabled({ serverEnabled }),
