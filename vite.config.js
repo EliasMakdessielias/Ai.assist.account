@@ -46,4 +46,9 @@ function swBuildId() {
 
 export default defineConfig({
   plugins: [react(), swBuildId()],
+  // Vitest (enhets-/integrationstester). Playwright-E2E (tests/e2e) körs separat via `npm run e2e:*`
+  // och får ALDRIG plockas upp av vitest (de importerar @playwright/test).
+  test: {
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
+  },
 })

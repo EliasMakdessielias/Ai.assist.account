@@ -7,3 +7,13 @@ dist
 
 # Lokala verktygsfiler (Claude Code preview m.m.) – ska inte deployas
 .claude/
+
+# Playwright E2E (Etapp 3C-2A) – autentiseringsstate + artefakter får ALDRIG checkas in
+playwright/.auth/
+test-results/
+playwright-report/
+blob-report/
+**/*.storageState.json
+traces/
+videos/
+screenshots/
