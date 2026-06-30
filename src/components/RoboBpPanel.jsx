@@ -15,8 +15,23 @@ function RiskBadge({ level }) {
   return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: m.color }}>{m.label}</span>
 }
 
-function AnswerCard({ data, observations = [], meta = {}, companyId, onOpenObject, onCreateCheck, checkState }) {
+function AnswerCard({ data, observations = [], meta = {}, blocked = false, companyId, onOpenObject, onCreateCheck, checkState }) {
   if (!data) return null
+  // Steg 2J: säkerhetsspärrat svar – lugn, icke-aggressiv presentation (inget rött fel).
+  if (blocked) {
+    return (
+      <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 text-[13px]" aria-label="Säkerhetsspärr">
+        <div className="flex items-start gap-2">
+          <i className="ti ti-shield-check text-violet-600 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-medium text-violet-800">Säkerhetsspärr</div>
+            <div className="text-gray-700 mt-0.5">{data.answer}</div>
+            <div className="text-[11px] text-gray-500 mt-1.5">ROBO-bp utför inte bokföring, ändringar eller godkännanden. Du kan i stället ställa en granskningsfråga eller skapa en kontrollpunkt från en finding/observation.</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
   // Steg 2H: systemberäknad confidence + beslutsnivå (AI bestämmer aldrig label ensam).
   const conf = computeConfidence(summarizeBasis(data, meta), data)
   const FollowUpButton = ({ item }) => {
@@ -247,7 +262,7 @@ export default function RoboBpPanel() {
       if (err) { let m = err.message; try { const b = await err.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
       if (data?.error) throw new Error(data.error)
       setConvId(data.conversation_id)
-      setMessages(m => [...m, { role: 'assistant', structured: data.response, observations: Array.isArray(data.observations) ? data.observations : [], meta: data.meta || {} }])
+      setMessages(m => [...m, { role: 'assistant', structured: data.response, observations: Array.isArray(data.observations) ? data.observations : [], meta: data.meta || {}, blocked: !!data.blocked }])
     } catch (e) {
       setError(e?.message || 'Något gick fel')
       setMessages(m => [...m, { role: 'assistant', errored: true }])
@@ -322,7 +337,7 @@ export default function RoboBpPanel() {
               {messages.map((m, i) => m.role === 'user'
                 ? <div key={i} className="text-[13px] bg-blue-600 text-white rounded-xl px-3 py-2 ml-8">{m.content}</div>
                 : m.errored ? <div key={i} className="text-[13px] text-red-600 bg-red-50 rounded-xl px-3 py-2">Kunde inte svara just nu.</div>
-                : <AnswerCard key={i} data={m.structured} observations={m.observations} meta={m.meta} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
+                : <AnswerCard key={i} data={m.structured} observations={m.observations} meta={m.meta} blocked={m.blocked} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
               {busy && <div className="text-[13px] text-gray-400 flex items-center gap-1.5"><i className="ti ti-loader animate-spin" /> ROBO-bp analyserar…</div>}
               {error && <div className="text-[12px] text-red-500">{error}</div>}
             </div>

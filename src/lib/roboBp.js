@@ -318,6 +318,36 @@ export function computeConfidence(summary = {}, response = {}) {
   }
 }
 
+// ── Steg 2J: deterministisk safe-intent guard. Blockerar begäran om att utföra åtgärder ROBO-bp aldrig gör. ──
+export const BLOCKED_INTENT_MESSAGE = 'ROBO-bp kan inte utföra detta automatiskt. Jag kan hjälpa dig att granska underlaget eller skapa en kontrollpunkt.'
+export const FORBIDDEN_INTENT_CATEGORIES = ['bokfor', 'skapa_verifikation', 'andra_verifikation', 'radera_verifikation', 'andra_faktura', 'godkann_faktura', 'las_upp_period', 'lamna_in', 'betala', 'skicka_myndighet']
+
+// Höger-gräns som funkar för svenska vokaler (JS \b bryts av å/ä/ö). Indata gemenas före match.
+const RB = '(?![a-zåäö0-9])'
+const rx = (s) => new RegExp(s, 'i')
+// Förklarande frågor (hur/förklara/vad är …) tillåts – de besvaras som explain_rule, inte som åtgärd.
+const INTENT_EXPLAIN = /(^|\s)(hur|varför)\b|förklar|vad (är|betyder|innebär)|vilka regler|how (do|can|should)|what (is|does)|\bexplain\b/i
+// Ordning: specifika regler före generella (radera/skapa före bokför).
+const INTENT_RULES = [
+  ['radera_verifikation', rx(`(radera|raderar|ta bort|tar bort|makulera|makulerar)${RB}[^?.!]*(verifikation|faktura|bokföring)|delete${RB}`)],
+  ['skapa_verifikation', rx(`(skapa|skapar|registrera|registrerar|lägg upp|lägga upp|ny|nya)${RB}[^?.!]*verifikation|create${RB}[^?.!]*journal`)],
+  ['andra_verifikation', rx(`(ändra|ändrar|redigera|redigerar|justera|justerar|uppdatera|korrigera)${RB}[^?.!]*verifikation`)],
+  ['andra_faktura', rx(`(ändra|ändrar|redigera|redigerar|justera|justerar|korrigera)${RB}[^?.!]*faktura`)],
+  ['godkann_faktura', rx(`(godkänn|godkänna|godkänner|attestera|attesterar)${RB}[^?.!]*faktura|approve${RB}`)],
+  ['las_upp_period', rx(`lås\\s*upp${RB}|låsa upp|öppna[^?.!]*låst[^?.!]*period|unlock${RB}`)],
+  ['lamna_in', rx(`(lämna in|lämnar in|skicka in|skickar in|deklarera|deklarerar)[^?.!]*(moms|momsrapport|deklaration|årsredovisning|skatt)|submit${RB}`)],
+  ['skicka_myndighet', rx(`skicka${RB}[^?.!]*(skatteverket|bolagsverket|myndighet)`)],
+  ['betala', rx(`(betala|betalar|betalning)${RB}[^?.!]*faktura|betala fakturan?${RB}|pay${RB}[^?.!]*invoice`)],
+  ['bokfor', rx(`(bokför|bokföra|bokförs|boka|bokar)${RB}|kontera${RB}[^?.!]*(automatiskt|åt|detta|den)|post${RB}[^?.!]*(this|the|it|detta)`)],
+]
+export function detectForbiddenIntent(question) {
+  const q = String(question || '').toLowerCase().trim()
+  if (!q) return { blocked: false, category: null }
+  if (INTENT_EXPLAIN.test(q)) return { blocked: false, category: null }
+  for (const [category, re] of INTENT_RULES) if (re.test(q)) return { blocked: true, category }
+  return { blocked: false, category: null }
+}
+
 // ── Steg 2E: minimalt statusflöde för ROBO-bp-kontrollpunkter (rör ALDRIG bokföring). ──
 export const CHECK_STATUSES = ['open', 'in_progress', 'done', 'dismissed']
 export const CHECK_STATUS_META = {

@@ -103,6 +103,31 @@ function validate(raw: any, allowedAccounts: Set<string>, allowedObjects: Record
   return { ok, errors, value }
 }
 
+// Steg 2J: deterministisk safe-intent guard (spegel av src/lib/roboBp.js). Höger-gräns funkar för å/ä/ö.
+const RB = '(?![a-zåäö0-9])'
+const rxi = (s: string) => new RegExp(s, 'i')
+const INTENT_EXPLAIN = /(^|\s)(hur|varför)\b|förklar|vad (är|betyder|innebär)|vilka regler|how (do|can|should)|what (is|does)|\bexplain\b/i
+const INTENT_RULES: [string, RegExp][] = [
+  ['radera_verifikation', rxi(`(radera|raderar|ta bort|tar bort|makulera|makulerar)${RB}[^?.!]*(verifikation|faktura|bokföring)|delete${RB}`)],
+  ['skapa_verifikation', rxi(`(skapa|skapar|registrera|registrerar|lägg upp|lägga upp|ny|nya)${RB}[^?.!]*verifikation|create${RB}[^?.!]*journal`)],
+  ['andra_verifikation', rxi(`(ändra|ändrar|redigera|redigerar|justera|justerar|uppdatera|korrigera)${RB}[^?.!]*verifikation`)],
+  ['andra_faktura', rxi(`(ändra|ändrar|redigera|redigerar|justera|justerar|korrigera)${RB}[^?.!]*faktura`)],
+  ['godkann_faktura', rxi(`(godkänn|godkänna|godkänner|attestera|attesterar)${RB}[^?.!]*faktura|approve${RB}`)],
+  ['las_upp_period', rxi(`lås\\s*upp${RB}|låsa upp|öppna[^?.!]*låst[^?.!]*period|unlock${RB}`)],
+  ['lamna_in', rxi(`(lämna in|lämnar in|skicka in|skickar in|deklarera|deklarerar)[^?.!]*(moms|momsrapport|deklaration|årsredovisning|skatt)|submit${RB}`)],
+  ['skicka_myndighet', rxi(`skicka${RB}[^?.!]*(skatteverket|bolagsverket|myndighet)`)],
+  ['betala', rxi(`(betala|betalar|betalning)${RB}[^?.!]*faktura|betala fakturan?${RB}|pay${RB}[^?.!]*invoice`)],
+  ['bokfor', rxi(`(bokför|bokföra|bokförs|boka|bokar)${RB}|kontera${RB}[^?.!]*(automatiskt|åt|detta|den)|post${RB}[^?.!]*(this|the|it|detta)`)],
+]
+function detectForbiddenIntent(question: string) {
+  const q = String(question || '').toLowerCase().trim()
+  if (!q) return { blocked: false, category: null as string | null }
+  if (INTENT_EXPLAIN.test(q)) return { blocked: false, category: null as string | null }
+  for (const [category, re] of INTENT_RULES) if (re.test(q)) return { blocked: true, category }
+  return { blocked: false, category: null as string | null }
+}
+const BLOCKED_INTENT_MESSAGE = 'ROBO-bp kan inte utföra detta automatiskt. Jag kan hjälpa dig att granska underlaget eller skapa en kontrollpunkt.'
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   try {
@@ -126,6 +151,21 @@ Deno.serve(async (req) => {
     const view = VIEWS.includes(descriptor?.view) ? descriptor.view : 'oversikt'
     const selection = (descriptor?.selection && OBJ.includes(descriptor.selection.type) && descriptor.selection.id != null)
       ? { type: descriptor.selection.type, id: String(descriptor.selection.id) } : null
+
+    // 2J. Safe-intent guard FÖRE kontext/AI. Förbjuden intent → INGET AI-anrop, INGEN kontexthämtning.
+    const intent = detectForbiddenIntent(question)
+    if (intent.blocked) {
+      const blockedResponse = { answer: BLOCKED_INTENT_MESSAGE, confidence: 0, risk_level: 'low', basis: ['rule_source'], sources: [], findings: [], proposed_actions: [], limitations: ['ROBO-bp utför inte bokföring, ändringar, godkännanden, betalningar eller inlämningar. Tillåtna åtgärder: förklara regel, öppna objekt, skapa kontrollpunkt.'] }
+      let bConv = isStr(conversation_id) ? conversation_id : null
+      if (!bConv) { const { data: c } = await admin.from('robo_bp_conversations').insert({ company_id, fiscal_year_id: descriptor?.fiscalYearId || null, user_id: user.id, title: question.slice(0, 80), context_view: view }).select('id').single(); bConv = c?.id || null }
+      if (bConv) {
+        await admin.from('robo_bp_messages').insert({ conversation_id: bConv, company_id, user_id: user.id, role: 'user', content: question })
+        await admin.from('robo_bp_messages').insert({ conversation_id: bConv, company_id, role: 'assistant', content: blockedResponse.answer, structured: blockedResponse, basis: blockedResponse.basis, risk_level: 'low' })
+      }
+      // Audit: ENDAST metadata (kategori/view/hasSelection) – ingen rå frågetext.
+      await admin.from('robo_bp_audit_log').insert({ company_id, user_id: user.id, action: 'intent_blocked', detail: { category: intent.category, view, hasSelection: !!selection } })
+      return json({ ok: true, conversation_id: bConv, response: blockedResponse, observations: [], meta: { view, contextCounts: {}, observationCounts: { total: 0, codes: [] } }, blocked: true, blockedCategory: intent.category, validation: { ok: true, errors: [] } })
+    }
 
     // 3. Steg 2A: STRIKT BEGRÄNSAD kontext serverside via SECURITY DEFINER-RPC (medlemskap +
     //    minimal projektion + hårda LIMITs). Klienten skickar aldrig rådata. Inga bilagor/OCR/rader.

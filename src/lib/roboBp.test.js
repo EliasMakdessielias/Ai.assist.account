@@ -8,6 +8,7 @@ import {
   CHECK_STATUSES, CHECK_STATUS_META, checkActions, sortChecks,
   summarizeBasis, BASIS_LABEL, SAFETY_PHRASES,
   computeConfidence, CONFIDENCE_META, DECISION_LEVEL_META,
+  detectForbiddenIntent, FORBIDDEN_INTENT_CATEGORIES, BLOCKED_INTENT_MESSAGE,
 } from './roboBp'
 
 const full = {
@@ -214,6 +215,39 @@ describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
   it('default risk medium vid ogiltig nivå; null för icke-uppföljbart', () => {
     expect(buildCheckPayload({ title: 'X', risk_level: 'fejk' }, ctx).p_risk_level).toBe('medium')
     expect(buildCheckPayload({}, ctx)).toBeNull()
+  })
+})
+
+describe('roboBp – Steg 2J: safe-intent guard', () => {
+  const blocked = (q) => detectForbiddenIntent(q).blocked
+  it('blockerar förbjudna åtgärdsbegäran (sv)', () => {
+    expect(detectForbiddenIntent('Bokför detta kvitto')).toMatchObject({ blocked: true, category: 'bokfor' })
+    expect(detectForbiddenIntent('Skapa en verifikation åt mig')).toMatchObject({ blocked: true, category: 'skapa_verifikation' })
+    expect(detectForbiddenIntent('Radera den här verifikationen')).toMatchObject({ blocked: true, category: 'radera_verifikation' })
+    expect(detectForbiddenIntent('Godkänn fakturan')).toMatchObject({ blocked: true, category: 'godkann_faktura' })
+    expect(detectForbiddenIntent('Lämna in momsrapporten')).toMatchObject({ blocked: true, category: 'lamna_in' })
+    expect(detectForbiddenIntent('Betala fakturan')).toMatchObject({ blocked: true, category: 'betala' })
+    expect(blocked('Lås upp perioden')).toBe(true)
+    expect(blocked('Ändra den här fakturan')).toBe(true)
+    expect(blocked('Skicka rapporten till Skatteverket')).toBe(true)
+  })
+  it('blockerar enklare engelska', () => {
+    expect(blocked('post this invoice')).toBe(true)
+    expect(blocked('please delete this')).toBe(true)
+    expect(blocked('approve the invoice')).toBe(true)
+    expect(blocked('submit the VAT report')).toBe(true)
+    expect(blocked('pay the invoice')).toBe(true)
+  })
+  it('blockerar INTE säkra frågor', () => {
+    expect(blocked('Vad bör jag kontrollera?')).toBe(false)
+    expect(blocked('Vilka risker eller avvikelser ser du i bokföringen just nu?')).toBe(false)  // "bokföringen" ≠ "bokför"
+    expect(blocked('Hur bokför jag ett kvitto?')).toBe(false)                                    // förklarande fråga tillåts
+    expect(blocked('Förklara momsreglerna')).toBe(false)
+    expect(blocked('')).toBe(false)
+  })
+  it('alla kategorier är kända + säkert meddelande finns', () => {
+    expect(FORBIDDEN_INTENT_CATEGORIES).toContain('bokfor')
+    expect(BLOCKED_INTENT_MESSAGE).toMatch(/kan inte utföra detta automatiskt/)
   })
 })
 
