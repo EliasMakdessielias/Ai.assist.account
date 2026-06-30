@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { useRoboBp } from '../context/RoboBpContext'
-import { contextLabel, RISK_META, BASIS_META } from '../lib/roboBp'
+import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload } from '../lib/roboBp'
 
 const OBJECT_ROUTE = { verification: '/bokforing', invoice: '/leverantorsfakturor', document: '/inkorg' }
 
@@ -15,7 +15,7 @@ function RiskBadge({ level }) {
   return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: m.color }}>{m.label}</span>
 }
 
-function AnswerCard({ data, companyId, onOpenObject }) {
+function AnswerCard({ data, companyId, onOpenObject, onCreateCheck, checkState }) {
   if (!data) return null
   return (
     <div className="bg-white rounded-xl p-3 text-[13px]" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
@@ -40,7 +40,18 @@ function AnswerCard({ data, companyId, onOpenObject }) {
             </div>
           )}
           {f.recommended_action && <div className="text-[12px] text-gray-700 mt-1"><b>Åtgärd:</b> {f.recommended_action}</div>}
-          <div className="text-[10px] text-amber-600 mt-1"><i className="ti ti-user-check" /> Kräver mänsklig granskning</div>
+          <div className="flex items-center justify-between mt-1">
+            <div className="text-[10px] text-amber-600"><i className="ti ti-user-check" /> Kräver mänsklig granskning</div>
+            {canFollowUp(f) && onCreateCheck && (() => {
+              const st = checkState?.[f.title]
+              return (
+                <button disabled={st === 'busy' || st === 'done'} onClick={() => onCreateCheck(f)}
+                  className="text-[11px] px-2 py-1 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60">
+                  {st === 'done' ? <><i className="ti ti-check" /> Kontrollpunkt skapad</> : st === 'busy' ? <><i className="ti ti-loader animate-spin" /> Skapar…</> : <><i className="ti ti-flag-plus" /> Skapa kontrollpunkt</>}
+                </button>
+              )
+            })()}
+          </div>
         </div>
       ))}
       {Array.isArray(data.sources) && data.sources.length > 0 && (
@@ -76,9 +87,10 @@ export default function RoboBpPanel() {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [checkState, setCheckState] = useState({})   // per finding-titel: 'busy' | 'done' (dubbelklicksskydd)
   const scrollRef = useRef(null)
 
-  useEffect(() => { setMessages([]); setConvId(null); setError(null) }, [company?.id])
+  useEffect(() => { setMessages([]); setConvId(null); setError(null); setCheckState({}) }, [company?.id])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [messages, busy])
 
   async function send() {
@@ -110,6 +122,24 @@ export default function RoboBpPanel() {
     }
     try { await supabase.rpc('log_robo_bp_event', { p_company: company.id, p_action: 'suggestion_accepted', p_detail: { action_type: a.type, label: a.label } }) } catch { /* ignore */ }
     toast.success('Förslaget loggat – ingen bokföring har ändrats.')
+  }
+
+  // Skapa kontrollpunkt från en finding (explicit klick). Skapar ALDRIG bokföring. Dubbelklicksskydd via checkState.
+  async function createCheck(item) {
+    const key = item?.title || item?.text
+    if (!key || checkState[key] === 'busy' || checkState[key] === 'done') return
+    const payload = buildCheckPayload(item, { companyId: company?.id, view: descriptor?.view, fiscalYearId: null, conversationId: convId })
+    if (!payload) return
+    setCheckState(s => ({ ...s, [key]: 'busy' }))
+    try {
+      const { error: err } = await supabase.rpc('robo_bp_create_check', payload)
+      if (err) throw new Error(err.message || 'fel')
+      setCheckState(s => ({ ...s, [key]: 'done' }))
+      toast.success('Kontrollpunkt skapad – ingen bokföring har ändrats.')
+    } catch (e) {
+      setCheckState(s => { const n = { ...s }; delete n[key]; return n })
+      toast.error(/forbidden|42501|behörig/i.test(e?.message || '') ? 'Du saknar behörighet att skapa kontrollpunkt.' : (e?.message || 'Kunde inte skapa kontrollpunkt'))
+    }
   }
 
   if (!isOpen) return null
@@ -149,7 +179,7 @@ export default function RoboBpPanel() {
               {messages.map((m, i) => m.role === 'user'
                 ? <div key={i} className="text-[13px] bg-blue-600 text-white rounded-xl px-3 py-2 ml-8">{m.content}</div>
                 : m.errored ? <div key={i} className="text-[13px] text-red-600 bg-red-50 rounded-xl px-3 py-2">Kunde inte svara just nu.</div>
-                : <AnswerCard key={i} data={m.structured} companyId={company?.id} onOpenObject={onAction} />)}
+                : <AnswerCard key={i} data={m.structured} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
               {busy && <div className="text-[13px] text-gray-400 flex items-center gap-1.5"><i className="ti ti-loader animate-spin" /> ROBO-bp analyserar…</div>}
               {error && <div className="text-[12px] text-red-500">{error}</div>}
             </div>

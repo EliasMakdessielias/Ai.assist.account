@@ -76,6 +76,47 @@ test('§3 öppnas kontextuellt från Bokföring / Leverantörsfakturor / Månads
   }
 })
 
+test('§5 skapa kontrollpunkt (create_check) från en finding – explicit klick, ingen bokföring', async ({ page }, testInfo) => {
+  const box = captureResponse(page)
+  await openFromSidebar(page)
+  await ask(page)                                                  // "Vilka risker eller avvikelser ser du ...?"
+  await expect.poll(() => box.resp?.ok, { timeout: 45000 }).toBe(true)
+  const hasFinding = ((box.resp.response.findings) || []).length > 0
+  const panel = page.locator('aside[aria-label="ROBO-bp"]')
+  // Knappen visas ENDAST när svaret innehåller en finding att följa upp (point 7/11).
+  if (!hasFinding) {
+    await expect(panel.getByRole('button', { name: /Skapa kontrollpunkt/ })).toHaveCount(0)
+    testInfo.annotations.push({ type: 'create_check', description: 'AI gav ingen finding för det transaktionslösa testbolaget → ingen knapp (korrekt). create_check är server-verifierad (RPC dedup/audit/403).' })
+    test.skip(true, 'Ingen finding i svaret att skapa kontrollpunkt från (tomt testbolag).')
+    return
+  }
+  const btn = panel.getByRole('button', { name: /Skapa kontrollpunkt/ }).first()
+  await expect(btn).toBeVisible({ timeout: 15000 })
+  await btn.click()
+  await expect(panel.getByRole('button', { name: /Kontrollpunkt skapad/ }).first()).toBeVisible({ timeout: 15000 })  // bekräftelse + dubbelklicksskydd
+})
+
+// §6: deterministiskt browser-flöde för create_check. Mockar ENDAST AI-svaret (så en finding renderas);
+// själva robo_bp_create_check-RPC:t + DB-skrivningen är RIKTIGA (skapar en verklig, reversibel kontrollpunkt).
+const SMOKE_CHECK_TITLE = 'SMOKE-2C kontrollpunkt (reversibel)'
+test('§6 create_check browser-flöde (mockat svar med finding) → RIKTIG kontrollpunkt skapas, ingen bokföring', async ({ context, page }) => {
+  await context.route(ROBO_GLOB, route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ok: true, conversation_id: null, validation: { ok: true, errors: [] },
+      response: { answer: 'Testsvar.', confidence: 0.5, risk_level: 'medium', basis: ['company_data'], sources: [],
+        findings: [{ title: SMOKE_CHECK_TITLE, description: 'Granska kontoplanen.', risk_level: 'medium', recommended_action: 'Granska.', affected_objects: [], requires_human_review: true }],
+        proposed_actions: [], limitations: [] } }),
+  }))
+  await openFromSidebar(page)
+  await ask(page, 'test')
+  const panel = page.locator('aside[aria-label="ROBO-bp"]')
+  const btn = panel.getByRole('button', { name: /Skapa kontrollpunkt/ }).first()
+  await expect(btn).toBeVisible({ timeout: 10000 })
+  await btn.click()
+  await expect(panel.getByRole('button', { name: /Kontrollpunkt skapad/ }).first()).toBeVisible({ timeout: 15000 })
+  await context.unroute(ROBO_GLOB)
+})
+
 // Cross-company-403 verifieras SERVER-SIDE (edge:ns membership-grind + has_ai_feature returnerar false
 // för bolag användaren ej är medlem i – båda bekräftade via MCP-simulering). Browserns supabase-klient
 // exponeras inte globalt, så ingen separat klientprobe görs här.

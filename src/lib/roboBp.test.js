@@ -4,6 +4,7 @@ import {
   checkDebetKredit, checkMomsRimlighet, checkFakturaTotal,
   FEATURE_KEY, RISK_LEVELS, STEP2A_ACTIONS,
   computeObservations, observationCounts, OBSERVATION_STATUS_THRESHOLD,
+  canFollowUp, buildCheckPayload,
 } from './roboBp'
 
 const full = {
@@ -164,6 +165,40 @@ describe('roboBp – Steg 2B: deterministiska observationer', () => {
   it('tom summary → inga observationer', () => {
     expect(computeObservations({})).toEqual([])
     expect(computeObservations({ hasFiscalYear: true })).toEqual([])
+  })
+})
+
+describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
+  const ctx = { companyId: 'c1', view: 'bokforing', fiscalYearId: 'fy1', conversationId: 'conv1' }
+
+  it('canFollowUp: true för finding (title) och observation (text), false annars', () => {
+    expect(canFollowUp({ title: 'Ovanligt saldo' })).toBe(true)
+    expect(canFollowUp({ text: '2 verifikationer saknar beskrivning.' })).toBe(true)
+    expect(canFollowUp({ title: '  ' })).toBe(false)
+    expect(canFollowUp({})).toBe(false)
+    expect(canFollowUp(null)).toBe(false)
+  })
+
+  it('buildCheckPayload mappar finding → RPC-parametrar', () => {
+    const finding = { title: 'Fel momskonto', description: 'Konto 2611 ovanligt', risk_level: 'high', affected_objects: [{ type: 'account', id: '2611' }] }
+    expect(buildCheckPayload(finding, ctx)).toEqual({
+      p_company: 'c1', p_view: 'bokforing', p_fiscal_year_id: 'fy1',
+      p_title: 'Fel momskonto', p_description: 'Konto 2611 ovanligt', p_risk_level: 'high',
+      p_affected_objects: [{ type: 'account', id: '2611' }], p_conversation_id: 'conv1',
+    })
+  })
+
+  it('buildCheckPayload mappar observation (severity → risk, text → titel/beskrivning)', () => {
+    const obs = { code: 'unbalanced_ver', severity: 'high', text: '1 verifikation verkar obalanserad.', count: 1 }
+    const p = buildCheckPayload(obs, ctx)
+    expect(p.p_title).toBe('1 verifikation verkar obalanserad.')
+    expect(p.p_risk_level).toBe('high')
+    expect(p.p_affected_objects).toEqual([])
+  })
+
+  it('default risk medium vid ogiltig nivå; null för icke-uppföljbart', () => {
+    expect(buildCheckPayload({ title: 'X', risk_level: 'fejk' }, ctx).p_risk_level).toBe('medium')
+    expect(buildCheckPayload({}, ctx)).toBeNull()
   })
 })
 
