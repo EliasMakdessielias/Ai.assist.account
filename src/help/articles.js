@@ -581,6 +581,42 @@ export const HELP_ARTICLES = [
     ],
     example: 'Inför bokslut 2026: kör analys, åtgärda en kritisk "Bokföringen balanserar inte" och några höga risker, markera resten granskade, sätt "Klar för konsult" och slutligen "Godkänd". Allt loggas i spårbarheten.' }),
 
+  // ─────────────────────────── ROBO-bp ───────────────────────────
+  a({ id: 'help-robo-bp', slug: 'robo-bp', title: 'ROBO-bp – AI-granskningsstöd', category: 'ROBO-bp',
+    keywords: ['robo-bp', 'robo bp', 'ai-bokföring', 'granskningsstöd', 'kontrollpunkt', 'confidence', 'beslutsnivå', 'underlag för svaret', 'basis', 'observation', 'finding', 'ai-paket', 'risker', 'avvikelser'],
+    related: ['ai-bokslut-arsredovisning', 'manadskontroll', 'ai-granskning-oversikt'],
+    summary: 'Vad ROBO-bp är, vad det aldrig gör, och hur du tolkar underlag, confidence, beslutsnivå och kontrollpunkter. ROBO-bp är ett granskningsstöd – du granskar och beslutar alltid själv.',
+    purpose: 'ROBO-bp är BokPilots AI-granskningsstöd. Det hjälper dig analysera bokföringen, hitta risker och avvikelser, förklara regler och skapa uppföljningsbara kontrollpunkter. ROBO-bp är ett granskningsstöd, inte en redovisningskonsult. ROBO-bp bokför inte automatiskt, ändrar inte bokföringsdata och ändrar inte fakturor eller verifikationer. Varje svar kräver mänsklig granskning innan du agerar – du har alltid det slutliga ansvaret. ROBO-bp använder ditt företags egen data (konton, verifikationer, fakturor, saldon) via en behörighetskontrollerad och bolagsisolerad tjänst; det skickar aldrig din rådata vidare och lämnar aldrig in deklarationer eller rapporter.',
+    when: 'När du vill förstå risker i bokföringen, få en andra blick inför bokslut eller följa upp kontroller – utan att något ändras i din bokföring. Funktionen är licensstyrd (ingår i AI-paketet).',
+    steps: [
+      'Öppna ROBO-bp via "AI-paket" i sidomenyn, eller via "Fråga ROBO-bp" på en sida (t.ex. Bokföring).',
+      'Exempel – fråga om risker: skriv "Vilka risker eller avvikelser ser du i bokföringen just nu?" och skicka.',
+      'Läs svaret och chipsen för risknivå, beslutsnivå och confidence. Öppna "Så här kom ROBO-bp fram till detta" för att se underlaget (datakällor, systemkontroller, ev. källor).',
+      'Exempel – skapa kontrollpunkt från en observation: under "Kontroller från systemet", klicka "Skapa kontrollpunkt" på en systemkontroll. Inget bokförs.',
+      'Exempel – markera påbörjad: i panelen eller på sidan "ROBO-bp kontrollpunkter", klicka "Påbörja" på kontrollpunkten (status blir Påbörjad/in_progress).',
+      'Exempel – markera klar: klicka "Klar" när åtgärden är gjord (status blir Klar/done). Du kan även "Avfärda" (dismissed) en punkt som inte är relevant.',
+      'Exempel – tolka "AI-bedömning utan extern regelkälla": behandla svaret som en hypotes som måste granskas extra noga; det saknar stöd i en extern regel.',
+    ],
+    fields: [
+      ['Underlag för svaret', 'Expanderbar sektion ("Så här kom ROBO-bp fram till detta") som visar vilka data och kontroller svaret bygger på: antal poster (konton, verifikationer, fakturor), systemkontroller (koder/antal) och ev. källor. Visar aldrig din rådata, frågetext eller rå AI-text.'],
+      ['Basis', 'Vad svaret grundas på: Systemdata (BokPilot) = ditt företags egen data, Regelkälla = extern regel (t.ex. BFN, Skatteverket, BAS), AI-bedömning = AI:ns egen slutsats.'],
+      ['Confidence label', 'Systemberäknad styrka på grunden: Mycket stark grund, Stark grund, Medel eller Svag. Beräknas av SYSTEMET utifrån basis, källor och systemkontroller – inte av AI:n ensam. Gäller i nuläget hela svaret, inte varje enskild finding.'],
+      ['AI-säkerhet %', 'AI-modellens egen självskattning (0–100 %). Det är INTE ett beslut och inte samma sak som confidence-label. En hög procent betyder inte att svaret är rätt – använd den bara som en svag indikation och granska alltid själv.'],
+      ['decision_basis', 'Hur en kontrollpunkt uppstod: system_observation = från en deterministisk systemkontroll, ai_finding = från en AI-finding. Sparas på kontrollpunkten för spårbarhet.'],
+      ['ROBO-bp-kontrollpunkt', 'En uppföljningsbar anteckning du skapar från en finding eller observation, kopplad till bolaget och vyn. Den är read-only mot bokföringen – den ändrar aldrig verifikationer, fakturor eller bokföring.'],
+      ['Statusflöde', 'open (öppen) → in_progress (påbörjad) → done (klar). Du kan även dismissed (avfärda) en öppen eller påbörjad punkt. Statusbyten loggas som metadata men rör ingen bokföring.'],
+      ['Systemkontroll', 'Deterministisk kontroll som systemet räknar fram direkt ur dina data (t.ex. "verifikation verkar obalanserad"). Starkast grund – ingen AI-gissning.'],
+      ['Databaserad analys', 'Svar som är grundat i ditt företags data men där AI:n tolkar och prioriterar.'],
+      ['AI-bedömning', 'Svar som främst bygger på AI:ns slutsats utan stark dataförankring eller extern källa – kräver extra granskning.'],
+    ],
+    errors: [
+      ['"AI-bedömning utan extern regelkälla"', 'Svaret bygger på AI:ns slutsats utan stöd i en extern regel. Behandla det som en hypotes – det kräver mänsklig granskning innan åtgärd.'],
+      ['Svaret känns osäkert (Svag grund / Kräver manuell granskning)', 'ROBO-bp kan ha fel om data saknas, är ofullständig eller om AI-bedömningen är svag. Komplettera underlaget, kontrollera källan och granska själv.'],
+      ['ROBO-bp föreslår ingen kontering', 'Det är avsiktligt. ROBO-bp skapar inte bokföringsposter, bokför inte automatiskt och lämnar inte in deklarationer eller rapporter – det ersätter inte en redovisningskonsult.'],
+      ['"ingår inte i din plan"', 'ROBO-bp är licensstyrt (AI-paketet). Kontakta BokPilot för att aktivera funktionen.'],
+    ],
+    example: 'Du frågar om risker. ROBO-bp visar en systemkontroll "1 verifikation verkar obalanserad" med beslutsnivå Systemkontroll och Mycket stark grund. Du klickar "Skapa kontrollpunkt" (decision_basis = system_observation), markerar den Påbörja, rättar verifikationen själv i Bokföring och markerar sedan kontrollpunkten Klar. Ingen bokföring ändrades av ROBO-bp.' }),
+
   // ─────────────────────────── Rapporter ───────────────────────────
   a({ id: 'help-report-result', slug: 'rapport-resultat', title: 'Resultatrapport', category: 'Rapporter',
     keywords: ['resultat', 'rapport', 'intäkter', 'kostnader', 'p&l'], related: ['rapport-balans', 'rapport-huvudbok', 'exportera-rapporter'],

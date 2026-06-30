@@ -64,6 +64,16 @@ test('§2 med sources → källor visas, ingen "utan källa"-varning, inga konte
   await expect(panel.getByRole('button', { name: /Bokför|kontera|suggest/i })).toHaveCount(0)  // inga konteringsförslag
 })
 
+test('§4 hjälplänk i panelen går till handboksartikeln /help/robo-bp', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByText('företag · byt').first()).toBeVisible({ timeout: 30000 })
+  await page.getByRole('button', { name: /AI-paket/ }).click()
+  await page.getByRole('button', { name: /ROBO-bp/ }).click()
+  await page.locator('aside[aria-label="ROBO-bp"]').getByRole('button', { name: 'Hjälp om ROBO-bp' }).click()
+  await expect(page).toHaveURL(/\/help\/robo-bp/)
+  await expect(page.getByRole('heading', { name: /ROBO-bp – AI-granskningsstöd/ })).toBeVisible({ timeout: 10000 })
+})
+
 test('§3 ai_inference utan källa/observation → chips "Svag" + "Kräver manuell granskning"', async ({ context, page }) => {
   await mock(context, {
     ok: true, conversation_id: null, validation: { ok: true, errors: [] }, observations: [],

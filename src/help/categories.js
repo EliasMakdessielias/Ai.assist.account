@@ -14,6 +14,7 @@ export const HELP_CATEGORIES = [
   { key: 'Moms', icon: 'ti-receipt-tax', requiredRole: 'user' },
   { key: 'Månadskontroll', icon: 'ti-checklist', requiredRole: 'user' },
   { key: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', requiredRole: 'user' },
+  { key: 'ROBO-bp', icon: 'ti-robot', requiredRole: 'user' },
   { key: 'Rapporter', icon: 'ti-chart-bar', requiredRole: 'user' },
   { key: 'AI-granskning', icon: 'ti-shield-check', requiredRole: 'user' },
   { key: 'Kunder', icon: 'ti-users', requiredRole: 'user' },

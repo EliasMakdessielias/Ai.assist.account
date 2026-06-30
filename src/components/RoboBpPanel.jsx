@@ -294,7 +294,8 @@ export default function RoboBpPanel() {
             <div className="text-sm font-semibold leading-tight">ROBO-bp</div>
             <div className="text-[11px] text-gray-400 leading-tight truncate">{contextLabel(descriptor)}</div>
           </div>
-          <button onClick={close} className="ml-auto text-gray-400 hover:text-gray-700 p-1" aria-label="Stäng"><i className="ti ti-x text-lg" /></button>
+          <button onClick={() => { close(); navigate('/help/robo-bp') }} className="ml-auto text-gray-400 hover:text-violet-600 p-1" aria-label="Hjälp om ROBO-bp" title="Hjälp om ROBO-bp"><i className="ti ti-help-circle text-lg" /></button>
+          <button onClick={close} className="text-gray-400 hover:text-gray-700 p-1" aria-label="Stäng"><i className="ti ti-x text-lg" /></button>
         </div>
 
         <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-100 shrink-0">

@@ -76,3 +76,29 @@ describe('handbok – sök & behörighet', () => {
     }
   })
 })
+
+describe('handbok – ROBO-bp-artikel (Steg 2I)', () => {
+  const art = ARTICLE_BY_SLUG['robo-bp']
+  const fullText = [art?.summary, art?.purpose, art?.when, art?.example,
+    ...(art?.steps || []), ...(art?.fields || []).flat(), ...(art?.errors || []).flat()].join(' ').toLowerCase()
+
+  it('artikeln finns och slug fungerar', () => {
+    expect(art).toBeTruthy()
+    expect(art.slug).toBe('robo-bp')
+    expect(art.category).toBe('ROBO-bp')
+  })
+  it('innehåller viktiga säkerhetsfraser', () => {
+    expect(fullText).toContain('bokför inte automatiskt')
+    expect(fullText).toContain('ändrar inte bokföringsdata')
+    expect(fullText).toContain('kräver mänsklig granskning')
+  })
+  it('dokumenterar nyckelbegreppen', () => {
+    for (const term of ['underlag för svaret', 'confidence', 'ai-säkerhet', 'decision_basis', 'kontrollpunkt', 'systemkontroll', 'in_progress']) {
+      expect(fullText).toContain(term)
+    }
+  })
+  it('hittas via sök', () => {
+    expect(searchArticles('robo-bp', USER).some(a => a.slug === 'robo-bp')).toBe(true)
+    expect(searchArticles('kontrollpunkt confidence', USER).some(a => a.slug === 'robo-bp')).toBe(true)
+  })
+})
