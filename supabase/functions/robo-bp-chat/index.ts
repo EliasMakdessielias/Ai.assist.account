@@ -183,7 +183,8 @@ FRÅGA: ${question}`
     // Audit minimerad: ingen frågetext, ingen rådata – bara metadata.
     await admin.from('robo_bp_audit_log').insert({ company_id, user_id: user.id, action: 'ai_query', detail: { view, hasSelection: !!selection, contextCounts, observationCounts: { total: observations.length, codes: observations.map((o: any) => o.code) }, risk: validated.risk_level, valid: vres.ok, errors: vres.errors.slice(0, 8) } })
 
-    return json({ ok: true, conversation_id: convId, response: validated, validation: { ok: vres.ok, errors: vres.errors } })
+    // observations = deterministiska systemkontroller (server-beräknade, separat SÄKERT fält – ej AI-genererat).
+    return json({ ok: true, conversation_id: convId, response: validated, observations, validation: { ok: vres.ok, errors: vres.errors } })
   } catch (err) {
     return json({ error: String((err as Error)?.message || err) }, 400)
   }

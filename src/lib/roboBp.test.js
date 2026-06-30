@@ -188,11 +188,22 @@ describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
     })
   })
 
-  it('buildCheckPayload mappar observation (severity → risk, text → titel/beskrivning)', () => {
+  it('buildCheckPayload mappar observation: text→titel, severity→risk, härkomst i beskrivning, tom affected_objects', () => {
     const obs = { code: 'unbalanced_ver', severity: 'high', text: '1 verifikation verkar obalanserad.', count: 1 }
     const p = buildCheckPayload(obs, ctx)
     expect(p.p_title).toBe('1 verifikation verkar obalanserad.')
-    expect(p.p_risk_level).toBe('high')
+    expect(p.p_risk_level).toBe('high')                              // severity → risk_level
+    expect(p.p_affected_objects).toEqual([])                         // observation utan objekt → tom
+    expect(p.p_description).toContain('ROBO-bp')                     // tydlig härkomst
+    expect(p.p_description).toContain('unbalanced_ver')
+  })
+
+  it('no_fiscal_year-observation (severity medium, ingen affected_objects) kan följas upp', () => {
+    const obs = { code: 'no_fiscal_year', severity: 'medium', text: 'Inget räkenskapsår valt.', count: 0 }
+    expect(canFollowUp(obs)).toBe(true)
+    const p = buildCheckPayload(obs, { ...ctx, view: 'oversikt' })
+    expect(p.p_risk_level).toBe('medium')
+    expect(p.p_view).toBe('oversikt')
     expect(p.p_affected_objects).toEqual([])
   })
 

@@ -242,12 +242,19 @@ export function buildCheckPayload(item, ctx = {}) {
   const title = String(item.title || item.text).trim().slice(0, 200)
   const risk = RISK_LEVELS.includes(item.risk_level) ? item.risk_level
     : (RISK_LEVELS.includes(item.severity) ? item.severity : 'medium')
+  // Observation (har code, ingen title) → tydlig härkomst i beskrivningen.
+  const isObservation = !!item.code && !item.title
+  const description = item.description
+    ? String(item.description)
+    : isObservation
+      ? `Deterministisk systemkontroll från ROBO-bp (${item.code}). ${item.text || ''}`.trim()
+      : String(item.text || title)
   return {
     p_company: ctx.companyId || null,
     p_view: ctx.view || 'oversikt',
     p_fiscal_year_id: ctx.fiscalYearId || null,
     p_title: title,
-    p_description: String(item.description || item.text || title).trim().slice(0, 2000),
+    p_description: description.trim().slice(0, 2000),
     p_risk_level: risk,
     p_affected_objects: Array.isArray(item.affected_objects) ? item.affected_objects : [],
     p_conversation_id: ctx.conversationId || null,

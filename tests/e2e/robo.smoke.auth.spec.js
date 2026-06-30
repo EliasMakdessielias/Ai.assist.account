@@ -76,23 +76,16 @@ test('§3 öppnas kontextuellt från Bokföring / Leverantörsfakturor / Månads
   }
 })
 
-test('§5 skapa kontrollpunkt (create_check) från en finding – explicit klick, ingen bokföring', async ({ page }, testInfo) => {
+test('§5 skapa kontrollpunkt från en DETERMINISTISK observation (no_fiscal_year) – ingen bokföring', async ({ page }) => {
   const box = captureResponse(page)
   await openFromSidebar(page)
   await ask(page)                                                  // "Vilka risker eller avvikelser ser du ...?"
-  await expect.poll(() => box.resp?.ok, { timeout: 45000 }).toBe(true)
-  const hasFinding = ((box.resp.response.findings) || []).length > 0
+  await expect.poll(() => (box.resp?.observations || []).length > 0, { timeout: 45000 }).toBe(true)  // observations returneras
   const panel = page.locator('aside[aria-label="ROBO-bp"]')
-  // Knappen visas ENDAST när svaret innehåller en finding att följa upp (point 7/11).
-  if (!hasFinding) {
-    await expect(panel.getByRole('button', { name: /Skapa kontrollpunkt/ })).toHaveCount(0)
-    testInfo.annotations.push({ type: 'create_check', description: 'AI gav ingen finding för det transaktionslösa testbolaget → ingen knapp (korrekt). create_check är server-verifierad (RPC dedup/audit/403).' })
-    test.skip(true, 'Ingen finding i svaret att skapa kontrollpunkt från (tomt testbolag).')
-    return
-  }
-  const btn = panel.getByRole('button', { name: /Skapa kontrollpunkt/ }).first()
-  await expect(btn).toBeVisible({ timeout: 15000 })
-  await btn.click()
+  await expect(panel.getByText('Kontroller från systemet')).toBeVisible({ timeout: 10000 })          // egen sektion (point 2)
+  const btn = panel.getByRole('button', { name: /Skapa kontrollpunkt/ }).first()                     // knapp per observation (point 4)
+  await expect(btn).toBeVisible({ timeout: 10000 })
+  await btn.click()                                                                                   // explicit klick → robo_bp_create_check
   await expect(panel.getByRole('button', { name: /Kontrollpunkt skapad/ }).first()).toBeVisible({ timeout: 15000 })  // bekräftelse + dubbelklicksskydd
 })
 

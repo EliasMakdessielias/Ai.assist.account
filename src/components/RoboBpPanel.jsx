@@ -15,8 +15,18 @@ function RiskBadge({ level }) {
   return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: m.color }}>{m.label}</span>
 }
 
-function AnswerCard({ data, companyId, onOpenObject, onCreateCheck, checkState }) {
+function AnswerCard({ data, observations = [], companyId, onOpenObject, onCreateCheck, checkState }) {
   if (!data) return null
+  const FollowUpButton = ({ item }) => {
+    if (!canFollowUp(item) || !onCreateCheck) return null
+    const st = checkState?.[item.title || item.text]
+    return (
+      <button disabled={st === 'busy' || st === 'done'} onClick={() => onCreateCheck(item)}
+        className="text-[11px] px-2 py-1 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60">
+        {st === 'done' ? <><i className="ti ti-check" /> Kontrollpunkt skapad</> : st === 'busy' ? <><i className="ti ti-loader animate-spin" /> Skapar…</> : <><i className="ti ti-flag-plus" /> Skapa kontrollpunkt</>}
+      </button>
+    )
+  }
   return (
     <div className="bg-white rounded-xl p-3 text-[13px]" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
       <div className="flex items-start gap-2 mb-1.5">
@@ -42,15 +52,7 @@ function AnswerCard({ data, companyId, onOpenObject, onCreateCheck, checkState }
           {f.recommended_action && <div className="text-[12px] text-gray-700 mt-1"><b>Åtgärd:</b> {f.recommended_action}</div>}
           <div className="flex items-center justify-between mt-1">
             <div className="text-[10px] text-amber-600"><i className="ti ti-user-check" /> Kräver mänsklig granskning</div>
-            {canFollowUp(f) && onCreateCheck && (() => {
-              const st = checkState?.[f.title]
-              return (
-                <button disabled={st === 'busy' || st === 'done'} onClick={() => onCreateCheck(f)}
-                  className="text-[11px] px-2 py-1 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60">
-                  {st === 'done' ? <><i className="ti ti-check" /> Kontrollpunkt skapad</> : st === 'busy' ? <><i className="ti ti-loader animate-spin" /> Skapar…</> : <><i className="ti ti-flag-plus" /> Skapa kontrollpunkt</>}
-                </button>
-              )
-            })()}
+            <FollowUpButton item={f} />
           </div>
         </div>
       ))}
@@ -73,6 +75,24 @@ function AnswerCard({ data, companyId, onOpenObject, onCreateCheck, checkState }
       )}
       {Array.isArray(data.limitations) && data.limitations.length > 0 && (
         <div className="mt-2 text-[11px] text-gray-400">{data.limitations.map((l, i) => <div key={i}>• {l}</div>)}</div>
+      )}
+      {Array.isArray(observations) && observations.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-100">
+          <div className="text-[11px] font-medium text-gray-500 mb-1"><i className="ti ti-checklist" /> Kontroller från systemet</div>
+          {observations.map((o, i) => (
+            <div key={i} className="rounded-lg p-2 bg-violet-50/50 mt-1">
+              <div className="flex items-center gap-1.5">
+                <RiskBadge level={o.severity} />
+                <span className="text-[12px] text-gray-800 flex-1">{o.text}</span>
+                {typeof o.count === 'number' && o.count > 0 && <span className="text-[10px] text-gray-400">×{o.count}</span>}
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-[10px] text-gray-400">{o.code}</span>
+                <FollowUpButton item={o} />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
@@ -107,7 +127,7 @@ export default function RoboBpPanel() {
       if (err) { let m = err.message; try { const b = await err.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
       if (data?.error) throw new Error(data.error)
       setConvId(data.conversation_id)
-      setMessages(m => [...m, { role: 'assistant', structured: data.response }])
+      setMessages(m => [...m, { role: 'assistant', structured: data.response, observations: Array.isArray(data.observations) ? data.observations : [] }])
     } catch (e) {
       setError(e?.message || 'Något gick fel')
       setMessages(m => [...m, { role: 'assistant', errored: true }])
@@ -179,7 +199,7 @@ export default function RoboBpPanel() {
               {messages.map((m, i) => m.role === 'user'
                 ? <div key={i} className="text-[13px] bg-blue-600 text-white rounded-xl px-3 py-2 ml-8">{m.content}</div>
                 : m.errored ? <div key={i} className="text-[13px] text-red-600 bg-red-50 rounded-xl px-3 py-2">Kunde inte svara just nu.</div>
-                : <AnswerCard key={i} data={m.structured} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
+                : <AnswerCard key={i} data={m.structured} observations={m.observations} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
               {busy && <div className="text-[13px] text-gray-400 flex items-center gap-1.5"><i className="ti ti-loader animate-spin" /> ROBO-bp analyserar…</div>}
               {error && <div className="text-[12px] text-red-500">{error}</div>}
             </div>
