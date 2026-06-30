@@ -7,7 +7,8 @@ en **valfri, experimentell sekundär OCR-provider** via en plug-in/adapter-arkit
 funktionalitet.
 
 > TL;DR: Allt OCR i produktion går fortfarande genom Gemini. Folio är ett opt-in-verktyg
-> som operations-admins kan testa mot enskilda dokument. Sätt inte `ENABLE_FOLIO_OCR=true`
+> som **endast plattforms-superadmin** kan testa mot enskilda dokument (internt diagnostikverktyg –
+> se `docs/admin-security.md`). Sätt inte `ENABLE_FOLIO_OCR=true`
 > i produktion förrän kriterierna längst ner är uppfyllda.
 
 ---
