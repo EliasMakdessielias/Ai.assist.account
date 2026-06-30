@@ -159,7 +159,7 @@ export default function RoboBpPanel() {
                 <textarea value={input} onChange={e => setInput(e.target.value)} rows={2} placeholder="Fråga ROBO-bp…"
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
                   className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none" />
-                <button onClick={send} disabled={busy || !input.trim()} className="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
+                <button onClick={send} disabled={busy || !input.trim()} aria-label="Skicka fråga" className="px-3 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
                   <i className="ti ti-send" />
                 </button>
               </div>
