@@ -32,6 +32,9 @@ test('§1 ai_inference utan källa → systemdata + varning + contextCounts + sy
   })
   await openAndAsk(page)
   const panel = page.locator('aside[aria-label="ROBO-bp"]')
+  // Steg 2H: chips för beslutsnivå + confidence (systemberäknade) – company_data + observation → stark/databaserad.
+  await expect(panel.getByText('Databaserad analys')).toBeVisible({ timeout: 10000 })
+  await expect(panel.getByText('Stark grund')).toBeVisible()
   const toggle = panel.getByRole('button', { name: 'Underlag för svaret' })
   await expect(toggle).toBeVisible({ timeout: 10000 })
   await expect(panel.getByText('Systemdata (BokPilot)')).toHaveCount(0)          // kollapsad → dolt
@@ -59,4 +62,17 @@ test('§2 med sources → källor visas, ingen "utan källa"-varning, inga konte
   await expect(panel.getByText('AI-bedömning utan extern regelkälla')).toHaveCount(0)  // har källa → ingen varning
   await expect(panel.getByText(/Kontrollera alltid innan åtgärd/)).toBeVisible()
   await expect(panel.getByRole('button', { name: /Bokför|kontera|suggest/i })).toHaveCount(0)  // inga konteringsförslag
+})
+
+test('§3 ai_inference utan källa/observation → chips "Svag" + "Kräver manuell granskning"', async ({ context, page }) => {
+  await mock(context, {
+    ok: true, conversation_id: null, validation: { ok: true, errors: [] }, observations: [],
+    meta: { view: 'oversikt', contextCounts: {}, observationCounts: { total: 0, codes: [] } },
+    response: { answer: 'Ren AI-bedömning.', confidence: 0.3, risk_level: 'medium', basis: ['ai_inference'], sources: [], findings: [], proposed_actions: [], limitations: [] },
+  })
+  await openAndAsk(page)
+  const panel = page.locator('aside[aria-label="ROBO-bp"]')
+  await expect(panel.getByText('Svag')).toBeVisible({ timeout: 10000 })
+  await expect(panel.getByText('Kräver manuell granskning')).toBeVisible()
+  await expect(panel.getByText(/AI-säkerhet 30%/)).toBeVisible()                  // AI:s score visas separat
 })

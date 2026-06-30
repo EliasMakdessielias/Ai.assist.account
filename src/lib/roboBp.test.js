@@ -7,6 +7,7 @@ import {
   canFollowUp, buildCheckPayload,
   CHECK_STATUSES, CHECK_STATUS_META, checkActions, sortChecks,
   summarizeBasis, BASIS_LABEL, SAFETY_PHRASES,
+  computeConfidence, CONFIDENCE_META, DECISION_LEVEL_META,
 } from './roboBp'
 
 const full = {
@@ -187,6 +188,7 @@ describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
       p_company: 'c1', p_view: 'bokforing', p_fiscal_year_id: 'fy1',
       p_title: 'Fel momskonto', p_description: 'Konto 2611 ovanligt', p_risk_level: 'high',
       p_affected_objects: [{ type: 'account', id: '2611' }], p_conversation_id: 'conv1',
+      p_decision_basis: 'ai_finding', p_confidence_label: null,
     })
   })
 
@@ -212,6 +214,39 @@ describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
   it('default risk medium vid ogiltig nivå; null för icke-uppföljbart', () => {
     expect(buildCheckPayload({ title: 'X', risk_level: 'fejk' }, ctx).p_risk_level).toBe('medium')
     expect(buildCheckPayload({}, ctx)).toBeNull()
+  })
+})
+
+describe('roboBp – Steg 2H: confidence/beslutsnivå', () => {
+  const conf = (resp, meta) => computeConfidence(summarizeBasis(resp, meta), resp)
+  it('ai_inference utan sources/observations → Svag + Kräver manuell granskning', () => {
+    const c = conf({ basis: ['ai_inference'], sources: [] }, {})
+    expect(c.label).toBe('weak')
+    expect(c.labelText).toBe('Svag')
+    expect(c.decisionLevel).toBe('manual_review')
+    expect(c.requiresManualReview).toBe(true)
+  })
+  it('company_data + observations → starkare än enbart AI', () => {
+    const c = conf({ basis: ['company_data', 'ai_inference'], sources: [] }, { observationCounts: { total: 2, codes: ['x', 'y'] } })
+    expect(['strong', 'strong_plus']).toContain(c.label)
+    expect(CONFIDENCE_META[c.label].order).toBeGreaterThan(CONFIDENCE_META.weak.order)
+  })
+  it('rule_source/sources + company_data → Mycket stark grund', () => {
+    const c = conf({ basis: ['company_data', 'ai_inference'], sources: [{ title: 'BFN', type: 'bfn' }] }, {})
+    expect(c.label).toBe('strong_plus')
+    expect(c.decisionLevel).toBe('data_analysis')
+  })
+  it('AI:s confidence-score exponeras separat (0–1), inte som label', () => {
+    expect(conf({ basis: ['company_data'], confidence: 0.7 }, {}).score).toBe(0.7)
+    expect(conf({ basis: ['company_data'], confidence: 5 }, {}).score).toBe(null)     // utanför 0–1 → ignoreras
+  })
+  it('buildCheckPayload: observation → system_observation, finding → ai_finding, + confidence_label', () => {
+    const obs = buildCheckPayload({ code: 'no_fiscal_year', severity: 'medium', text: 'Inget år.' }, { companyId: 'c', confidenceLabel: 'strong_plus' })
+    expect(obs.p_decision_basis).toBe('system_observation')
+    expect(obs.p_confidence_label).toBe('strong_plus')
+    const find = buildCheckPayload({ title: 'Avvikelse', description: 'x', risk_level: 'high' }, { companyId: 'c' })
+    expect(find.p_decision_basis).toBe('ai_finding')
+    expect(find.p_confidence_label).toBe(null)
   })
 })
 

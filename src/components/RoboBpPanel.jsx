@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { useRoboBp } from '../context/RoboBpContext'
-import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload, CHECK_STATUS_META, checkActions, sortChecks, summarizeBasis, SAFETY_PHRASES } from '../lib/roboBp'
+import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload, CHECK_STATUS_META, checkActions, sortChecks, summarizeBasis, SAFETY_PHRASES, computeConfidence, CONFIDENCE_META, DECISION_LEVEL_META } from '../lib/roboBp'
 
 const OBJECT_ROUTE = { verification: '/bokforing', invoice: '/leverantorsfakturor', document: '/inkorg' }
 
@@ -17,16 +17,19 @@ function RiskBadge({ level }) {
 
 function AnswerCard({ data, observations = [], meta = {}, companyId, onOpenObject, onCreateCheck, checkState }) {
   if (!data) return null
+  // Steg 2H: systemberäknad confidence + beslutsnivå (AI bestämmer aldrig label ensam).
+  const conf = computeConfidence(summarizeBasis(data, meta), data)
   const FollowUpButton = ({ item }) => {
     if (!canFollowUp(item) || !onCreateCheck) return null
     const st = checkState?.[item.title || item.text]
     return (
-      <button disabled={st === 'busy' || st === 'done'} onClick={() => onCreateCheck(item)}
+      <button disabled={st === 'busy' || st === 'done'} onClick={() => onCreateCheck(item, conf.label)}
         className="text-[11px] px-2 py-1 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60">
         {st === 'done' ? <><i className="ti ti-check" /> Kontrollpunkt skapad</> : st === 'busy' ? <><i className="ti ti-loader animate-spin" /> Skapar…</> : <><i className="ti ti-flag-plus" /> Skapa kontrollpunkt</>}
       </button>
     )
   }
+  const Chip = ({ meta: m, prefix }) => <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ color: m.color, background: `${m.color}1a` }}>{prefix}{m.label}</span>
   return (
     <div className="bg-white rounded-xl p-3 text-[13px]" style={{ border: '0.5px solid rgba(0,0,0,0.10)' }}>
       <div className="flex items-start gap-2 mb-1.5">
@@ -34,10 +37,15 @@ function AnswerCard({ data, observations = [], meta = {}, companyId, onOpenObjec
         <div className="flex-1 whitespace-pre-wrap text-gray-800">{data.answer}</div>
         <RiskBadge level={data.risk_level} />
       </div>
+      {/* Beslutsnivå + confidence-chips (systemberäknade). */}
+      <div className="flex flex-wrap items-center gap-1 mb-1.5" aria-label="Beslutsnivå och confidence">
+        <Chip meta={DECISION_LEVEL_META[conf.decisionLevel]} />
+        <Chip meta={CONFIDENCE_META[conf.label]} />
+        {conf.score != null && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">AI-säkerhet {Math.round(conf.score * 100)}%</span>}
+      </div>
       {Array.isArray(data.basis) && data.basis.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-1.5">
           {data.basis.map((b, i) => <span key={i} title={BASIS_META[b]?.desc} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">{BASIS_META[b]?.label || b}</span>)}
-          {typeof data.confidence === 'number' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">säkerhet {Math.round(data.confidence * 100)}%</span>}
         </div>
       )}
       {Array.isArray(data.findings) && data.findings.map((f, i) => (
@@ -257,10 +265,10 @@ export default function RoboBpPanel() {
   }
 
   // Skapa kontrollpunkt från en finding (explicit klick). Skapar ALDRIG bokföring. Dubbelklicksskydd via checkState.
-  async function createCheck(item) {
+  async function createCheck(item, confidenceLabel) {
     const key = item?.title || item?.text
     if (!key || checkState[key] === 'busy' || checkState[key] === 'done') return
-    const payload = buildCheckPayload(item, { companyId: company?.id, view: descriptor?.view, fiscalYearId: null, conversationId: convId })
+    const payload = buildCheckPayload(item, { companyId: company?.id, view: descriptor?.view, fiscalYearId: null, conversationId: convId, confidenceLabel: confidenceLabel || null })
     if (!payload) return
     setCheckState(s => ({ ...s, [key]: 'busy' }))
     try {

@@ -273,6 +273,51 @@ export function summarizeBasis(response = {}, meta = {}) {
   }
 }
 
+// ── Steg 2H: confidence/beslutsnivå. SYSTEMET (inte AI) beräknar slutlig label från basis/sources/observations/risk. ──
+export const CONFIDENCE_META = {
+  strong_plus: { label: 'Mycket stark grund', color: '#16a34a', order: 4 },
+  strong: { label: 'Stark grund', color: '#16a34a', order: 3 },
+  medium: { label: 'Medel', color: '#f97316', order: 2 },
+  weak: { label: 'Svag', color: '#dc2626', order: 1 },
+}
+export const DECISION_LEVEL_META = {
+  system_check: { label: 'Systemkontroll', color: '#2563eb' },
+  data_analysis: { label: 'Databaserad analys', color: '#2563eb' },
+  ai_judgment: { label: 'AI-bedömning', color: '#f97316' },
+  manual_review: { label: 'Kräver manuell granskning', color: '#dc2626' },
+}
+export const DECISION_BASIS = { SYSTEM_OBSERVATION: 'system_observation', AI_FINDING: 'ai_finding' }
+
+// Beräknar confidence-label + beslutsnivå ur summarizeBasis-utdata. AI:s confidence visas separat (score), inte som label.
+export function computeConfidence(summary = {}, response = {}) {
+  const hasCompanyData = !!summary.hasCompanyData
+  const hasRuleSource = !!summary.hasRuleSource
+  const usedSystemCheck = !!summary.usedSystemCheck
+  const hasAiInference = !!summary.hasAiInference
+  const hasSources = Array.isArray(summary.sources) && summary.sources.length > 0
+  const aiWithoutSource = !!summary.aiWithoutSource
+  let label
+  if ((hasRuleSource && hasCompanyData) || (usedSystemCheck && !hasAiInference)) label = 'strong_plus'  // regelkälla+data ELLER ren systemkontroll
+  else if (hasCompanyData && usedSystemCheck) label = 'strong'                                          // data + tydliga observations
+  else if (hasCompanyData && hasAiInference) label = 'medium'                                           // data + AI
+  else if (hasAiInference && !hasSources && !usedSystemCheck) label = 'weak'                            // AI utan källa/observation
+  else if (hasCompanyData) label = 'medium'
+  else label = 'weak'
+  let decisionLevel
+  if (usedSystemCheck && !hasAiInference) decisionLevel = 'system_check'      // ren deterministisk kontroll
+  else if (hasCompanyData) decisionLevel = 'data_analysis'                    // grundad i bolagsdata
+  else if (hasAiInference) decisionLevel = 'ai_judgment'                      // AI utan dataförankring
+  else decisionLevel = 'manual_review'
+  if (label === 'weak') decisionLevel = 'manual_review'                       // svagaste grund → kräver manuell granskning
+  void aiWithoutSource
+  const score = (typeof response?.confidence === 'number' && response.confidence >= 0 && response.confidence <= 1) ? response.confidence : null
+  return {
+    label, labelText: CONFIDENCE_META[label].label,
+    decisionLevel, decisionText: DECISION_LEVEL_META[decisionLevel].label,
+    score, requiresManualReview: decisionLevel === 'manual_review',
+  }
+}
+
 // ── Steg 2E: minimalt statusflöde för ROBO-bp-kontrollpunkter (rör ALDRIG bokföring). ──
 export const CHECK_STATUSES = ['open', 'in_progress', 'done', 'dismissed']
 export const CHECK_STATUS_META = {
@@ -323,5 +368,8 @@ export function buildCheckPayload(item, ctx = {}) {
     p_risk_level: risk,
     p_affected_objects: Array.isArray(item.affected_objects) ? item.affected_objects : [],
     p_conversation_id: ctx.conversationId || null,
+    // Steg 2H: beslutsgrund (observation → system_observation, finding → ai_finding) + ev. systemberäknad confidence.
+    p_decision_basis: isObservation ? 'system_observation' : 'ai_finding',
+    p_confidence_label: ctx.confidenceLabel || null,
   }
 }
