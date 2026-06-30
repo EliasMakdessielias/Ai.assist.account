@@ -103,12 +103,13 @@ function StatusBadge({ status }) {
   return <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ color: m.color, background: `${m.color}1a` }}>{m.label}</span>
 }
 
-// Steg 2E: lista över skapade ROBO-bp-kontrollpunkter med minimalt statusflöde. Rör ALDRIG bokföring.
-function ChecksSection({ checks, statusBusy, onStatus }) {
+// Steg 2E/2F: lista över skapade ROBO-bp-kontrollpunkter med minimalt statusflöde. Rör ALDRIG bokföring.
+function ChecksSection({ checks, statusBusy, onStatus, onShowAll }) {
   return (
     <section aria-label="ROBO-bp kontrollpunkter" className="bg-white rounded-xl p-2.5" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
       <div className="text-[11px] font-medium text-gray-500 mb-1.5 flex items-center gap-1">
         <i className="ti ti-checklist" /> ROBO-bp kontrollpunkter
+        <button onClick={onShowAll} className="ml-auto text-[11px] text-violet-600 hover:text-violet-800 font-medium">Visa alla kontrollpunkter</button>
       </div>
       {checks.length === 0 ? (
         <div className="text-[12px] text-gray-400 py-1">Inga kontrollpunkter än. Skapa en från en finding eller observation nedan.</div>
@@ -261,7 +262,7 @@ export default function RoboBpPanel() {
         ) : (
           <>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
-              <ChecksSection checks={checks} statusBusy={statusBusy} onStatus={setStatus} />
+              <ChecksSection checks={checks} statusBusy={statusBusy} onStatus={setStatus} onShowAll={() => { close(); navigate('/robo-bp/kontroller') }} />
               {messages.length === 0 && !busy && (
                 <div className="text-[13px] text-gray-500 bg-white rounded-xl p-3" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
                   Ställ en fråga om bokföringen – t.ex. <i>”Vilka kostnader ser ovanliga ut?”</i> eller <i>”Vilka konton bör jag kontrollera inför bokslut?”</i>. Svaren bygger på ditt bolags data och anger källa och osäkerhet.

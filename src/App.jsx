@@ -22,6 +22,7 @@ import KassaBank from './pages/KassaBank'
 import Lon from './pages/Lon'
 import Manadskontroll from './pages/Manadskontroll'
 import AiBokslut from './pages/AiBokslut'
+import RoboBpChecks from './pages/RoboBpChecks'
 import Anstallda from './pages/Anstallda'
 import SectionTabsLayout from './components/SectionTabsLayout'
 import { sectionByBasePath } from './lib/sectionTabs'
@@ -130,6 +131,7 @@ export default function App() {
           <Route path="assistent" element={<Assistent />} />
           <Route path="ekonomichef" element={<Ekonomichef />} />
           <Route path="ai-bokslut" element={<AiBokslut />} />
+          <Route path="robo-bp/kontroller" element={<RoboBpChecks />} />
           <Route path="installningar/kontoplan" element={<Kontoplan />} />
           <Route path="installningar/kontoplan/:nr" element={<KontoDetalj />} />
           <Route path="installningar/aterstall" element={<Aterstall />} />
