@@ -3,6 +3,7 @@ import {
   validateRoboBpResponse, assembleContextDescriptor, contextLabel,
   checkDebetKredit, checkMomsRimlighet, checkFakturaTotal,
   FEATURE_KEY, RISK_LEVELS, STEP2A_ACTIONS,
+  computeObservations, observationCounts, OBSERVATION_STATUS_THRESHOLD,
 } from './roboBp'
 
 const full = {
@@ -123,6 +124,46 @@ describe('roboBp – kontext-deskriptor', () => {
   it('contextLabel speglar vy/selection', () => {
     expect(contextLabel({ view: 'manadskontroll', selection: null })).toBe('Analyserar månadskontrollen')
     expect(contextLabel({ view: 'bokforing', selection: { type: 'verification', id: 'V1' } })).toBe('Analyserar verifikation')
+  })
+})
+
+describe('roboBp – Steg 2B: deterministiska observationer', () => {
+  it('skapas deterministiskt ur summary (counts → observationer)', () => {
+    const summary = { hasFiscalYear: true, missingVerDesc: 2, unbalancedVer: 1, supplierNoName: 3, supOverdue: 4, custOverdue: 0, itemsWithoutStatus: 7 }
+    const obs = computeObservations(summary)
+    const codes = obs.map(o => o.code)
+    expect(codes).toEqual(['missing_ver_desc', 'unbalanced_ver', 'supplier_no_name', 'supplier_overdue', 'many_without_status'])
+    expect(obs.find(o => o.code === 'unbalanced_ver').severity).toBe('high')
+    expect(obs.find(o => o.code === 'missing_ver_desc').count).toBe(2)
+    // determinism: samma input → samma output
+    expect(computeObservations(summary)).toEqual(obs)
+  })
+
+  it('flaggar saknat räkenskapsår och tröskel för poster utan status', () => {
+    expect(computeObservations({ hasFiscalYear: false }).map(o => o.code)).toContain('no_fiscal_year')
+    expect(computeObservations({ itemsWithoutStatus: OBSERVATION_STATUS_THRESHOLD - 1 }).map(o => o.code)).not.toContain('many_without_status')
+    expect(computeObservations({ itemsWithoutStatus: OBSERVATION_STATUS_THRESHOLD }).map(o => o.code)).toContain('many_without_status')
+  })
+
+  it('innehåller INGA råa personuppgifter – endast code/severity/text/count', () => {
+    const obs = computeObservations({ missingVerDesc: 1, supplierNoName: 2, supOverdue: 1, custOverdue: 1 })
+    for (const o of obs) {
+      expect(Object.keys(o).sort()).toEqual(['code', 'count', 'severity', 'text'])
+      expect(typeof o.count).toBe('number')
+      // texten är generisk (siffror + svenska ord), aldrig namn/e-post/orgnr
+      expect(o.text).not.toMatch(/@|\b\d{6}-\d{4}\b/)
+    }
+  })
+
+  it('observationCounts ger total + koder (för audit), ingen rådata', () => {
+    const obs = computeObservations({ unbalancedVer: 1, supOverdue: 2 })
+    expect(observationCounts(obs)).toEqual({ total: 2, codes: ['unbalanced_ver', 'supplier_overdue'] })
+    expect(observationCounts([])).toEqual({ total: 0, codes: [] })
+  })
+
+  it('tom summary → inga observationer', () => {
+    expect(computeObservations({})).toEqual([])
+    expect(computeObservations({ hasFiscalYear: true })).toEqual([])
   })
 })
 

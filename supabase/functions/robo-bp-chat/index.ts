@@ -46,6 +46,22 @@ const isStr = (v: unknown): v is string => typeof v === 'string'
 const arr = (v: unknown) => (Array.isArray(v) ? v : [])
 const empty = () => ({ answer: 'Jag kunde inte ta fram ett säkert svar just nu.', confidence: 0, risk_level: 'low', basis: ['ai_inference'], sources: [], findings: [], proposed_actions: [], limitations: ['Inget giltigt AI-svar kunde valideras.'] })
 
+// Steg 2B: deterministiska observationer ur serverhämtad summary (INTE bokföringsförslag). Endast counts + generisk text.
+const OBSERVATION_STATUS_THRESHOLD = 5
+function observationsFrom(s: any) {
+  const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  const o: any[] = []
+  const add = (code: string, severity: string, text: string, count: number) => o.push({ code, severity, text, count: n(count) })
+  if (s?.hasFiscalYear === false) add('no_fiscal_year', 'medium', 'Inget räkenskapsår valt – siffrorna kan avse all historik.', 0)
+  if (n(s?.missingVerDesc) > 0) add('missing_ver_desc', 'low', `${n(s.missingVerDesc)} verifikation(er) saknar beskrivning.`, s.missingVerDesc)
+  if (n(s?.unbalancedVer) > 0) add('unbalanced_ver', 'high', `${n(s.unbalancedVer)} verifikation(er) verkar obalanserade (debet ≠ kredit).`, s.unbalancedVer)
+  if (n(s?.supplierNoName) > 0) add('supplier_no_name', 'low', `${n(s.supplierNoName)} leverantörsfaktura(or) saknar leverantörsnamn.`, s.supplierNoName)
+  if (n(s?.supOverdue) > 0) add('supplier_overdue', 'medium', `${n(s.supOverdue)} förfallen(na) leverantörsfaktura(or).`, s.supOverdue)
+  if (n(s?.custOverdue) > 0) add('customer_overdue', 'medium', `${n(s.custOverdue)} förfallen(na) kundfaktura(or).`, s.custOverdue)
+  if (n(s?.itemsWithoutStatus) >= OBSERVATION_STATUS_THRESHOLD) add('many_without_status', 'low', `Ovanligt många poster (${n(s.itemsWithoutStatus)}) saknar status.`, s.itemsWithoutStatus)
+  return o
+}
+
 // Server-side re-validering + hallucinationsspärr (defense-in-depth; klienten har en testad spegel i src/lib/roboBp.js).
 function validate(raw: any, allowedAccounts: Set<string>, allowedObjects: Record<string, Set<string>>, allowedActions: string[] = ACT) {
   const errors: string[] = []
@@ -114,13 +130,15 @@ Deno.serve(async (req) => {
     // 3. Steg 2A: STRIKT BEGRÄNSAD kontext serverside via SECURITY DEFINER-RPC (medlemskap +
     //    minimal projektion + hårda LIMITs). Klienten skickar aldrig rådata. Inga bilagor/OCR/rader.
     const { data: comp } = await admin.from('companies').select('name, org_nr').eq('id', company_id).maybeSingle()
-    const { data: ctx } = await userClient.rpc('robo_bp_context', { p_company: company_id, p_fiscal_year_id: descriptor?.fiscalYearId || null })
+    const { data: ctx } = await userClient.rpc('robo_bp_context', { p_company: company_id, p_fiscal_year_id: descriptor?.fiscalYearId || null, p_view: view, p_question: question })
     const ctxData: any = ctx || {}
     const contextCounts = ctxData.counts || {}
+    const observations = observationsFrom(ctxData.summary || {})
     const context = {
       company: comp?.name || null, orgNr: comp?.org_nr || null, view, selection,
       accounts: ctxData.accounts || [], balances: ctxData.balances || [], verifications: ctxData.verifications || [],
       supplierInvoices: ctxData.supplierInvoices || [], customerInvoices: ctxData.customerInvoices || [],
+      summary: ctxData.summary || {}, observations,
     }
 
     // Tillåtna referenser för hallucinationsspärren – ENBART det serverhämtade.
@@ -142,7 +160,7 @@ ABSOLUTA REGLER:
 - Ange "basis" ärligt: company_data (systemdata), rule_source (regelkälla), ai_inference (AI-bedömning).
 - Vid regel/skatt/moms/bokslut: hänvisa till källa (bfn/skatteverket/bas) när sådan finns och säg när mänsklig granskning krävs.
 - Sätt requires_human_review=true på alla findings. Var kort och konkret på svenska.
-- Steg 2A: du har en BEGRÄNSAD kontext (kontoplan + saldo per kontoklass + senaste 10 verifikationer/leverantörsfakturor/kundfakturor). Föreslå INTE kontering – tillåtna proposed_actions är endast open_object, explain_rule, create_check. Saknas data för frågan: säg det i "limitations".
+- Steg 2B: du har BEGRÄNSAD kontext (smart vald kontoplan + saldo per kontoklass + summary med antal/öppna/förfallna fakturor + intäkt/kostnad/moms + deterministiska "observations"). Använd summary och observations för att svara och prioritera. Föreslå INTE kontering – tillåtna proposed_actions är endast open_object, explain_rule, create_check. Saknas data: säg det i "limitations".
 KONTEXT (JSON): ${JSON.stringify(context).slice(0, 20000)}
 FRÅGA: ${question}`
 
@@ -163,7 +181,7 @@ FRÅGA: ${question}`
       await admin.from('robo_bp_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId)
     }
     // Audit minimerad: ingen frågetext, ingen rådata – bara metadata.
-    await admin.from('robo_bp_audit_log').insert({ company_id, user_id: user.id, action: 'ai_query', detail: { view, hasSelection: !!selection, contextCounts, risk: validated.risk_level, valid: vres.ok, errors: vres.errors.slice(0, 8) } })
+    await admin.from('robo_bp_audit_log').insert({ company_id, user_id: user.id, action: 'ai_query', detail: { view, hasSelection: !!selection, contextCounts, observationCounts: { total: observations.length, codes: observations.map((o: any) => o.code) }, risk: validated.risk_level, valid: vres.ok, errors: vres.errors.slice(0, 8) } })
 
     return json({ ok: true, conversation_id: convId, response: validated, validation: { ok: vres.ok, errors: vres.errors } })
   } catch (err) {

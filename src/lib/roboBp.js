@@ -206,3 +206,25 @@ export function checkFakturaTotal({ netto, moms, total, toleransKr = 1 }) {
   const diff = Math.round((summa - (Number(total) || 0)) * 100) / 100
   return { stammer: Math.abs(diff) <= toleransKr, summa, differens: diff }
 }
+
+// ── Steg 2B: deterministiska OBSERVATIONER (INTE bokföringsförslag) ur serverhämtad summary. ──
+// Endast counts + generisk text – inga namn, inga personuppgifter, inga rådata.
+export const OBSERVATION_STATUS_THRESHOLD = 5
+const obsN = v => (Number.isFinite(Number(v)) ? Number(v) : 0)
+export function computeObservations(summary = {}) {
+  const s = summary || {}
+  const o = []
+  const add = (code, severity, text, count) => o.push({ code, severity, text, count: obsN(count) })
+  if (s.hasFiscalYear === false) add('no_fiscal_year', 'medium', 'Inget räkenskapsår valt – siffrorna kan avse all historik.', 0)
+  if (obsN(s.missingVerDesc) > 0) add('missing_ver_desc', 'low', `${obsN(s.missingVerDesc)} verifikation(er) saknar beskrivning.`, s.missingVerDesc)
+  if (obsN(s.unbalancedVer) > 0) add('unbalanced_ver', 'high', `${obsN(s.unbalancedVer)} verifikation(er) verkar obalanserade (debet ≠ kredit).`, s.unbalancedVer)
+  if (obsN(s.supplierNoName) > 0) add('supplier_no_name', 'low', `${obsN(s.supplierNoName)} leverantörsfaktura(or) saknar leverantörsnamn.`, s.supplierNoName)
+  if (obsN(s.supOverdue) > 0) add('supplier_overdue', 'medium', `${obsN(s.supOverdue)} förfallen(na) leverantörsfaktura(or).`, s.supOverdue)
+  if (obsN(s.custOverdue) > 0) add('customer_overdue', 'medium', `${obsN(s.custOverdue)} förfallen(na) kundfaktura(or).`, s.custOverdue)
+  if (obsN(s.itemsWithoutStatus) >= OBSERVATION_STATUS_THRESHOLD) add('many_without_status', 'low', `Ovanligt många poster (${obsN(s.itemsWithoutStatus)}) saknar status.`, s.itemsWithoutStatus)
+  return o
+}
+// Minimal sammanställning för audit (endast koder + total, ingen rådata).
+export function observationCounts(observations = []) {
+  return { total: (observations || []).length, codes: (observations || []).map(o => o.code) }
+}

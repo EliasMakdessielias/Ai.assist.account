@@ -25,7 +25,7 @@ function captureResponse(page) {
   page.on('response', async r => { if (r.url().includes('/robo-bp-chat') && r.request().method() === 'POST') { try { box.resp = await r.json() } catch { /* ignore */ } } })
   return box
 }
-async function ask(page, q = 'Vilka saker bör jag kontrollera i bokföringen just nu?') {
+async function ask(page, q = 'Vilka risker eller avvikelser ser du i bokföringen just nu?') {
   await page.getByPlaceholder('Fråga ROBO-bp…').fill(q)
   await page.getByRole('button', { name: 'Skicka fråga' }).click()
 }
