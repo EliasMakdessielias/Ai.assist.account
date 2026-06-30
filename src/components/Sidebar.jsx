@@ -21,13 +21,14 @@ const HELP_ITEMS = [
   { label: 'Handbok', icon: 'ti-book-2', to: '/help' },
   { label: 'Support', icon: 'ti-headset', to: '/support' },
 ]
-// OCR-test är ett INTERNT diagnostikverktyg (/admin/ocr-test) → endast superadmin (perm 'admin'),
-// visas aldrig i kundens vanliga meny. Görs funktionen produktionsklar: döp om till "Dokumenttolkning"
+// OCR-test är ett INTERNT diagnostikverktyg (/admin/ocr-test) → endast PLATTFORMS-superadmin
+// (perm 'superadmin' = platformAccess.isSuperadmin, dvs is_superadmin() i DB – INTE company admin, INTE ops).
+// Visas aldrig i kundens vanliga meny. Görs funktionen produktionsklar: döp om till "Dokumenttolkning"
 // och flytta in i AI_ITEMS.
 const PLATFORM_ITEMS = [
   { label: 'Superadmin', icon: 'ti-shield-lock', to: '/admin', perm: 'admin' },
   { label: 'Systemövervakning', icon: 'ti-activity-heartbeat', to: '/admin/system', perm: 'ops' },
-  { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'admin' },
+  { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'superadmin' },
   { label: 'Supportärenden', icon: 'ti-headset', to: '/admin/support', perm: 'support' },
   { label: 'Billing', icon: 'ti-credit-card', to: '/admin/billing', perm: 'billing' },
 ]
@@ -110,8 +111,10 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   }, [company?.id])
   const bokslutBadge = bokslutCounts.critical > 0 ? { n: bokslutCounts.critical, bg: '#dc2626' } : (bokslutCounts.high > 0 ? { n: bokslutCounts.high, bg: '#f97316' } : null)
   const badgeForItem = item => item.badgeKey === 'mc' ? mcBadge : item.badgeKey === 'bokslut' ? bokslutBadge : null
-  // Behörighet per menyval: licens (AI Bokslut) + plattformsroll (admin/ops/support/billing).
-  const permOk = perm => !perm || (perm === 'admin' ? isAdmin : perm === 'ops' ? canViewOps : perm === 'support' ? canViewSupport : perm === 'billing' ? canManageBilling : false)
+  // Behörighet per menyval: licens (AI Bokslut) + plattformsroll. 'superadmin' = explicit plattforms-superadmin
+  // (platformAccess.isSuperadmin från my_platform_access/is_superadmin), aldrig company admin eller ops.
+  const isSuperadmin = !!platformAccess?.isSuperadmin
+  const permOk = perm => !perm || (perm === 'superadmin' ? isSuperadmin : perm === 'admin' ? isAdmin : perm === 'ops' ? canViewOps : perm === 'support' ? canViewSupport : perm === 'billing' ? canManageBilling : false)
   const itemVisible = it => !(it.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) && permOk(it.perm)
   const groupHasItems = key => FLYOUTS[key].items.some(itemVisible)
   const groupActive = key => FLYOUTS[key].items.some(it => location.pathname === it.to || location.pathname.startsWith(it.to + '/'))

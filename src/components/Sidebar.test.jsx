@@ -60,29 +60,53 @@ describe('Sidebar – AI-paket flyout', () => {
   })
 })
 
-describe('Sidebar – OCR-test (internt, döljs för vanliga användare)', () => {
-  it('vanlig användare: ingen Plattform-knapp och inget "OCR-test" någonstans', () => {
-    authState.value = { ...baseAuth, platformAccess: null }
-    renderSidebar('/')
-    expect(screen.queryByRole('button', { name: /Plattform/ })).toBeNull()
-    openGroup('AI-paket')
-    expect(linksNamed('OCR-test')).toHaveLength(0)
-  })
+// Sex separata access-fixturer. perm:'superadmin' (OCR-test) = ENDAST platformAccess.isSuperadmin.
+// isAdmin = rad i platform_admins (plattformsadmin), aldrig company admin. ops/support/billing = granulära roller.
+const PERSONAS = {
+  member: { isAdmin: false, platformAccess: null },
+  companyAdmin: { isAdmin: false, platformAccess: null, company: { id: 'c1', name: 'Acme AB', role: 'admin' } }, // company admin ≠ plattformsåtkomst
+  ops: { isAdmin: false, platformAccess: { canViewOperations: true, isSuperadmin: false } },
+  support: { isAdmin: false, platformAccess: { canViewSupport: true, isSuperadmin: false } },
+  billing: { isAdmin: false, platformAccess: { canManageBilling: true, isSuperadmin: false } },
+  superadmin: { isAdmin: true, platformAccess: { isSuperadmin: true, canViewOperations: true, canViewSupport: true, canManageBilling: true } },
+}
 
-  it('ops-roll (ej superadmin): ser Systemövervakning men INTE OCR-test', () => {
-    authState.value = { ...baseAuth, isAdmin: false, platformAccess: { canViewOperations: true } }
-    renderSidebar('/')
-    openGroup('Plattform')
-    expect(linksNamed('Systemövervakning')).toHaveLength(1)
-    expect(linksNamed('OCR-test')).toHaveLength(0)
-  })
+describe('Sidebar – OCR-test endast för plattforms-superadmin (perm: superadmin = isSuperadmin)', () => {
+  it.each([['member'], ['companyAdmin'], ['ops'], ['support'], ['billing']])(
+    '%s: ser ALDRIG OCR-test', persona => {
+      authState.value = { ...baseAuth, ...PERSONAS[persona] }
+      renderSidebar('/')
+      // OCR-test ligger i Plattform; öppna den om knappen finns, annars finns ingen åtkomst alls.
+      if (screen.queryByRole('button', { name: /Plattform/ })) openGroup('Plattform')
+      expect(linksNamed('OCR-test')).toHaveLength(0)
+    })
 
-  it('superadmin: ser OCR-test i Plattform-flyouten (/admin/ocr-test)', () => {
-    authState.value = { ...baseAuth, isAdmin: true, platformAccess: { canViewOperations: true } }
+  it('endast superadmin ser OCR-test (/admin/ocr-test) i Plattform-flyouten', () => {
+    authState.value = { ...baseAuth, ...PERSONAS.superadmin }
     renderSidebar('/')
     openGroup('Plattform')
     expect(linksNamed('OCR-test')).toHaveLength(1)
     expect(linksNamed('OCR-test')[0].getAttribute('href')).toBe('/admin/ocr-test')
+  })
+
+  it('vanlig member OCH vanlig company admin saknar Plattform-knapp helt', () => {
+    for (const persona of ['member', 'companyAdmin']) {
+      cleanup()
+      authState.value = { ...baseAuth, ...PERSONAS[persona] }
+      renderSidebar('/')
+      expect(screen.queryByRole('button', { name: /Plattform/ }), persona).toBeNull()
+    }
+  })
+
+  it('ops/support/billing ser Plattform-knappen (sina egna val) men INTE OCR-test', () => {
+    for (const [persona, ownLabel] of [['ops', 'Systemövervakning'], ['support', 'Supportärenden'], ['billing', 'Billing']]) {
+      cleanup()
+      authState.value = { ...baseAuth, ...PERSONAS[persona] }
+      renderSidebar('/')
+      openGroup('Plattform')
+      expect(linksNamed(ownLabel), persona).toHaveLength(1)     // ser sitt eget val
+      expect(linksNamed('OCR-test'), persona).toHaveLength(0)   // men aldrig OCR-test
+    }
   })
 })
 
