@@ -5,6 +5,7 @@ import {
   FEATURE_KEY, RISK_LEVELS, STEP2A_ACTIONS,
   computeObservations, observationCounts, OBSERVATION_STATUS_THRESHOLD,
   canFollowUp, buildCheckPayload,
+  CHECK_STATUSES, CHECK_STATUS_META, checkActions, sortChecks,
 } from './roboBp'
 
 const full = {
@@ -210,6 +211,28 @@ describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
   it('default risk medium vid ogiltig nivå; null för icke-uppföljbart', () => {
     expect(buildCheckPayload({ title: 'X', risk_level: 'fejk' }, ctx).p_risk_level).toBe('medium')
     expect(buildCheckPayload({}, ctx)).toBeNull()
+  })
+})
+
+describe('roboBp – Steg 2E: statusflöde för kontrollpunkter', () => {
+  it('CHECK_STATUSES = open/in_progress/done/dismissed', () => {
+    expect(CHECK_STATUSES).toEqual(['open', 'in_progress', 'done', 'dismissed'])
+    expect(CHECK_STATUS_META.in_progress.label).toBe('Påbörjad')
+  })
+  it('checkActions: open → påbörja/avfärda, in_progress → klar/avfärda, done/dismissed → inga', () => {
+    expect(checkActions('open').map(a => a.to)).toEqual(['in_progress', 'dismissed'])
+    expect(checkActions('in_progress').map(a => a.to)).toEqual(['done', 'dismissed'])
+    expect(checkActions('done')).toEqual([])
+    expect(checkActions('dismissed')).toEqual([])
+  })
+  it('sortChecks: öppna/påbörjade först, sedan klara/avfärdade; nyast först inom grupp', () => {
+    const checks = [
+      { id: 'a', status: 'done', created_at: '2026-01-01' },
+      { id: 'b', status: 'open', created_at: '2026-01-01' },
+      { id: 'c', status: 'open', created_at: '2026-02-01' },
+      { id: 'd', status: 'in_progress', created_at: '2026-01-01' },
+    ]
+    expect(sortChecks(checks).map(c => c.id)).toEqual(['c', 'b', 'd', 'a'])
   })
 })
 

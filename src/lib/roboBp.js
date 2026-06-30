@@ -229,6 +229,27 @@ export function observationCounts(observations = []) {
   return { total: (observations || []).length, codes: (observations || []).map(o => o.code) }
 }
 
+// ── Steg 2E: minimalt statusflöde för ROBO-bp-kontrollpunkter (rör ALDRIG bokföring). ──
+export const CHECK_STATUSES = ['open', 'in_progress', 'done', 'dismissed']
+export const CHECK_STATUS_META = {
+  open: { label: 'Öppen', color: '#2563eb', order: 0 },
+  in_progress: { label: 'Påbörjad', color: '#f97316', order: 1 },
+  done: { label: 'Klar', color: '#16a34a', order: 2 },
+  dismissed: { label: 'Avfärdad', color: '#6b7280', order: 3 },
+}
+// Tillgängliga statusåtgärder per nuvarande status (minimalt flöde).
+export function checkActions(status) {
+  if (status === 'open') return [{ to: 'in_progress', label: 'Påbörja' }, { to: 'dismissed', label: 'Avfärda' }]
+  if (status === 'in_progress') return [{ to: 'done', label: 'Klar' }, { to: 'dismissed', label: 'Avfärda' }]
+  return []                                                // done/dismissed: inga vidare åtgärder
+}
+// Öppna/påbörjade först, sedan klara/avfärdade; inom grupp nyast först.
+export function sortChecks(checks) {
+  return [...(checks || [])].sort((a, b) =>
+    (CHECK_STATUS_META[a.status]?.order ?? 9) - (CHECK_STATUS_META[b.status]?.order ?? 9)
+    || String(b.created_at || '').localeCompare(String(a.created_at || '')))
+}
+
 // ── Steg 2C: kontrollpunkt (create_check) från en finding ELLER observation. Skapar ALDRIG bokföring. ──
 // Ett objekt går att följa upp om det har en titel (finding) eller text (observation).
 export function canFollowUp(item) {

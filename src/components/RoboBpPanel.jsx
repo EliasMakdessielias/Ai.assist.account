@@ -1,12 +1,12 @@
 // ROBO-bp högerpanel (slide-over). Kontextuell, läcker aldrig andra bolags data (allt via
 // behörighetskontrollerad edge robo-bp-chat). ROBO-bp bokför ALDRIG – föreslår och analyserar.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { useRoboBp } from '../context/RoboBpContext'
-import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload } from '../lib/roboBp'
+import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload, CHECK_STATUS_META, checkActions, sortChecks } from '../lib/roboBp'
 
 const OBJECT_ROUTE = { verification: '/bokforing', invoice: '/leverantorsfakturor', document: '/inkorg' }
 
@@ -98,6 +98,44 @@ function AnswerCard({ data, observations = [], companyId, onOpenObject, onCreate
   )
 }
 
+function StatusBadge({ status }) {
+  const m = CHECK_STATUS_META[status] || { label: status, color: '#6b7280' }
+  return <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ color: m.color, background: `${m.color}1a` }}>{m.label}</span>
+}
+
+// Steg 2E: lista över skapade ROBO-bp-kontrollpunkter med minimalt statusflöde. Rör ALDRIG bokföring.
+function ChecksSection({ checks, statusBusy, onStatus }) {
+  return (
+    <section aria-label="ROBO-bp kontrollpunkter" className="bg-white rounded-xl p-2.5" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
+      <div className="text-[11px] font-medium text-gray-500 mb-1.5 flex items-center gap-1">
+        <i className="ti ti-checklist" /> ROBO-bp kontrollpunkter
+      </div>
+      {checks.length === 0 ? (
+        <div className="text-[12px] text-gray-400 py-1">Inga kontrollpunkter än. Skapa en från en finding eller observation nedan.</div>
+      ) : checks.map(c => (
+        <div key={c.id} className="rounded-lg p-2 mt-1" style={{ background: 'rgba(0,0,0,0.02)' }}>
+          <div className="flex items-start gap-1.5">
+            <RiskBadge level={c.risk_level} />
+            <span className="text-[12px] text-gray-800 flex-1 leading-snug">{c.title}</span>
+            <StatusBadge status={c.status} />
+          </div>
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-[10px] text-gray-400">{String(c.created_at || '').slice(0, 10)} · {c.view}</span>
+            <div className="flex gap-1">
+              {checkActions(c.status).map(a => (
+                <button key={a.to} disabled={!!statusBusy[c.id]} onClick={() => onStatus(c.id, a.to)}
+                  className="text-[11px] px-2 py-0.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
 export default function RoboBpPanel() {
   const { isOpen, licensed, descriptor, close } = useRoboBp()
   const { company } = useAuth()
@@ -108,10 +146,41 @@ export default function RoboBpPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [checkState, setCheckState] = useState({})   // per finding-titel: 'busy' | 'done' (dubbelklicksskydd)
+  const [checks, setChecks] = useState([])           // Steg 2E: skapade kontrollpunkter för bolaget/vyn
+  const [statusBusy, setStatusBusy] = useState({})   // per checkId under statusändring
   const scrollRef = useRef(null)
 
+  // Hämtar kontrollpunkter via RLS-skyddad select (filtrerat på bolag + aktuell vy om specifik).
+  const loadChecks = useCallback(async () => {
+    if (!company?.id) { setChecks([]); return }
+    let q = supabase.from('robo_bp_checks')
+      .select('id, title, risk_level, status, created_at, view, source, fiscal_year_id')
+      .eq('company_id', company.id)
+    const v = descriptor?.view
+    if (v && v !== 'oversikt') q = q.eq('view', v)         // specifik vy → filtrera; oversikt (AI-paket) → alla
+    const { data } = await q.order('created_at', { ascending: false }).limit(50)
+    setChecks(sortChecks(data || []))                       // öppna/påbörjade först
+  }, [company?.id, descriptor?.view])
+
   useEffect(() => { setMessages([]); setConvId(null); setError(null); setCheckState({}) }, [company?.id])
+  useEffect(() => { if (isOpen) loadChecks() }, [isOpen, loadChecks])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [messages, busy])
+
+  // Statusändring (open→in_progress→done / dismissed). Rör ALDRIG bokföring. Audit i RPC:n.
+  async function setStatus(checkId, toStatus) {
+    if (!checkId || statusBusy[checkId]) return
+    setStatusBusy(s => ({ ...s, [checkId]: true }))
+    try {
+      const { error: err } = await supabase.rpc('robo_bp_set_check_status', { p_check: checkId, p_status: toStatus })
+      if (err) throw new Error(err.message || 'fel')
+      await loadChecks()
+      toast.success('Status uppdaterad – ingen bokföring har ändrats.')
+    } catch (e) {
+      toast.error(/forbidden|42501|behörig/i.test(e?.message || '') ? 'Du saknar behörighet att ändra status.' : (e?.message || 'Kunde inte ändra status'))
+    } finally {
+      setStatusBusy(s => { const n = { ...s }; delete n[checkId]; return n })
+    }
+  }
 
   async function send() {
     const q = input.trim()
@@ -156,6 +225,7 @@ export default function RoboBpPanel() {
       if (err) throw new Error(err.message || 'fel')
       setCheckState(s => ({ ...s, [key]: 'done' }))
       toast.success('Kontrollpunkt skapad – ingen bokföring har ändrats.')
+      loadChecks()                                          // uppdatera listan utan reload (point 9)
     } catch (e) {
       setCheckState(s => { const n = { ...s }; delete n[key]; return n })
       toast.error(/forbidden|42501|behörig/i.test(e?.message || '') ? 'Du saknar behörighet att skapa kontrollpunkt.' : (e?.message || 'Kunde inte skapa kontrollpunkt'))
@@ -191,6 +261,7 @@ export default function RoboBpPanel() {
         ) : (
           <>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+              <ChecksSection checks={checks} statusBusy={statusBusy} onStatus={setStatus} />
               {messages.length === 0 && !busy && (
                 <div className="text-[13px] text-gray-500 bg-white rounded-xl p-3" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
                   Ställ en fråga om bokföringen – t.ex. <i>”Vilka kostnader ser ovanliga ut?”</i> eller <i>”Vilka konton bör jag kontrollera inför bokslut?”</i>. Svaren bygger på ditt bolags data och anger källa och osäkerhet.
