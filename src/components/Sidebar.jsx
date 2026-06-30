@@ -16,15 +16,18 @@ const AI_ITEMS = [
   { label: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', to: '/ai-bokslut', featureKey: BOKSLUT_FEATURE, badgeKey: 'bokslut' },
   { label: 'Månadskontroll', icon: 'ti-checklist', to: '/manadskontroll', badgeKey: 'mc' },
   { label: 'AI-granskning', icon: 'ti-shield-check', to: '/granskning' },
-  { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'ops' },
 ]
 const HELP_ITEMS = [
   { label: 'Handbok', icon: 'ti-book-2', to: '/help' },
   { label: 'Support', icon: 'ti-headset', to: '/support' },
 ]
+// OCR-test är ett INTERNT diagnostikverktyg (/admin/ocr-test) → endast superadmin (perm 'admin'),
+// visas aldrig i kundens vanliga meny. Görs funktionen produktionsklar: döp om till "Dokumenttolkning"
+// och flytta in i AI_ITEMS.
 const PLATFORM_ITEMS = [
   { label: 'Superadmin', icon: 'ti-shield-lock', to: '/admin', perm: 'admin' },
   { label: 'Systemövervakning', icon: 'ti-activity-heartbeat', to: '/admin/system', perm: 'ops' },
+  { label: 'OCR-test', icon: 'ti-scan', to: '/admin/ocr-test', perm: 'admin' },
   { label: 'Supportärenden', icon: 'ti-headset', to: '/admin/support', perm: 'support' },
   { label: 'Billing', icon: 'ti-credit-card', to: '/admin/billing', perm: 'billing' },
 ]
@@ -67,6 +70,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [flyout, setFlyout] = useState(null)         // öppen flyout-grupp: 'ai' | 'help' | 'platform' | null
   const [flyoutPos, setFlyoutPos] = useState({ top: 0, left: 0 })
+  const flyoutTriggerRef = useRef(null)              // knappen som öppnade flyouten (för fokus-retur)
+  const flyoutPanelRef = useRef(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newOrg, setNewOrg] = useState('')
@@ -114,10 +119,20 @@ export default function Sidebar({ collapsed = false, onToggle }) {
   // Öppnar/stänger en flyout-grupp. Positioneras med fixed (nav:en klipper overflow-x) intill knappen, klampad i höjd.
   function toggleFlyout(key, e) {
     if (flyout === key) { setFlyout(null); return }
+    flyoutTriggerRef.current = e.currentTarget
     const r = e.currentTarget.getBoundingClientRect()
     setFlyoutPos({ top: Math.min(r.top, window.innerHeight - 360), left: r.right + 6 })
     setFlyout(key)
   }
+
+  // Tillgänglighet: Escape stänger + återför fokus till knappen; fokus flyttas till första valet vid öppning.
+  useEffect(() => {
+    if (!flyout) return
+    flyoutPanelRef.current?.querySelector('a')?.focus()
+    const onKey = e => { if (e.key === 'Escape') { setFlyout(null); flyoutTriggerRef.current?.focus() } }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [flyout])
 
   // Hämtar företagsnamnet automatiskt från organisationsnumret (officiell källa via
   // edge-funktionen hamta-foretag). Best-effort: misslyckas tyst så namnet kan skrivas manuellt.
@@ -202,10 +217,11 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             const g = FLYOUTS[item.flyout]
             if (!groupHasItems(item.flyout)) return null              // dölj helt om inga val är synliga (t.ex. Plattform utan roll)
             const open = flyout === item.flyout, active = groupActive(item.flyout)
+            const ariaProps = { 'aria-expanded': open, 'aria-controls': open ? `flyout-${item.flyout}` : undefined, 'aria-current': active ? 'page' : undefined }
             if (g.accent) {                                           // AI-paket: framträdande gradient-knapp
               return (
-                <button key={i} onClick={e => toggleFlyout(item.flyout, e)} aria-expanded={open} title={collapsed ? g.label : undefined}
-                  className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} mx-2 my-1.5 py-2 rounded-lg text-[13.5px] font-semibold text-white transition-all
+                <button key={i} onClick={e => toggleFlyout(item.flyout, e)} {...ariaProps} title={collapsed ? g.label : undefined}
+                  className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} mx-2 my-1.5 py-2 rounded-lg text-[13.5px] font-semibold text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2
                     bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 hover:brightness-110 ${active || open ? 'ring-2 ring-violet-300 shadow-md' : 'shadow-sm'}`}
                   style={{ width: collapsed ? 'auto' : 'calc(100% - 1rem)' }}>
                   <i className={`ti ${g.icon} text-[17px] w-5 text-center`} />
@@ -215,8 +231,8 @@ export default function Sidebar({ collapsed = false, onToggle }) {
               )
             }
             return (                                                  // Hjälp / Plattform: vanlig knapp utan färgmarkering
-              <button key={i} onClick={e => toggleFlyout(item.flyout, e)} aria-expanded={open} title={collapsed ? g.label : undefined}
-                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-5'} py-2 text-[13.5px] w-full transition-colors ${active || open ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+              <button key={i} onClick={e => toggleFlyout(item.flyout, e)} {...ariaProps} title={collapsed ? g.label : undefined}
+                className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-5'} py-2 text-[13.5px] w-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${active || open ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
                 <i className={`ti ${g.icon} text-[17px] w-5 text-center`} />
                 {!collapsed && <span className="flex-1 text-left">{g.label}</span>}
                 {!collapsed && <i className={`ti ti-chevron-right text-sm transition-transform ${open ? 'rotate-90' : ''}`} />}
@@ -331,14 +347,15 @@ export default function Sidebar({ collapsed = false, onToggle }) {
       {flyout && (
         <>
           <div className="fixed inset-0 z-[55]" onClick={() => setFlyout(null)} />
-          <div className="fixed z-[56] bg-white rounded-xl shadow-2xl py-1.5" style={{ top: flyoutPos.top, left: flyoutPos.left, minWidth: 252, border: '0.5px solid rgba(0,0,0,0.12)' }}>
+          <div ref={flyoutPanelRef} id={`flyout-${flyout}`} role="group" aria-label={FLYOUTS[flyout].label}
+            className="fixed z-[56] bg-white rounded-xl shadow-2xl py-1.5" style={{ top: flyoutPos.top, left: flyoutPos.left, minWidth: 252, border: '0.5px solid rgba(0,0,0,0.12)' }}>
             <div className={`px-3 py-1.5 mb-0.5 text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1.5 ${FLYOUTS[flyout].accent ? 'text-violet-600' : 'text-gray-400'}`}><i className={`ti ${FLYOUTS[flyout].icon}`} /> {FLYOUTS[flyout].label}</div>
             {FLYOUTS[flyout].items.filter(itemVisible).map((it, k) => {
               const badge = badgeForItem(it)
               const accent = FLYOUTS[flyout].accent
               return (
                 <NavLink key={k} to={it.to} end={it.to === '/'} onClick={() => setFlyout(null)}
-                  className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors ${isActive ? (accent ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700') + ' font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
+                  className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${isActive ? (accent ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700') + ' font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>
                   <i className={`ti ${it.icon} text-[16px] w-5 text-center`} />
                   <span className="flex-1">{it.label}</span>
                   {badge && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: badge.bg }}>{badge.n > 9 ? '9+' : badge.n}</span>}
