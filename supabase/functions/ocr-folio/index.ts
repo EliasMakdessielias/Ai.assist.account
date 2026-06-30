@@ -54,12 +54,12 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   const SB_URL = Deno.env.get('SUPABASE_URL'), ANON = Deno.env.get('SUPABASE_ANON_KEY'), SRK = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
-  // Auth (krav 12): inloggad + endast operations_admin/superadmin (testverktyg).
+  // Auth (krav 12): inloggad + ENDAST plattforms-superadmin (internt testverktyg – ops får inte anropa).
   const userClient = createClient(SB_URL, ANON, { global: { headers: { Authorization: req.headers.get('Authorization') || '' } } })
   const { data: { user } } = await userClient.auth.getUser()
   if (!user) return json({ error: 'Ej inloggad' }, 401)
   const { data: access } = await userClient.rpc('my_platform_access')
-  if (!access?.canViewOperations) return json({ error: 'forbidden' }, 403)
+  if (!access?.isSuperadmin) return json({ error: 'forbidden' }, 403)
 
   const admin = createClient(SB_URL, SRK)
   const { enabled, base } = await resolveConfig(admin)
