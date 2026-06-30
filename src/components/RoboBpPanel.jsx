@@ -116,7 +116,7 @@ export default function RoboBpPanel() {
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-[60]" onClick={close} />
-      <aside className="fixed top-0 right-0 h-screen w-full max-w-[420px] bg-surface-3 z-[61] flex flex-col shadow-2xl" style={{ borderLeft: '0.5px solid rgba(0,0,0,0.12)' }}>
+      <aside aria-label="ROBO-bp" className="fixed top-0 right-0 h-screen w-full max-w-[420px] bg-surface-3 z-[61] flex flex-col shadow-2xl" style={{ borderLeft: '0.5px solid rgba(0,0,0,0.12)' }}>
         <div className="bg-white border-b px-4 h-14 flex items-center gap-2 shrink-0" style={{ borderColor: 'rgba(0,0,0,0.10)' }}>
           <i className="ti ti-robot text-lg text-violet-600" />
           <div className="min-w-0">

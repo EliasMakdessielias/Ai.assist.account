@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   validateRoboBpResponse, assembleContextDescriptor, contextLabel,
   checkDebetKredit, checkMomsRimlighet, checkFakturaTotal,
-  FEATURE_KEY, RISK_LEVELS,
+  FEATURE_KEY, RISK_LEVELS, STEP2A_ACTIONS,
 } from './roboBp'
 
 const full = {
@@ -73,6 +73,41 @@ describe('roboBp – AI-kontrakt & hallucinationsspärr', () => {
     expect(value.basis).toEqual(['company_data'])
     expect(value.sources).toHaveLength(0)
     expect(value.proposed_actions).toHaveLength(0)                      // okänd/farlig åtgärdstyp släpps inte igenom
+  })
+})
+
+describe('roboBp – Steg 2A: suggest_accounting blockeras + hallucinationsspärr', () => {
+  it('STEP2A_ACTIONS saknar suggest_accounting men har de säkra', () => {
+    expect(STEP2A_ACTIONS).not.toContain('suggest_accounting')
+    expect(STEP2A_ACTIONS).toEqual(expect.arrayContaining(['open_object', 'explain_rule', 'create_check']))
+  })
+
+  it('blockerar suggest_accounting när allowedActions = STEP2A_ACTIONS (även om AI returnerar det)', () => {
+    const raw = {
+      answer: 'x', risk_level: 'low', basis: ['company_data'], proposed_actions: [
+        { type: 'open_object', label: 'Öppna', payload: { type: 'verification', id: 'V1' } },
+        { type: 'suggest_accounting', label: 'Föreslå kontering', payload: { account: '6212' } },
+        { type: 'explain_rule', label: 'Förklara' },
+      ],
+    }
+    const { ok, errors, value } = validateRoboBpResponse(raw, { accounts: ['6212'], objects: { verification: ['V1'] } }, { allowedActions: STEP2A_ACTIONS })
+    expect(errors).toContain('blocked_action:suggest_accounting')
+    expect(value.proposed_actions.find(a => a.type === 'suggest_accounting')).toBeFalsy()
+    expect(value.proposed_actions.map(a => a.type).sort()).toEqual(['explain_rule', 'open_object'])
+    expect(ok).toBe(true)   // sanering, inte valideringsfel
+  })
+
+  it('tar bort hallucinerade konton/objekt mot serverhämtad kontext i 2A-läge', () => {
+    const raw = {
+      answer: 'x', risk_level: 'medium', basis: ['company_data'], findings: [{
+        title: 'F', description: 'D', risk_level: 'high', recommended_action: 'A',
+        affected_objects: [{ type: 'account', id: '9999' }, { type: 'verification', id: 'V1' }, { type: 'invoice', id: 'BADID' }],
+      }],
+    }
+    const { value, errors } = validateRoboBpResponse(raw, { accounts: ['6212'], objects: { verification: ['V1'], invoice: ['INV1'] } }, { allowedActions: STEP2A_ACTIONS })
+    expect(errors).toContain('hallucinated_object:account:9999')
+    expect(errors).toContain('hallucinated_object:invoice:BADID')
+    expect(value.findings[0].affected_objects).toEqual([{ type: 'verification', id: 'V1' }])
   })
 })
 

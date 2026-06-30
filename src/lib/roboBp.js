@@ -21,6 +21,8 @@ export const BASIS_META = {
 }
 export const SOURCE_TYPES = ['bfn', 'skatteverket', 'bas', 'internal', 'company_document']
 export const ACTION_TYPES = ['open_object', 'create_check', 'suggest_accounting', 'explain_rule']
+// Steg 2A: ROBO-bp får analysera/förklara men INTE föreslå kontering. suggest_accounting blockeras.
+export const STEP2A_ACTIONS = ['open_object', 'explain_rule', 'create_check']
 export const OBJECT_TYPES = ['verification', 'invoice', 'account', 'document', 'supplier', 'customer']
 
 // Vyer som ROBO-bp kan öppnas kontextuellt från (point 2).
@@ -92,8 +94,9 @@ export function emptyResponse(answer = 'Jag kunde inte ta fram ett säkert svar 
  * Returnerar { ok, errors, value } där value ALLTID är ett giltigt, sanerat svar (hallucinerade
  * konton/objekt-id:n bortfiltrerade) och requires_human_review tvingas true på alla findings.
  */
-export function validateRoboBpResponse(raw, allowed = {}) {
+export function validateRoboBpResponse(raw, allowed = {}, opts = {}) {
   const errors = []
+  const allowedActions = Array.isArray(opts.allowedActions) ? opts.allowedActions : ACTION_TYPES
   const accounts = toSet(allowed.accounts)
   const objects = allowed.objects || {}
   let obj = raw
@@ -128,8 +131,9 @@ export function validateRoboBpResponse(raw, allowed = {}) {
     }
   })
 
-  // Proposed actions: validera typ; blockera konteringsförslag mot påhittade konton.
-  const proposed = asArr(obj.proposed_actions).filter(a => a && ACTION_TYPES.includes(a.type) && isStr(a.label)).map(a => {
+  // Proposed actions: blockera otillåtna åtgärdstyper (t.ex. suggest_accounting i Steg 2A) + påhittade konton.
+  asArr(obj.proposed_actions).forEach(a => { if (a && ACTION_TYPES.includes(a.type) && !allowedActions.includes(a.type)) errors.push(`blocked_action:${a.type}`) })
+  const proposed = asArr(obj.proposed_actions).filter(a => a && allowedActions.includes(a.type) && isStr(a.label)).map(a => {
     const payload = (a.payload && typeof a.payload === 'object') ? a.payload : {}
     if (a.type === 'suggest_accounting' && payload.account != null && !accounts.has(String(payload.account))) {
       errors.push(`hallucinated_account:${payload.account}`)

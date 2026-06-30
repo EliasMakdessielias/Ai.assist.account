@@ -20,6 +20,8 @@ const SRC = ['bfn', 'skatteverket', 'bas', 'internal', 'company_document']
 const ACT = ['open_object', 'create_check', 'suggest_accounting', 'explain_rule']
 const OBJ = ['verification', 'invoice', 'account', 'document', 'supplier', 'customer']
 const VIEWS = ['bokforing', 'leverantorsfakturor', 'kundfakturor', 'kassa_bank', 'moms', 'manadskontroll', 'ai_bokslut', 'inkorg', 'dokument', 'oversikt']
+// Steg 2A: ROBO-bp får analysera/förklara men INTE föreslå kontering. suggest_accounting blockeras.
+const STEP2A_ACTIONS = ['open_object', 'explain_rule', 'create_check']
 
 const RESPONSE_SCHEMA = {
   type: 'object',
@@ -45,7 +47,7 @@ const arr = (v: unknown) => (Array.isArray(v) ? v : [])
 const empty = () => ({ answer: 'Jag kunde inte ta fram ett säkert svar just nu.', confidence: 0, risk_level: 'low', basis: ['ai_inference'], sources: [], findings: [], proposed_actions: [], limitations: ['Inget giltigt AI-svar kunde valideras.'] })
 
 // Server-side re-validering + hallucinationsspärr (defense-in-depth; klienten har en testad spegel i src/lib/roboBp.js).
-function validate(raw: any, allowedAccounts: Set<string>, allowedObjects: Record<string, Set<string>>) {
+function validate(raw: any, allowedAccounts: Set<string>, allowedObjects: Record<string, Set<string>>, allowedActions: string[] = ACT) {
   const errors: string[] = []
   let o = raw
   if (isStr(raw)) { try { o = JSON.parse(raw) } catch { return { ok: false, errors: ['parse_failed'], value: empty() } } }
@@ -64,7 +66,8 @@ function validate(raw: any, allowedAccounts: Set<string>, allowedObjects: Record
     }
     return { title: f.title, description: f.description, risk_level: RISK.includes(f.risk_level) ? f.risk_level : 'medium', affected_objects: kept, recommended_action: isStr(f.recommended_action) ? f.recommended_action : '', requires_human_review: true }
   })
-  const proposed = arr(o.proposed_actions).filter((a: any) => a && ACT.includes(a.type) && isStr(a.label)).map((a: any) => {
+  arr(o.proposed_actions).forEach((a: any) => { if (a && ACT.includes(a.type) && !allowedActions.includes(a.type)) errors.push(`blocked_action:${a.type}`) })
+  const proposed = arr(o.proposed_actions).filter((a: any) => a && allowedActions.includes(a.type) && isStr(a.label)).map((a: any) => {
     const payload = (a.payload && typeof a.payload === 'object') ? a.payload : {}
     if (a.type === 'suggest_accounting' && payload.account != null && !allowedAccounts.has(String(payload.account))) { errors.push(`hallucinated_account:${payload.account}`); return null }
     if (a.type === 'open_object' && payload.id != null && payload.type) {
@@ -108,17 +111,27 @@ Deno.serve(async (req) => {
     const selection = (descriptor?.selection && OBJ.includes(descriptor.selection.type) && descriptor.selection.id != null)
       ? { type: descriptor.selection.type, id: String(descriptor.selection.id) } : null
 
-    // 3. MINIMAL kontext serverside (Steg 1: bolagsnamn + räkenskapsår + vy + ev. vald referens).
-    //    Djupare läsning av verifikationer/fakturor/konton kommer i Steg 2.
+    // 3. Steg 2A: STRIKT BEGRÄNSAD kontext serverside via SECURITY DEFINER-RPC (medlemskap +
+    //    minimal projektion + hårda LIMITs). Klienten skickar aldrig rådata. Inga bilagor/OCR/rader.
     const { data: comp } = await admin.from('companies').select('name, org_nr').eq('id', company_id).maybeSingle()
-    let fiscalYear: string | null = null
-    if (descriptor?.fiscalYearId) { try { const { data: fy } = await admin.from('fiscal_years').select('label, start_date, end_date').eq('id', descriptor.fiscalYearId).maybeSingle(); fiscalYear = fy?.label || (fy?.start_date ? `${fy.start_date} – ${fy.end_date}` : null) } catch { /* ignore */ } }
-    const context = { company: comp?.name || null, orgNr: comp?.org_nr || null, view, fiscalYear, selection }
+    const { data: ctx } = await userClient.rpc('robo_bp_context', { p_company: company_id, p_fiscal_year_id: descriptor?.fiscalYearId || null })
+    const ctxData: any = ctx || {}
+    const contextCounts = ctxData.counts || {}
+    const context = {
+      company: comp?.name || null, orgNr: comp?.org_nr || null, view, selection,
+      accounts: ctxData.accounts || [], balances: ctxData.balances || [], verifications: ctxData.verifications || [],
+      supplierInvoices: ctxData.supplierInvoices || [], customerInvoices: ctxData.customerInvoices || [],
+    }
 
-    // Tillåtna referenser för hallucinationsspärren (Steg 1: endast ev. vald referens).
-    const allowedAccounts = new Set<string>()
-    const allowedObjects: Record<string, Set<string>> = {}
-    if (selection) { allowedObjects[selection.type] = new Set([selection.id]); if (selection.type === 'account') allowedAccounts.add(selection.id) }
+    // Tillåtna referenser för hallucinationsspärren – ENBART det serverhämtade.
+    const allowedAccounts = new Set<string>((ctxData.accounts || []).map((a: any) => String(a.nr)))
+    const allowedObjects: Record<string, Set<string>> = {
+      verification: new Set((ctxData.verifications || []).map((v: any) => String(v.id))),
+      invoice: new Set([...(ctxData.supplierInvoices || []).map((i: any) => String(i.id)), ...(ctxData.customerInvoices || []).map((i: any) => String(i.id))]),
+      supplier: new Set((ctxData.supplierInvoices || []).map((i: any) => String(i.supplierId)).filter((x: string) => x && x !== 'null')),
+      customer: new Set((ctxData.customerInvoices || []).map((i: any) => String(i.customerId)).filter((x: string) => x && x !== 'null')),
+    }
+    if (selection) { (allowedObjects[selection.type] = allowedObjects[selection.type] || new Set()).add(selection.id); if (selection.type === 'account') allowedAccounts.add(selection.id) }
 
     // 4. AI – strikt JSON. (Saknas nyckel → tydligt fel, ingen hallucination.)
     if (!GEMINI_API_KEY) return json({ error: 'AI-tjänsten är inte konfigurerad.', code: 'ai_unconfigured' }, 503)
@@ -129,8 +142,8 @@ ABSOLUTA REGLER:
 - Ange "basis" ärligt: company_data (systemdata), rule_source (regelkälla), ai_inference (AI-bedömning).
 - Vid regel/skatt/moms/bokslut: hänvisa till källa (bfn/skatteverket/bas) när sådan finns och säg när mänsklig granskning krävs.
 - Sätt requires_human_review=true på alla findings. Var kort och konkret på svenska.
-- Steg 1: detaljerad läsning av verifikationer/fakturor/konton är ännu inte aktiverad – säg det i "limitations" om frågan kräver sådan data.
-KONTEXT (JSON): ${JSON.stringify(context).slice(0, 8000)}
+- Steg 2A: du har en BEGRÄNSAD kontext (kontoplan + saldo per kontoklass + senaste 10 verifikationer/leverantörsfakturor/kundfakturor). Föreslå INTE kontering – tillåtna proposed_actions är endast open_object, explain_rule, create_check. Saknas data för frågan: säg det i "limitations".
+KONTEXT (JSON): ${JSON.stringify(context).slice(0, 20000)}
 FRÅGA: ${question}`
 
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -139,7 +152,7 @@ FRÅGA: ${question}`
     })
     let validated, vres
     if (!r.ok) { vres = { ok: false, errors: ['ai_http_' + r.status], value: { ...empty(), limitations: ['AI-tjänsten kunde inte svara just nu. Försök igen.'] } }; validated = vres.value }
-    else { const gj = await r.json(); const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text || ''; vres = validate(text, allowedAccounts, allowedObjects); validated = vres.value }
+    else { const gj = await r.json(); const text = gj?.candidates?.[0]?.content?.parts?.[0]?.text || ''; vres = validate(text, allowedAccounts, allowedObjects, STEP2A_ACTIONS); validated = vres.value }
 
     // 5. Persistera konversation + meddelanden + audit (service role; medlemskap redan verifierat).
     let convId = isStr(conversation_id) ? conversation_id : null
@@ -150,7 +163,7 @@ FRÅGA: ${question}`
       await admin.from('robo_bp_conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId)
     }
     // Audit minimerad: ingen frågetext, ingen rådata – bara metadata.
-    await admin.from('robo_bp_audit_log').insert({ company_id, user_id: user.id, action: 'ai_query', detail: { view, hasSelection: !!selection, risk: validated.risk_level, valid: vres.ok, errors: vres.errors.slice(0, 8) } })
+    await admin.from('robo_bp_audit_log').insert({ company_id, user_id: user.id, action: 'ai_query', detail: { view, hasSelection: !!selection, contextCounts, risk: validated.risk_level, valid: vres.ok, errors: vres.errors.slice(0, 8) } })
 
     return json({ ok: true, conversation_id: convId, response: validated, validation: { ok: vres.ok, errors: vres.errors } })
   } catch (err) {
