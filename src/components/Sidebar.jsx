@@ -7,10 +7,13 @@ import { BRAND } from '../lib/brand'
 import { SETTINGS_ITEMS, isSettingsItemActive, isSettingsSection } from '../lib/settingsNav'
 import NotificationCenter from './NotificationCenter'
 import { FEATURE_KEY as BOKSLUT_FEATURE } from '../lib/bokslut'
+import { FEATURE_KEY as ROBO_FEATURE } from '../lib/roboBp'
+import { useRoboBp } from '../context/RoboBpContext'
 import toast from 'react-hot-toast'
 
 // Grupperade menyer – var och en visas som EN knapp som öppnar en flyout (sparar plats i sidomenyn).
 const AI_ITEMS = [
+  { label: 'ROBO-bp', icon: 'ti-robot', action: 'robo', featureKey: ROBO_FEATURE },   // öppnar AI-bokföringsassistentens panel
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
   { label: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', to: '/ai-bokslut', featureKey: BOKSLUT_FEATURE, badgeKey: 'bokslut' },
@@ -110,12 +113,23 @@ export default function Sidebar({ collapsed = false, onToggle }) {
     return () => { active = false; supabase.removeChannel(ch) }
   }, [company?.id])
   const bokslutBadge = bokslutCounts.critical > 0 ? { n: bokslutCounts.critical, bg: '#dc2626' } : (bokslutCounts.high > 0 ? { n: bokslutCounts.high, bg: '#f97316' } : null)
+
+  // ROBO-bp: licensgrindat menyval. Knappen öppnar AI-bokföringsassistentens panel (ej en route).
+  const [roboLicensed, setRoboLicensed] = useState(false)
+  useEffect(() => {
+    if (!company?.id) { setRoboLicensed(false); return }
+    let active = true
+    supabase.rpc('has_ai_feature', { p_company: company.id, p_key: ROBO_FEATURE }).then(({ data }) => { if (active) setRoboLicensed(!!data) })
+    return () => { active = false }
+  }, [company?.id])
+  const { openWith: openRobo } = useRoboBp()
   const badgeForItem = item => item.badgeKey === 'mc' ? mcBadge : item.badgeKey === 'bokslut' ? bokslutBadge : null
   // Behörighet per menyval: licens (AI Bokslut) + plattformsroll. 'superadmin' = explicit plattforms-superadmin
   // (platformAccess.isSuperadmin från my_platform_access/is_superadmin), aldrig company admin eller ops.
   const isSuperadmin = !!platformAccess?.isSuperadmin
   const permOk = perm => !perm || (perm === 'superadmin' ? isSuperadmin : perm === 'admin' ? isAdmin : perm === 'ops' ? canViewOps : perm === 'support' ? canViewSupport : perm === 'billing' ? canManageBilling : false)
-  const itemVisible = it => !(it.featureKey === BOKSLUT_FEATURE && !bokslutLicensed) && permOk(it.perm)
+  const featureLicensed = key => key === BOKSLUT_FEATURE ? bokslutLicensed : key === ROBO_FEATURE ? roboLicensed : false
+  const itemVisible = it => !(it.featureKey && !featureLicensed(it.featureKey)) && permOk(it.perm)
   const groupHasItems = key => FLYOUTS[key].items.some(itemVisible)
   const groupActive = key => FLYOUTS[key].items.some(it => location.pathname === it.to || location.pathname.startsWith(it.to + '/'))
 
@@ -356,6 +370,15 @@ export default function Sidebar({ collapsed = false, onToggle }) {
             {FLYOUTS[flyout].items.filter(itemVisible).map((it, k) => {
               const badge = badgeForItem(it)
               const accent = FLYOUTS[flyout].accent
+              const cls = `flex items-center gap-2.5 px-3 py-2 text-[13px] w-full text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 text-gray-600 hover:bg-gray-50 hover:text-gray-900`
+              if (it.action === 'robo') {               // öppnar ROBO-bp-panelen istället för att navigera
+                return (
+                  <button key={k} onClick={() => { setFlyout(null); openRobo({}) }} className={cls}>
+                    <i className={`ti ${it.icon} text-[16px] w-5 text-center`} />
+                    <span className="flex-1">{it.label}</span>
+                  </button>
+                )
+              }
               return (
                 <NavLink key={k} to={it.to} end={it.to === '/'} onClick={() => setFlyout(null)}
                   className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${isActive ? (accent ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700') + ' font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}>

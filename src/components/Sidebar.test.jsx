@@ -58,6 +58,20 @@ describe('Sidebar – AI-paket flyout', () => {
     expect(linksNamed('OCR-test')).toHaveLength(0)
     expect(linksNamed('Dokumenttolkning')).toHaveLength(0)
   })
+
+  it('ROBO-bp visas i AI-paket med licens (knapp, ej route)', async () => {
+    license.value = true
+    renderSidebar('/')
+    openGroup('AI-paket')
+    await waitFor(() => expect(screen.getByRole('button', { name: /ROBO-bp/ })).toBeTruthy())
+  })
+
+  it('ROBO-bp döljs utan ROBO-bp-licens', () => {
+    license.value = false
+    renderSidebar('/')
+    openGroup('AI-paket')
+    expect(screen.queryByRole('button', { name: /ROBO-bp/ })).toBeNull()
+  })
 })
 
 // Sex separata access-fixturer. perm:'superadmin' (OCR-test) = ENDAST platformAccess.isSuperadmin.

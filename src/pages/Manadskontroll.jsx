@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import HelpButton from '../components/HelpButton'
+import RoboBpButton from '../components/RoboBpButton'
 import {
   MODULES, MODULE_LABEL, MODULE_ICON, PRIORITY_META, ITEM_STATUS_META, CONTROL_STATUS_META,
   isOpenStatus, sortItems, nextAction, monthOptions,
@@ -122,6 +123,7 @@ export default function Manadskontroll() {
         </select>
         <button className="btn btn-primary font-medium" onClick={run} disabled={running}><i className={`ti ${running ? 'ti-loader-2 animate-spin' : 'ti-player-play'}`} /> {running ? 'Kör…' : 'Kör månadskontroll'}</button>
         <div className="ml-auto flex items-center gap-2">
+          <RoboBpButton view="manadskontroll" />
           <button className="btn text-sm" disabled={!openItems.length} onClick={() => askAi('summary', { items: openItems }, 'Månadens risker')}><i className="ti ti-sparkles" /> Sammanfatta risker</button>
           <button className="btn text-sm" disabled={!openItems.length} onClick={() => askAi('checklist', { items: openItems }, 'Checklista för månadsavslut')}><i className="ti ti-list-check" /> Skapa checklista</button>
           <HelpButton slug="manadskontroll" variant="icon" />

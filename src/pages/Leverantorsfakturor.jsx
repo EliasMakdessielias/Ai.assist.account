@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import toast from 'react-hot-toast'
 import { copyWithToast } from '../lib/clipboard'
+import RoboBpButton from '../components/RoboBpButton'
 import Utbetalningar from '../components/Utbetalningar'
 import InkomnaFakturor from '../components/InkomnaFakturor'
 import { serie } from '../lib/serier'
@@ -223,6 +224,7 @@ export default function Leverantorsfakturor() {
             <button key={i} onClick={() => setTab(i)} className={`px-4 text-[13.5px] whitespace-nowrap border-b-[2.5px] transition-colors ${i === tab ? 'text-gray-900 font-medium border-blue-700' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>{t}</button>
           ))}
         </div>
+        <div className="ml-auto"><RoboBpButton view="leverantorsfakturor" /></div>
       </div>
 
       {tab === 1 ? <Utbetalningar />

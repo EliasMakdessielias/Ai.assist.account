@@ -8,6 +8,8 @@ import WhatsAppSupportButton from './WhatsAppSupportButton'
 import { SupportWidgetProvider } from '../hooks/useSupportWidget'
 import SupportWidget from './SupportWidget'
 import NetworkStatusBadge from './offline/NetworkStatusBadge'
+import { RoboBpProvider } from '../context/RoboBpContext'
+import RoboBpPanel from './RoboBpPanel'
 
 // Låsvy när företagets tjänst är pausad/blockerad (Fas 2). Data raderas aldrig; endast
 // supportflödet är nåbart. Kunden kan inte skapa/tolka/bokföra/ladda upp/ändra/radera.
@@ -73,16 +75,20 @@ export default function Layout() {
 
   return (
     <SupportWidgetProvider>
-      <div className="flex min-h-screen">
-        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
-        <main className="flex-1 min-w-0 transition-[margin] duration-150" style={{ marginLeft: collapsed ? 72 : 'max(220px, 10vw)' }}>
-          <Outlet />
-        </main>
-      </div>
-      {/* Global supportwidget: flytande ikon + slide-over, nåbar från alla huvudvyer. */}
-      <SupportWidget />
-      {/* Diskret nätverks-/versionsstatus (Etapp 1A). */}
-      <NetworkStatusBadge />
+      <RoboBpProvider>
+        <div className="flex min-h-screen">
+          <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
+          <main className="flex-1 min-w-0 transition-[margin] duration-150" style={{ marginLeft: collapsed ? 72 : 'max(220px, 10vw)' }}>
+            <Outlet />
+          </main>
+        </div>
+        {/* Global supportwidget: flytande ikon + slide-over, nåbar från alla huvudvyer. */}
+        <SupportWidget />
+        {/* ROBO-bp – kontrollerad AI-bokföringsassistent (högerpanel, kontextuell). */}
+        <RoboBpPanel />
+        {/* Diskret nätverks-/versionsstatus (Etapp 1A). */}
+        <NetworkStatusBadge />
+      </RoboBpProvider>
     </SupportWidgetProvider>
   )
 }
