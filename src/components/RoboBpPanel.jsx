@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
 import { useRoboBp } from '../context/RoboBpContext'
-import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload, CHECK_STATUS_META, checkActions, sortChecks } from '../lib/roboBp'
+import { contextLabel, RISK_META, BASIS_META, canFollowUp, buildCheckPayload, CHECK_STATUS_META, checkActions, sortChecks, summarizeBasis, SAFETY_PHRASES } from '../lib/roboBp'
 
 const OBJECT_ROUTE = { verification: '/bokforing', invoice: '/leverantorsfakturor', document: '/inkorg' }
 
@@ -15,7 +15,7 @@ function RiskBadge({ level }) {
   return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background: m.color }}>{m.label}</span>
 }
 
-function AnswerCard({ data, observations = [], companyId, onOpenObject, onCreateCheck, checkState }) {
+function AnswerCard({ data, observations = [], meta = {}, companyId, onOpenObject, onCreateCheck, checkState }) {
   if (!data) return null
   const FollowUpButton = ({ item }) => {
     if (!canFollowUp(item) || !onCreateCheck) return null
@@ -92,6 +92,48 @@ function AnswerCard({ data, observations = [], companyId, onOpenObject, onCreate
               </div>
             </div>
           ))}
+        </div>
+      )}
+      <BasisSection data={data} meta={meta} />
+    </div>
+  )
+}
+
+// Steg 2G: kompakt expanderbar "Underlag för svaret" – transparens utan att störa huvudsvaret.
+function BasisSection({ data, meta }) {
+  const [open, setOpen] = useState(false)
+  const s = summarizeBasis(data, meta)
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-100">
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open} aria-label="Underlag för svaret"
+        className="text-[11px] font-medium text-gray-500 hover:text-gray-700 flex items-center gap-1">
+        <i className={`ti ti-chevron-${open ? 'down' : 'right'}`} /> Så här kom ROBO-bp fram till detta
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1.5 text-[11px] text-gray-600">
+          {s.basisLabels.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {s.basisLabels.map((l, i) => <span key={i} className="px-1.5 py-0.5 rounded-full bg-gray-100">{l}</span>)}
+            </div>
+          )}
+          {s.aiWithoutSource && (
+            <div className="text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
+              <i className="ti ti-alert-triangle" /> AI-bedömning utan extern regelkälla – kräver mänsklig granskning.
+            </div>
+          )}
+          {s.contextCountEntries.length > 0 && (
+            <div><span className="text-gray-400">Använt underlag:</span> {s.contextCountEntries.map(e => `${e.count} ${e.label}`).join(' · ')}</div>
+          )}
+          {s.usedSystemCheck && (
+            <div><span className="text-gray-400">Systemkontroll:</span> {s.observationCounts.total} st ({s.observationCounts.codes.join(', ')})</div>
+          )}
+          {s.view && <div><span className="text-gray-400">Kontext:</span> {s.view}</div>}
+          {s.sources.length > 0 && (
+            <div><span className="text-gray-400">Källor:</span> {s.sources.map(src => `${src.title} (${src.type})`).join(', ')}</div>
+          )}
+          <div className="text-gray-400 pt-1 border-t border-gray-50">
+            {SAFETY_PHRASES.map((p, i) => <div key={i}>• {p}</div>)}
+          </div>
         </div>
       )}
     </div>
@@ -197,7 +239,7 @@ export default function RoboBpPanel() {
       if (err) { let m = err.message; try { const b = await err.context.json(); if (b?.error) m = b.error } catch { /* ignore */ } throw new Error(m) }
       if (data?.error) throw new Error(data.error)
       setConvId(data.conversation_id)
-      setMessages(m => [...m, { role: 'assistant', structured: data.response, observations: Array.isArray(data.observations) ? data.observations : [] }])
+      setMessages(m => [...m, { role: 'assistant', structured: data.response, observations: Array.isArray(data.observations) ? data.observations : [], meta: data.meta || {} }])
     } catch (e) {
       setError(e?.message || 'Något gick fel')
       setMessages(m => [...m, { role: 'assistant', errored: true }])
@@ -271,7 +313,7 @@ export default function RoboBpPanel() {
               {messages.map((m, i) => m.role === 'user'
                 ? <div key={i} className="text-[13px] bg-blue-600 text-white rounded-xl px-3 py-2 ml-8">{m.content}</div>
                 : m.errored ? <div key={i} className="text-[13px] text-red-600 bg-red-50 rounded-xl px-3 py-2">Kunde inte svara just nu.</div>
-                : <AnswerCard key={i} data={m.structured} observations={m.observations} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
+                : <AnswerCard key={i} data={m.structured} observations={m.observations} meta={m.meta} companyId={company?.id} onOpenObject={onAction} onCreateCheck={createCheck} checkState={checkState} />)}
               {busy && <div className="text-[13px] text-gray-400 flex items-center gap-1.5"><i className="ti ti-loader animate-spin" /> ROBO-bp analyserar…</div>}
               {error && <div className="text-[12px] text-red-500">{error}</div>}
             </div>

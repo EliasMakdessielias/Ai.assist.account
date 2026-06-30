@@ -6,6 +6,7 @@ import {
   computeObservations, observationCounts, OBSERVATION_STATUS_THRESHOLD,
   canFollowUp, buildCheckPayload,
   CHECK_STATUSES, CHECK_STATUS_META, checkActions, sortChecks,
+  summarizeBasis, BASIS_LABEL, SAFETY_PHRASES,
 } from './roboBp'
 
 const full = {
@@ -211,6 +212,37 @@ describe('roboBp – Steg 2C: kontrollpunkt (create_check) payload', () => {
   it('default risk medium vid ogiltig nivå; null för icke-uppföljbart', () => {
     expect(buildCheckPayload({ title: 'X', risk_level: 'fejk' }, ctx).p_risk_level).toBe('medium')
     expect(buildCheckPayload({}, ctx)).toBeNull()
+  })
+})
+
+describe('roboBp – Steg 2G: transparens (summarizeBasis)', () => {
+  const meta = { view: 'oversikt', contextCounts: { accounts: 12, verifications: 3, supplierInvoices: 0 }, observationCounts: { total: 2, codes: ['no_fiscal_year', 'unbalanced_ver'] } }
+  it('company_data → systemdata-etikett + räknar bara icke-noll-counts', () => {
+    const s = summarizeBasis({ basis: ['company_data'], sources: [] }, meta)
+    expect(s.hasCompanyData).toBe(true)
+    expect(s.basisLabels).toContain(BASIS_LABEL.company_data)
+    expect(s.contextCountEntries.map(e => e.key)).toEqual(['accounts', 'verifications'])   // 0-count exkluderas
+    expect(s.contextCountEntries.find(e => e.key === 'accounts')).toMatchObject({ label: 'konton', count: 12 })
+  })
+  it('ai_inference utan sources → aiWithoutSource + kräver mänsklig granskning', () => {
+    const s = summarizeBasis({ basis: ['ai_inference'], sources: [] }, {})
+    expect(s.aiWithoutSource).toBe(true)
+    expect(s.requiresHumanReview).toBe(true)
+  })
+  it('ai_inference MED sources → ingen "utan källa"-flagga', () => {
+    const s = summarizeBasis({ basis: ['ai_inference'], sources: [{ title: 'BFN K2', type: 'bfn' }] }, {})
+    expect(s.aiWithoutSource).toBe(false)
+    expect(s.hasRuleSource).toBe(true)
+  })
+  it('observations → systemkontroll med koder/antal', () => {
+    const s = summarizeBasis({ basis: ['company_data'] }, meta)
+    expect(s.usedSystemCheck).toBe(true)
+    expect(s.observationCounts.codes).toContain('no_fiscal_year')
+    expect(s.observationCounts.total).toBe(2)
+  })
+  it('tre fasta varningsfraser finns', () => {
+    expect(SAFETY_PHRASES).toHaveLength(3)
+    expect(SAFETY_PHRASES[1]).toMatch(/ändrar inte bokföringsdata/)
   })
 })
 

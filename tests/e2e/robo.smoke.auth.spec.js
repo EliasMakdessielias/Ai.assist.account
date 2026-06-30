@@ -47,6 +47,10 @@ test('§1 öppnas från AI-paket och svarar enligt JSON-kontraktet', async ({ pa
   // (AI som refererar konton utanför den begränsade kontexten → korrekt borttagna av spärren).
   expect(box.resp.validation).toBeTruthy()
   expect(Array.isArray(box.resp.validation.errors)).toBe(true)
+  // Steg 2G transparens-meta: ENDAST antal/koder returneras (inga rader/rådata).
+  expect(box.resp.meta).toBeTruthy()
+  expect(box.resp.meta.contextCounts && typeof box.resp.meta.contextCounts === 'object').toBeTruthy()
+  expect(box.resp.meta.observationCounts && Array.isArray(box.resp.meta.observationCounts.codes)).toBeTruthy()
   // requires_human_review = true på alla findings
   for (const f of res.findings || []) expect(f.requires_human_review).toBe(true)
   // ingen auto-bokföring: åtgärdstyperna är säkra; Steg 2A blockerar suggest_accounting helt

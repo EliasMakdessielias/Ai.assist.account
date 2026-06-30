@@ -229,6 +229,50 @@ export function observationCounts(observations = []) {
   return { total: (observations || []).length, codes: (observations || []).map(o => o.code) }
 }
 
+// ── Steg 2G: transparens – "Underlag för svaret". Endast antal/koder, aldrig rå data. ──
+export const BASIS_LABEL = {
+  company_data: 'Systemdata (BokPilot)',
+  rule_source: 'Regelkälla',
+  ai_inference: 'AI-bedömning',
+}
+export const CONTEXT_COUNT_LABEL = {
+  accounts: 'konton',
+  verifications: 'verifikationer',
+  supplierInvoices: 'leverantörsfakturor',
+  customerInvoices: 'kundfakturor',
+}
+export const SAFETY_PHRASES = [
+  'Detta är ett granskningsstöd, inte bokföring.',
+  'ROBO-bp ändrar inte bokföringsdata.',
+  'Kontrollera alltid innan åtgärd.',
+]
+// Härleder en begriplig underlagssammanfattning ur AI-svaret + serverns meta (rena antal/koder).
+export function summarizeBasis(response = {}, meta = {}) {
+  const basis = Array.isArray(response?.basis) ? response.basis.filter(b => BASIS_TYPES.includes(b)) : []
+  const sources = Array.isArray(response?.sources) ? response.sources : []
+  const hasAiInference = basis.includes('ai_inference')
+  const hasCompanyData = basis.includes('company_data')
+  const contextCounts = (meta && typeof meta.contextCounts === 'object' && meta.contextCounts) || {}
+  const observationCounts = (meta && typeof meta.observationCounts === 'object' && meta.observationCounts) || { total: 0, codes: [] }
+  return {
+    basis,
+    basisLabels: basis.map(b => BASIS_LABEL[b] || b),
+    sources,
+    hasCompanyData,
+    hasRuleSource: basis.includes('rule_source') || sources.length > 0,
+    hasAiInference,
+    // AI-bedömning utan extern regelkälla → måste granskas av människa.
+    aiWithoutSource: hasAiInference && sources.length === 0 && !basis.includes('rule_source'),
+    requiresHumanReview: true,                          // ROBO-bp tvingar alltid mänsklig granskning
+    contextCounts,
+    contextCountEntries: Object.entries(contextCounts).filter(([, v]) => Number(v) > 0)
+      .map(([k, v]) => ({ key: k, label: CONTEXT_COUNT_LABEL[k] || k, count: Number(v) })),
+    observationCounts,
+    usedSystemCheck: Number(observationCounts.total) > 0,
+    view: meta?.view || response?.view || null,
+  }
+}
+
 // ── Steg 2E: minimalt statusflöde för ROBO-bp-kontrollpunkter (rör ALDRIG bokföring). ──
 export const CHECK_STATUSES = ['open', 'in_progress', 'done', 'dismissed']
 export const CHECK_STATUS_META = {
