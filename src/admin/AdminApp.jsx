@@ -66,7 +66,7 @@ export default function AdminApp() {
           {access.canViewBilling && <Route path="billing" element={<BillingAdmin />} />}
           {access.canViewSupport && <Route path="support" element={<SupportAdmin />} />}
           {access.canViewOperations && <Route path="system" element={<Systemovervakning />} />}
-          {access.canViewOperations && <Route path="ocr" element={<OcrTest />} />}
+          {access.isSuperadmin && <Route path="ocr" element={<OcrTest />} />}
           {access.isSuperadmin && <Route path="bokslut-denied" element={<BokslutDeniedLog />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

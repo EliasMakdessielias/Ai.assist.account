@@ -51,6 +51,7 @@ import Bokforingsmallar from './pages/Bokforingsmallar'
 import Notiser from './pages/Notiser'
 import Systemovervakning from './pages/Systemovervakning'
 import OcrTest from './pages/OcrTest'
+import RequireSuperadmin from './components/RequireSuperadmin'
 import SupportAdmin from './pages/SupportAdmin'
 import Support from './pages/Support'
 import BillingAdmin from './pages/BillingAdmin'
@@ -113,7 +114,7 @@ export default function App() {
           <Route path="installningar/team" element={<Team />} />
           <Route path="admin" element={<Admin />} />
           <Route path="admin/system" element={<Systemovervakning />} />
-          <Route path="admin/ocr-test" element={<OcrTest />} />
+          <Route path="admin/ocr-test" element={<RequireSuperadmin><OcrTest /></RequireSuperadmin>} />
           <Route path="admin/support" element={<SupportAdmin />} />
           <Route path="help" element={<Help />} />
           <Route path="help/:slug" element={<Help />} />

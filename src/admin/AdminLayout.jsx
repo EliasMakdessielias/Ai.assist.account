@@ -12,7 +12,7 @@ const NAV = [
   { to: '/billing', label: 'Abonnemang', icon: 'ti-credit-card', need: 'billing' },
   { to: '/support', label: 'Support', icon: 'ti-lifebuoy', need: 'support' },
   { to: '/system', label: 'Systemövervakning', icon: 'ti-activity', need: 'ops' },
-  { to: '/ocr', label: 'OCR-test', icon: 'ti-scan', need: 'ops' },
+  { to: '/ocr', label: 'OCR-test', icon: 'ti-scan', need: 'superadmin' },
   { to: '/bokslut-denied', label: 'Bokslut – nekade', icon: 'ti-shield-x', need: 'superadmin' },
 ]
 
