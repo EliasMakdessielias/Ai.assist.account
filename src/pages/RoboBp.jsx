@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useRoboBp } from '../context/RoboBpContext'
 import { supabase } from '../lib/supabase'
+import { RISK_META } from '../lib/roboBp'
+import toast from 'react-hot-toast'
 
 const TABS = [
   { key: 'assistent', label: 'Assistenten', icon: 'ti-message-chatbot' },
@@ -43,6 +45,8 @@ export default function RoboBp() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('assistent')
   const [openChecks, setOpenChecks] = useState(null)
+  const [latestRun, setLatestRun] = useState(null)
+  const [running, setRunning] = useState(false)
 
   // Antal öppna kontrollpunkter via befintlig RLS SELECT (ingen ny kontrollmotor).
   const loadOpenChecks = useCallback(async () => {
@@ -52,7 +56,33 @@ export default function RoboBp() {
       .eq('company_id', company.id).in('status', ['open', 'in_progress'])
     setOpenChecks(count ?? 0)
   }, [company?.id])
-  useEffect(() => { if (licensed) loadOpenChecks() }, [licensed, loadOpenChecks])
+
+  // Senaste kontrollkörning via RLS SELECT (Etapp C1).
+  const loadLatestRun = useCallback(async () => {
+    if (!company?.id) { setLatestRun(null); return }
+    const { data } = await supabase.from('robo_bp_control_runs')
+      .select('id, started_at, summary').eq('company_id', company.id)
+      .order('started_at', { ascending: false }).limit(1).maybeSingle()
+    setLatestRun(data || null)
+  }, [company?.id])
+
+  useEffect(() => { if (licensed) { loadOpenChecks(); loadLatestRun() } }, [licensed, loadOpenChecks, loadLatestRun])
+
+  // Ny bokföringskontroll: deterministisk körning från befintliga observations. Rör ALDRIG bokföring.
+  async function runControl() {
+    if (running || !company?.id) return
+    setRunning(true)
+    try {
+      const { error } = await supabase.rpc('robo_bp_run_control', { p_company: company.id, p_fiscal_year_id: null })
+      if (error) throw new Error(error.message || 'fel')
+      await loadLatestRun()
+      toast.success('Kontroll klar – ingen bokföring har ändrats.')
+    } catch (e) {
+      toast.error(/forbidden|42501|behörig/i.test(e?.message || '') ? 'Du saknar behörighet att köra kontroll.' : (e?.message || 'Kunde inte köra kontroll'))
+    } finally {
+      setRunning(false)
+    }
+  }
 
   if (!licensed) {
     return (
@@ -107,15 +137,54 @@ export default function RoboBp() {
       )}
 
       {tab === 'kontroller' && (
-        <div className="bg-white rounded-2xl p-5" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[15px] font-medium text-gray-900">Kontrollpunkter</span>
-            <span className="text-[12px] text-gray-400">{openChecks == null ? '' : `${openChecks} öppna`}</span>
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl p-5" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-[15px] font-medium text-gray-900">Bokföringskontroll</span>
+              <button onClick={runControl} disabled={running}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-medium hover:brightness-110 disabled:opacity-60 inline-flex items-center gap-1.5">
+                {running ? <><i className="ti ti-loader animate-spin" /> Kör…</> : <><i className="ti ti-shield-search" /> Ny bokföringskontroll</>}
+              </button>
+            </div>
+            <p className="text-[13px] text-gray-500">Deterministisk kontroll av bokföringen (obalans, saknade beskrivningar, förfallna fakturor m.m.). Ingen AI, ingen bokföring ändras.</p>
+
+            {latestRun ? (
+              <div className="mt-3">
+                <div className="flex items-center gap-2 text-[12px] text-gray-500 mb-2">
+                  <i className="ti ti-clock" /> Senaste kontroll: {String(latestRun.started_at || '').slice(0, 16).replace('T', ' ')}
+                  <span className="ml-1 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold" data-testid="deviation-count">{latestRun.summary?.deviationCount ?? 0} avvikelser</span>
+                </div>
+                <div className="space-y-1.5" data-testid="control-observations">
+                  {(latestRun.summary?.observations || []).map((o, i) => {
+                    const m = RISK_META[o.severity] || { label: o.severity, color: '#6b7280' }
+                    return (
+                      <div key={i} className="flex items-start gap-2 rounded-lg p-2" style={{ background: 'rgba(0,0,0,0.02)' }}>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ background: m.color }}>{m.label}</span>
+                        <span className="text-[12px] text-gray-800 flex-1">{o.text}</span>
+                        <span className="text-[10px] text-gray-400 shrink-0">{o.code}</span>
+                      </div>
+                    )
+                  })}
+                  {(latestRun.summary?.observations || []).length === 0 && (
+                    <div className="text-[12px] text-gray-400">Inga avvikelser hittades i senaste kontrollen.</div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 text-[12px] text-gray-400">Ingen kontroll körd ännu. Klicka "Ny bokföringskontroll".</div>
+            )}
           </div>
-          <p className="text-[13px] text-gray-500 mb-3">Följ upp kontrollpunkter som skapats från ROBO-bp:s findings och observationer. Ingen bokföring ändras.</p>
-          <button onClick={() => navigate('/robo-bp/kontroller')} className="px-4 py-2 rounded-lg border border-violet-200 text-violet-700 text-sm font-medium hover:bg-violet-50 inline-flex items-center gap-1.5">
-            <i className="ti ti-checklist" /> Öppna kontrollpunkter
-          </button>
+
+          <div className="bg-white rounded-2xl p-5" style={{ border: '0.5px solid rgba(0,0,0,0.08)' }}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[15px] font-medium text-gray-900">Kontrollpunkter</span>
+              <span className="text-[12px] text-gray-400">{openChecks == null ? '' : `${openChecks} öppna`}</span>
+            </div>
+            <p className="text-[13px] text-gray-500 mb-3">Följ upp kontrollpunkter som skapats från ROBO-bp:s findings och observationer. Ingen bokföring ändras.</p>
+            <button onClick={() => navigate('/robo-bp/kontroller')} className="px-4 py-2 rounded-lg border border-violet-200 text-violet-700 text-sm font-medium hover:bg-violet-50 inline-flex items-center gap-1.5">
+              <i className="ti ti-checklist" /> Öppna kontrollpunkter
+            </button>
+          </div>
         </div>
       )}
 
