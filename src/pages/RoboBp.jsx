@@ -47,6 +47,7 @@ export default function RoboBp() {
   const [openChecks, setOpenChecks] = useState(null)
   const [latestRun, setLatestRun] = useState(null)
   const [running, setRunning] = useState(false)
+  const [obsBusy, setObsBusy] = useState({})
 
   // Antal öppna kontrollpunkter via befintlig RLS SELECT (ingen ny kontrollmotor).
   const loadOpenChecks = useCallback(async () => {
@@ -68,12 +69,26 @@ export default function RoboBp() {
 
   useEffect(() => { if (licensed) { loadOpenChecks(); loadLatestRun() } }, [licensed, loadOpenChecks, loadLatestRun])
 
+  // Aktivt räkenskapsår (täcker idag, annars senaste). Skickas till körningen så no_fiscal_year utesluts.
+  async function activeFiscalYearId() {
+    if (!company?.id) return null
+    const today = new Date().toISOString().slice(0, 10)
+    const { data: cur } = await supabase.from('fiscal_years').select('id')
+      .eq('company_id', company.id).lte('start_date', today).gte('end_date', today)
+      .order('start_date', { ascending: false }).limit(1).maybeSingle()
+    if (cur?.id) return cur.id
+    const { data: last } = await supabase.from('fiscal_years').select('id')
+      .eq('company_id', company.id).order('start_date', { ascending: false }).limit(1).maybeSingle()
+    return last?.id || null
+  }
+
   // Ny bokföringskontroll: deterministisk körning från befintliga observations. Rör ALDRIG bokföring.
   async function runControl() {
     if (running || !company?.id) return
     setRunning(true)
     try {
-      const { error } = await supabase.rpc('robo_bp_run_control', { p_company: company.id, p_fiscal_year_id: null })
+      const fyId = await activeFiscalYearId()
+      const { error } = await supabase.rpc('robo_bp_run_control', { p_company: company.id, p_fiscal_year_id: fyId })
       if (error) throw new Error(error.message || 'fel')
       await loadLatestRun()
       toast.success('Kontroll klar – ingen bokföring har ändrats.')
@@ -81,6 +96,21 @@ export default function RoboBp() {
       toast.error(/forbidden|42501|behörig/i.test(e?.message || '') ? 'Du saknar behörighet att köra kontroll.' : (e?.message || 'Kunde inte köra kontroll'))
     } finally {
       setRunning(false)
+    }
+  }
+
+  // C2: sätt status på en observation (open/resolved/dismissed). Endast run.summary – aldrig bokföring/checks.
+  async function setObservationStatus(code, toStatus) {
+    if (!latestRun?.id || obsBusy[code]) return
+    setObsBusy(s => ({ ...s, [code]: true }))
+    try {
+      const { error } = await supabase.rpc('robo_bp_set_control_observation_status', { p_run_id: latestRun.id, p_code: code, p_status: toStatus })
+      if (error) throw new Error(error.message || 'fel')
+      await loadLatestRun()
+    } catch (e) {
+      toast.error(/forbidden|42501|behörig/i.test(e?.message || '') ? 'Du saknar behörighet att ändra status.' : (e?.message || 'Kunde inte ändra status'))
+    } finally {
+      setObsBusy(s => { const n = { ...s }; delete n[code]; return n })
     }
   }
 
@@ -157,11 +187,27 @@ export default function RoboBp() {
                 <div className="space-y-1.5" data-testid="control-observations">
                   {(latestRun.summary?.observations || []).map((o, i) => {
                     const m = RISK_META[o.severity] || { label: o.severity, color: '#6b7280' }
+                    const st = o.status || 'open'
+                    const busy = !!obsBusy[o.code]
                     return (
-                      <div key={i} className="flex items-start gap-2 rounded-lg p-2" style={{ background: 'rgba(0,0,0,0.02)' }}>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ background: m.color }}>{m.label}</span>
-                        <span className="text-[12px] text-gray-800 flex-1">{o.text}</span>
-                        <span className="text-[10px] text-gray-400 shrink-0">{o.code}</span>
+                      <div key={i} data-testid={`obs-${o.code}`} className="rounded-lg p-2" style={{ background: 'rgba(0,0,0,0.02)' }}>
+                        <div className="flex items-start gap-2">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-white shrink-0" style={{ background: m.color }}>{m.label}</span>
+                          <span className="text-[12px] text-gray-800 flex-1">{o.text}</span>
+                          {st === 'resolved' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold shrink-0">Löst</span>}
+                          {st === 'dismissed' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600 font-semibold shrink-0">Inte ett problem</span>}
+                          <span className="text-[10px] text-gray-400 shrink-0">{o.code}</span>
+                        </div>
+                        <div className="flex gap-1 mt-1.5">
+                          {st === 'open' ? (
+                            <>
+                              <button disabled={busy} onClick={() => setObservationStatus(o.code, 'resolved')} className="text-[11px] px-2 py-0.5 rounded-lg border border-green-200 text-green-700 hover:bg-green-50 disabled:opacity-60">Markera som löst</button>
+                              <button disabled={busy} onClick={() => setObservationStatus(o.code, 'dismissed')} className="text-[11px] px-2 py-0.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-60">Inte ett problem</button>
+                            </>
+                          ) : (
+                            <button disabled={busy} onClick={() => setObservationStatus(o.code, 'open')} className="text-[11px] px-2 py-0.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-60">Ångra markering</button>
+                          )}
+                        </div>
                       </div>
                     )
                   })}
