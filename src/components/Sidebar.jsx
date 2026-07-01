@@ -13,7 +13,8 @@ import toast from 'react-hot-toast'
 
 // Grupperade menyer – var och en visas som EN knapp som öppnar en flyout (sparar plats i sidomenyn).
 const AI_ITEMS = [
-  { label: 'ROBO-bp', icon: 'ti-robot', action: 'robo', featureKey: ROBO_FEATURE },   // öppnar AI-bokföringsassistentens panel
+  { label: 'ROBO-bp', icon: 'ti-robot', to: '/robo-bp', featureKey: ROBO_FEATURE },   // samlad tabbad huvudvy (Etapp B)
+  { label: 'Fråga ROBO-bp', icon: 'ti-message-chatbot', action: 'robo', featureKey: ROBO_FEATURE },   // öppnar AI-bokföringsassistentens panel
   { label: 'AI-assistent', icon: 'ti-sparkles', to: '/assistent' },
   { label: 'AI-ekonomichef', icon: 'ti-chart-arcs', to: '/ekonomichef' },
   { label: 'AI Bokslut & Årsredovisning', icon: 'ti-report-analytics', to: '/ai-bokslut', featureKey: BOKSLUT_FEATURE, badgeKey: 'bokslut' },
